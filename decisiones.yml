@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "review_round_limit": 3,
+  "decisions": [
+    {"id":"D-054","status":"active","text":"Migraciones aditivas automáticas con backup previo en post-deploy; restauraciones y rollback deben fallar cerrado."},
+    {"id":"D-055","status":"active","text":"Durante fase construccion se permiten escrituras autónomas en producción con trazabilidad y backup; SQL destructivo o borrado irreversible requiere autorización explícita."},
+    {"id":"D-056","status":"active","text":"Los releases se publican mediante Factory y se validan por versión/SHA exactos."},
+    {"id":"D-057","status":"active","text":"Todo Issue y PR debe tener exactamente una etiqueta de tipo, una de prioridad y una de estado."},
+    {"id":"D-058","status":"active","text":"Cada tarea declara y aplica roles profesionales; la automatización no genera trabajo manual para el dueño."},
+    {"id":"D-059","status":"active","text":"Hostinger: leer/diagnosticar es libre; cambios requieren backup y registro; borrados requieren autorización; planes/pagos nunca son acción de agente."},
+    {"id":"FR-001","status":"active","text":"ControlBot es el control plane; FactoryRunner es el execution plane; AutoFactory permanece independiente y no se modifica."},
+    {"id":"FR-002","status":"active","text":"Target primario Hostinger Shared/Web Hosting; macOS local solo fallback si existe evidencia de incompatibilidad técnica."},
+    {"id":"FR-003","status":"active","text":"FactoryRunner nunca recibe ni persiste secretos dentro de órdenes, logs o repositorio; solo referencias opacas y aliases."}
+  ]
+}

@@ -1,0 +1,56 @@
+name: Etiquetas
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 * * *'
+  issues:
+    types: [opened, edited, reopened, labeled, unlabeled]
+  pull_request:
+    types: [opened, edited, reopened, ready_for_review, labeled, unlabeled]
+permissions:
+  contents: read
+jobs:
+  sync:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
+    with:
+      mode: sync
+      language: es
+  validar-issue:
+    if: github.event_name == 'issues'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
+    with:
+      mode: validate
+      language: es
+      issue_number: ${{ github.event.issue.number }}
+  validar-pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
+    with:
+      mode: validate
+      language: es
+      issue_number: ${{ github.event.pull_request.number }}
+  sweep:
+    if: github.event_name == 'schedule'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
+    with:
+      mode: sweep
+      language: es

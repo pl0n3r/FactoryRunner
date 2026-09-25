@@ -1,0 +1,78 @@
+name: Coordinación
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+  pull_request:
+    types: [opened, ready_for_review, converted_to_draft, closed]
+  issues:
+    types: [labeled, closed, reopened]
+  issue_comment:
+    types: [created, edited]
+permissions:
+  contents: read
+jobs:
+  comentario:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      github.event.sender.login == github.event.comment.user.login &&
+      (
+        github.event.comment.body == '/tomar' ||
+        github.event.comment.body == '/liberar-forzado' ||
+        startsWith(github.event.comment.body, '/liberar ') ||
+        startsWith(github.event.comment.body, '/transferir ')
+      )
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: comment
+      issue_number: ${{ github.event.issue.number }}
+      actor: ${{ github.event.comment.user.login }}
+      association: ${{ github.event.comment.author_association }}
+      body: ${{ github.event.comment.body }}
+  etiqueta:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'estado: reservado'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: label
+      issue_number: ${{ github.event.issue.number }}
+      actor: ${{ github.event.sender.login }}
+      label: ${{ github.event.label.name }}
+  pr:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: pr
+      pr_number: ${{ github.event.pull_request.number }}
+      action: ${{ github.event.action }}
+  issue:
+    if: github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'reopened')
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: issue
+      issue_number: ${{ github.event.issue.number }}
+      action: ${{ github.event.action }}
+  sweep:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      issues: write
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: sweep
