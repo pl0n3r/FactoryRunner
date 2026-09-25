@@ -1,4 +1,5 @@
 name: Coordinación
+
 on:
   schedule:
     - cron: '17 * * * *'
@@ -9,8 +10,10 @@ on:
     types: [labeled, closed, reopened]
   issue_comment:
     types: [created, edited]
+
 permissions:
   contents: read
+
 jobs:
   comentario:
     if: >-
@@ -34,8 +37,12 @@ jobs:
       actor: ${{ github.event.comment.user.login }}
       association: ${{ github.event.comment.author_association }}
       body: ${{ github.event.comment.body }}
+
   etiqueta:
-    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'estado: reservado'
+    if: >-
+      github.event_name == 'issues' &&
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'estado: reservado'
     permissions:
       contents: write
       issues: write
@@ -46,6 +53,7 @@ jobs:
       issue_number: ${{ github.event.issue.number }}
       actor: ${{ github.event.sender.login }}
       label: ${{ github.event.label.name }}
+
   pr:
     if: github.event_name == 'pull_request'
     permissions:
@@ -57,6 +65,7 @@ jobs:
       operation: pr
       pr_number: ${{ github.event.pull_request.number }}
       action: ${{ github.event.action }}
+
   issue:
     if: github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'reopened')
     permissions:
@@ -68,6 +77,7 @@ jobs:
       operation: issue
       issue_number: ${{ github.event.issue.number }}
       action: ${{ github.event.action }}
+
   sweep:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
