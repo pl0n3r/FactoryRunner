@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: coordinacion-${{ github.event.issue.number || github.event.pull_request.head.ref || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   comentario:
     if: >-
@@ -23,8 +27,10 @@ jobs:
       (
         github.event.comment.body == '/tomar' ||
         github.event.comment.body == '/liberar-forzado' ||
+        github.event.comment.body == '/adoptar-contrato-huerfana' ||
         startsWith(github.event.comment.body, '/liberar ') ||
-        startsWith(github.event.comment.body, '/transferir ')
+        startsWith(github.event.comment.body, '/transferir ') ||
+        startsWith(github.event.comment.body, '/migrar-contrato ')
       )
     permissions:
       contents: write
@@ -55,16 +61,33 @@ jobs:
       label: ${{ github.event.label.name }}
 
   pr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # GitHub valida el máximo permiso del reusable completo antes de evaluar
+    # qué operación interna se ejecutará. La operación pr sigue estrechando
+    # permisos dentro de Factory.
     permissions:
       contents: write
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: pr
       pr_number: ${{ github.event.pull_request.number }}
       action: ${{ github.event.action }}
+
+  validar-pr:
+    if: github.event_name == 'pull_request'
+    # Mismo sobre de carga; el job validar-pr del reusable conserva permisos
+    # read-only (contents/issues/pull-requests: read).
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
+    with:
+      operation: validate
+      pr_number: ${{ github.event.pull_request.number }}
+      require_reservation: true
 
   issue:
     if: github.event_name == 'issues' && (github.event.action == 'closed' || github.event.action == 'reopened')
@@ -83,6 +106,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: sweep
