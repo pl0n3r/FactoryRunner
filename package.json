@@ -1,0 +1,13 @@
+{
+  "name": "@pl0n3r/factoryrunner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build": "node --experimental-strip-types scripts/build.ts"
+  }
+}
