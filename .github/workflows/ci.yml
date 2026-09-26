@@ -1,0 +1,60 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ci:
+    uses: pl0n3r/factory/.github/workflows/ci.yml@v1
+    with:
+      stack: node
+      version_source: config/version.json
+      label_language: es
+      phase: construccion
+      node_enabled: true
+      node_version: '24'
+  release-version:
+    name: Detectar cambio de versión
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: version
+        name: Comparar versión con el commit previo
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          current="$(python3 -c 'import json; print(json.load(open("config/version.json", encoding="utf-8"))["version"])')"
+          changed=false
+          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || "$BEFORE_SHA" =~ ^0+$ ]]; then
+            changed=true
+          elif ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo "::error::No fue posible verificar el commit previo de main"
+            exit 1
+          elif git cat-file -e "$BEFORE_SHA:config/version.json" 2>/dev/null; then
+            previous="$(git show "$BEFORE_SHA:config/version.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+            [[ "$current" != "$previous" ]] && changed=true
+          else
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+  release:
+    name: Release después de CI
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release-version.outputs.changed == 'true'
+    needs: [ci, release-version]
+    permissions:
+      contents: write
+    uses: pl0n3r/factory/.github/workflows/release.yml@v1
+    with:
+      version_source: config/version.json
+      version_format: json
