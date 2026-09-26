@@ -34,17 +34,31 @@ function evidenceRecord(input: unknown): ExecutionEvidence {
   const summary = noSensitiveText(stringValue(record.summary, 'evidence.summary', 500), 'evidence.summary');
   let evidenceRef: string | null = null;
   if (record.ref !== null) {
-    evidenceRef = stringValue(record.ref, 'evidence.ref', 512);
+    evidenceRef = noSensitiveText(
+      stringValue(record.ref, 'evidence.ref', 512),
+      'evidence.ref',
+    );
     let checkedRef = evidenceRef;
     if (evidenceRef.startsWith('https://')) {
       let parsed: URL;
+      let rawPath = '';
+      if (evidenceRef.includes('\\')) throw new TypeError('evidence.ref no permitido.');
       try {
+        const rawMatch = /^https:\/\/[^/?#]+([^?#]*)/.exec(evidenceRef);
+        if (!rawMatch) throw new TypeError('evidence.ref no permitido.');
+        rawPath = rawMatch[1] || '/';
+        checkedRef = rawPath;
+        for (let depth = 0; depth < 3 && checkedRef.includes('%'); depth += 1) {
+          checkedRef = decodeURIComponent(checkedRef);
+        }
+        if (checkedRef.includes('%')) throw new TypeError('evidence.ref no permitido.');
         parsed = new URL(evidenceRef);
-        checkedRef = decodeURIComponent(parsed.pathname);
       } catch {
         throw new TypeError('evidence.ref no permitido.');
       }
-      const segments = checkedRef.split('/');
+      const rawSegments = checkedRef.split('/');
+      const canonicalPath = decodeURIComponent(parsed.pathname);
+      const canonicalSegments = canonicalPath.split('/');
       if (
         parsed.protocol !== 'https:' ||
         parsed.hostname !== 'github.com' ||
@@ -52,16 +66,19 @@ function evidenceRecord(input: unknown): ExecutionEvidence {
         parsed.password !== '' ||
         parsed.search !== '' ||
         parsed.hash !== '' ||
-        segments.includes('.') ||
-        segments.includes('..') ||
-        checkedRef.includes('%')
+        rawSegments.includes('.') ||
+        rawSegments.includes('..') ||
+        canonicalSegments.includes('.') ||
+        canonicalSegments.includes('..') ||
+        canonicalPath.includes('%')
       ) {
         throw new TypeError('evidence.ref no permitido.');
       }
+      noSensitiveText(checkedRef, 'evidence.ref');
+      noSensitiveText(canonicalPath, 'evidence.ref');
     } else if (!evidenceRef.startsWith('controlbot:')) {
       throw new TypeError('evidence.ref no permitido.');
     }
-    noSensitiveText(checkedRef, 'evidence.ref');
   }
   return { code: slug(record.code, 'evidence.code'), summary, ref: evidenceRef };
 }

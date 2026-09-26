@@ -45,7 +45,7 @@ export function slug(value: unknown, label: string): string {
 export function ref(value: unknown, label: string, max = 256): string {
   const parsed = stringValue(value, label, max);
   if (!REF_RE.test(parsed)) throw new TypeError(`${label} inválida.`);
-  return parsed;
+  return noSensitiveText(parsed, label);
 }
 
 export function semver(value: unknown, label: string): string {

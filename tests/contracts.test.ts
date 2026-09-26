@@ -115,6 +115,18 @@ test('execution order is closed, secret-free by shape, and idempotent', () => {
   assert.throws(() => assertIdempotentOrder(first, changed), /conflictivo/);
   assert.throws(() => parseExecutionOrder({ ...order(), token: 'secret' }), /campos inválidos/);
   assert.throws(() => parseExecutionOrder(order({ instruction_ref: 'https://example.com/prompt' })), /ControlBot/);
+  assert.throws(
+    () => parseExecutionOrder(order({ instruction_ref: 'controlbot:ghp_abcdefghijklmnopqrstuvwxyz123456' })),
+    /sensible/,
+  );
+  assert.throws(
+    () => parseExecutionOrder(order({ work_item_id: 'github:ghp_abcdefghijklmnopqrstuvwxyz123456' })),
+    /sensible/,
+  );
+  assert.throws(
+    () => parseRunnerHeartbeat(heartbeat({ active_sessions: ['gho_abcdefghijklmnopqrstuvwxyz123456'] })),
+    /sensible/,
+  );
 });
 
 test('execution events enforce transitions and sanitize evidence', () => {
@@ -167,6 +179,24 @@ test('execution events enforce transitions and sanitize evidence', () => {
   assert.throws(
     () => parseExecutionEvent(event('progress', 3, {
       evidence: { code: 'ok', summary: 'ok', ref: 'https://github.com/pl0n3r/%2574oken/2' },
+    })),
+    /ref no permitido/,
+  );
+  assert.throws(
+    () => parseExecutionEvent(event('progress', 3, {
+      evidence: { code: 'ok', summary: 'ok', ref: 'https://github.com/acme/token=supersecret/../safe' },
+    })),
+    /sensible|ref no permitido/,
+  );
+  assert.throws(
+    () => parseExecutionEvent(event('progress', 3, {
+      evidence: { code: 'ok', summary: 'ok', ref: 'https://github.com/acme\\../safe' },
+    })),
+    /ref no permitido/,
+  );
+  assert.throws(
+    () => parseExecutionEvent(event('progress', 3, {
+      evidence: { code: 'ok', summary: 'ok', ref: 'https://github.com/acme/%2e%2e/safe' },
     })),
     /ref no permitido/,
   );
