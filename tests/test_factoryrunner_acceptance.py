@@ -92,7 +92,20 @@ class FactoryRunnerAcceptanceTests(unittest.TestCase):
         self.assertIn("pl0n3r/FactoryRunner", combined)
         self.assertIn("[COMPLETAR POR EL DUEÑO]", combined)
         self.assertIn("revisión jurídica requerida", combined)
+        self.assertIn("runner_location_metadata", combined)
         self.assertNotIn("consentimiento otorgado", combined)
+
+        datos = json.loads(read("datos.yml"))
+        self.assertEqual(datos["phase"], "construccion")
+        self.assertEqual(len(datos["treatments"]), 1)
+        treatment = datos["treatments"][0]
+        self.assertEqual(treatment["id"], "runner_location_metadata")
+        self.assertEqual(treatment["category"], "location")
+        self.assertEqual(treatment["fields"], ["location"])
+        self.assertEqual(treatment["basis"], "review_required")
+        self.assertEqual(treatment["retention"], "review_required")
+        self.assertEqual(treatment["consent"], "review_required")
+        self.assertEqual(treatment["providers"], [])
 
 if __name__ == "__main__":
     unittest.main()
