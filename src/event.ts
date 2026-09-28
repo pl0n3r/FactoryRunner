@@ -101,8 +101,8 @@ function githubEvidenceRef(raw: string): string {
   }
 
   if (decodedPath.includes('%')) throw new TypeError('evidence.ref no permitido.');
-  const segments = decodedPath.split('/');
-  if (segments.includes('.') || segments.includes('..')) {
+  const segments = new Set(decodedPath.split('/'));
+  if (segments.has('.') || segments.has('..')) {
     throw new TypeError('evidence.ref no permitido.');
   }
 
