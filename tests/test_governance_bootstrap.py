@@ -40,23 +40,32 @@ class GovernanceBootstrapTests(unittest.TestCase):
             self.assertEqual("active", rows[decision_id]["status"])
             self.assertEqual(text, rows[decision_id]["text"])
 
-    def test_privacy_documents_cover_empty_current_map(self) -> None:
+    def test_privacy_documents_cover_current_location_metadata(self) -> None:
         data = json.loads(DATA_MAP.read_text(encoding="utf-8"))
-        self.assertEqual([], data["treatments"])
+        self.assertEqual(1, len(data["treatments"]))
+        treatment = data["treatments"][0]
+        self.assertEqual("runner_location_metadata", treatment["id"])
+        self.assertEqual("location", treatment["category"])
+        self.assertEqual(["location"], treatment["fields"])
+        self.assertEqual("runner_routing", treatment["purpose"])
+        self.assertEqual("review_required", treatment["basis"])
+        self.assertEqual("review_required", treatment["retention"])
+        self.assertEqual("review_required", treatment["consent"])
+        self.assertEqual([], treatment["providers"])
         self.assertEqual(
             REQUIRED_PRIVACY_DOCS,
             {path.name for path in PRIVACY_DIR.glob("*.md")},
         )
         self.assertIn(
-            "| sin_tratamientos | none | — | — | — | — | — | — |",
+            "| runner_location_metadata | location | location | runner_routing | review_required | review_required | ninguno_declarado | review_required |",
             (PRIVACY_DIR / "politica-tratamiento.md").read_text(encoding="utf-8"),
         )
         self.assertIn(
-            "No hay tratamientos declarados en `datos.yml`.",
+            "## runner_location_metadata",
             (PRIVACY_DIR / "registro-tratamientos.md").read_text(encoding="utf-8"),
         )
         self.assertIn(
-            "| sin_tratamientos | none | — | — |",
+            "| runner_location_metadata | location | review_required | review_required |",
             (PRIVACY_DIR / "retencion.md").read_text(encoding="utf-8"),
         )
 
@@ -67,11 +76,12 @@ class GovernanceBootstrapTests(unittest.TestCase):
         self.assertIn("uses: pl0n3r/factory/.github/workflows/privacidad.yml@v1", privacy)
         self.assertIn("kit_ref: v1", privacy)
 
-    def test_bootstrap_scope_excludes_runtime(self) -> None:
+    def test_bootstrap_scope_minimizes_runtime_metadata(self) -> None:
         data = json.loads(DATA_MAP.read_text(encoding="utf-8"))
         self.assertEqual("pl0n3r/FactoryRunner", data["project"])
         self.assertEqual("construccion", data["phase"])
-        self.assertEqual([], data["treatments"])
+        self.assertEqual(["runner_location_metadata"], [row["id"] for row in data["treatments"]])
+        self.assertEqual([], data["treatments"][0]["providers"])
         for path in PRIVACY_DIR.glob("*.md"):
             text = path.read_text(encoding="utf-8")
             self.assertNotIn("password", text.lower())

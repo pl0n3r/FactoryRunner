@@ -27,7 +27,7 @@ class FactoryRunnerBootstrapTests(unittest.TestCase):
         self.assertIn("node-main:", ci)
         self.assertIn("npm test", ci)
         self.assertIn("npm run build", ci)
-        self.assertIn("needs: [ci, node-main, release-version]", ci)
+        self.assertIn("needs: [ci, node-typecheck, node-main, release-version]", ci)
 
     def test_runner_identity_contract(self):
         source = read("src/runner.ts")
@@ -69,7 +69,9 @@ class FactoryRunnerBootstrapTests(unittest.TestCase):
         self.assertEqual(lock["lockfileVersion"], 3)
         self.assertEqual(lock["packages"][""]["engines"]["node"], ">=24")
         self.assertNotIn("dependencies", package)
-        self.assertNotIn("devDependencies", package)
+        self.assertIn("devDependencies", package)
+        self.assertIn("typescript", package["devDependencies"])
+        self.assertIn("@types/node", package["devDependencies"])
         self.assertTrue((ROOT / "scripts/build.ts").is_file())
 
 
