@@ -35,7 +35,7 @@ export function parseRunnerIdentity(input: unknown): RunnerIdentity {
   }
   const capabilities = record.capabilities.map((value) => slug(value, 'Capability'));
   if (new Set(capabilities).size !== capabilities.length) throw new TypeError('Capabilities duplicadas.');
-  capabilities.sort();
+  capabilities.sort((a, b) => a.localeCompare(b, 'en'));
   return {
     version: 1,
     runner_id: uuid(record.runner_id, 'runner_id'),
@@ -65,7 +65,7 @@ export function parseRunnerHeartbeat(input: unknown): RunnerHeartbeat {
   if (new Set(activeSessions).size !== activeSessions.length || activeSessions.length > active) {
     throw new TypeError('active_sessions inconsistentes.');
   }
-  activeSessions.sort();
+  activeSessions.sort((a, b) => a.localeCompare(b, 'en'));
   return {
     version: 1,
     runner_id: uuid(record.runner_id, 'runner_id'),

@@ -54,6 +54,10 @@ test('runner heartbeat rejects inconsistent capacity, sessions and state', () =>
   assert.throws(() => parseRunnerHeartbeat(heartbeat({ capacity: { max: 4, active: 5 } })), /capacity.active inválido/);
   assert.throws(() => parseRunnerHeartbeat(heartbeat({ active_sessions: ['session_001', 'session_001'] })), /inconsistentes/);
   assert.throws(() => parseRunnerHeartbeat(heartbeat({ capacity: { max: 4, active: 0 }, active_sessions: ['session_001'] })), /inconsistentes/);
+  assert.throws(
+    () => parseRunnerHeartbeat(heartbeat({ active_sessions: ['gho_abcdefghijklmnopqrstuvwxyz123456'] })),
+    /sensible/,
+  );
 });
 
 test('heartbeat health is deterministic and fail-closed', () => {

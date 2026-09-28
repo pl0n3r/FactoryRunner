@@ -4,7 +4,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const SLUG_RE = /^[a-z][a-z0-9.-]{0,63}$/;
 const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,255}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-const SECRET_TEXT_RE = /(?:-----BEGIN [^-]*PRIVATE KEY-----|\b(?:bearer\s+[A-Za-z0-9._~+\/-]{8,}|(?:password|passwd|token|secret|cookie|authorization|private[_ -]?key|api[_ -]?key|dsn)\s*[:=]\s*\S+|(?:ghp_|gho_|github_pat_)[A-Za-z0-9_]{20,}|(?:sk|rk|pk)-[A-Za-z0-9_-]{12,}))/i;
+const SECRET_TEXT_PATTERNS = [
+  /-----BEGIN [^-]*PRIVATE KEY-----/i,
+  /\bbearer\s+[\w.~+/-]{8,}/i,
+  /\b(?:password|passwd|token|secret|cookie|authorization|private[_ -]?key|api[_ -]?key|dsn)\s*[:=]\s*\S+/i,
+  /\b(?:ghp_|gho_|github_pat_)\w{20,}/i,
+  /\b(?:sk|rk|pk)-[\w-]{12,}/i,
+] as const;
 
 export function asRecord(value: unknown, label: string): JsonRecord {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -14,8 +20,8 @@ export function asRecord(value: unknown, label: string): JsonRecord {
 }
 
 export function exactKeys(record: JsonRecord, expected: readonly string[], label: string): void {
-  const actual = Object.keys(record).sort();
-  const wanted = [...expected].sort();
+  const actual = Object.keys(record).sort((a, b) => a.localeCompare(b, 'en'));
+  const wanted = [...expected].sort((a, b) => a.localeCompare(b, 'en'));
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new TypeError(`${label} contiene campos inválidos.`);
   }
@@ -60,6 +66,8 @@ export function integer(value: unknown, label: string, min = 0, max = Number.MAX
 }
 
 export function noSensitiveText(value: string, label: string): string {
-  if (SECRET_TEXT_RE.test(value)) throw new TypeError(`${label} contiene material sensible.`);
+  if (SECRET_TEXT_PATTERNS.some((pattern) => pattern.test(value))) {
+    throw new TypeError(`${label} contiene material sensible.`);
+  }
   return value;
 }
