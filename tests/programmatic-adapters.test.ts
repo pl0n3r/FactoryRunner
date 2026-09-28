@@ -15,7 +15,11 @@ import type {
 
 class FakeRunner implements CommandRunner {
   readonly specs: CommandSpec[] = [];
-  constructor(private readonly handler: (spec: CommandSpec) => string | Error) {}
+  readonly handler: (spec: CommandSpec) => string | Error;
+
+  constructor(handler: (spec: CommandSpec) => string | Error) {
+    this.handler = handler;
+  }
 
   async run(spec: CommandSpec): Promise<{ stdout: string }> {
     this.specs.push(spec);
@@ -27,11 +31,13 @@ class FakeRunner implements CommandRunner {
 
 class FakeAdapter implements ProgrammaticAdapter {
   readonly calls: string[] = [];
+  readonly id: string;
+  readonly capabilities: readonly string[];
 
-  constructor(
-    readonly id: string,
-    readonly capabilities: readonly string[],
-  ) {}
+  constructor(id: string, capabilities: readonly string[]) {
+    this.id = id;
+    this.capabilities = capabilities;
+  }
 
   async execute(capability: string): Promise<ProgrammaticAdapterResult> {
     this.calls.push(capability);
