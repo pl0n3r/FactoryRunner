@@ -47,3 +47,13 @@ export type {
   BrowserDriverResult,
   BrowserExecutionResult,
 } from './adapters/browser.ts';
+
+export { ControlBotClient, ControlBotClientError } from './controlbot/client.ts';
+export type { ControlBotPollResult, ControlBotPolledOrder } from './controlbot/client.ts';
+export type {
+  ControlBotTransport,
+  ControlBotPollRequest,
+  ControlBotAckRequest,
+  ControlBotEventsRequest,
+  ControlBotHeartbeatRequest,
+} from './controlbot/transport.ts';
