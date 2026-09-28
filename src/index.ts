@@ -36,3 +36,14 @@ export type {
 } from './adapters/programmatic.ts';
 
 export { GitReadAdapter } from './adapters/git-read.ts';
+
+export { BrowserExecutionAdapter, BrowserExecutionError } from './adapters/browser.ts';
+export type {
+  BrowserCapability,
+  BrowserLocation,
+  BrowserExecutionContext,
+  BrowserDriver,
+  BrowserDriverCommand,
+  BrowserDriverResult,
+  BrowserExecutionResult,
+} from './adapters/browser.ts';
