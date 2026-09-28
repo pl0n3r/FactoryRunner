@@ -15,6 +15,27 @@ jobs:
       phase: construccion
       node_enabled: true
       node_version: '24'
+
+  node-typecheck:
+    name: Typecheck Node
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Instalar toolchain bloqueado
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck TypeScript
+        run: npm run typecheck
+
   node-main:
     name: Validar Node en main
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -29,6 +50,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24'
+          cache: npm
       - name: Instalar npm bloqueado
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Pruebas y build Node
@@ -41,6 +63,7 @@ jobs:
     name: Detectar cambio de versión
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -71,10 +94,11 @@ jobs:
             changed=true
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   release:
     name: Release después de CI
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.release-version.outputs.changed == 'true'
-    needs: [ci, node-main, release-version]
+    needs: [ci, node-typecheck, node-main, release-version]
     permissions:
       contents: write
     uses: pl0n3r/factory/.github/workflows/release.yml@v1
