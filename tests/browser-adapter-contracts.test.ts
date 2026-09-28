@@ -117,8 +117,11 @@ test('browser results are sanitized and provider errors are generic', async () =
 
   driver.result = { status: 'ok', ref: REF };
   const result = await instance.execute('browser.navigate', { url: 'https://example.com/' });
-  assert.deepEqual(Object.keys(result).sort(), ['capability', 'ref', 'status']);
-  assert.equal(JSON.stringify(result).includes('html'), false);
+  assert.deepEqual(result, {
+    capability: 'browser.navigate',
+    status: 'ok',
+    ref: REF,
+  });
 
   driver.error = new Error('cookie=super-secret-provider-value');
   await assert.rejects(
@@ -154,7 +157,38 @@ test('session key is derived internally from runner/order and cannot be supplied
   );
   await instance.execute('browser.close', {});
   assert.equal(driver.commands[0]?.kind, 'close');
-  assert.match(driver.commands[0]?.session_key ?? '', /^browsersession:[0-9a-f]{64}$/);
-  assert.equal((driver.commands[0]?.session_key ?? '').includes(RUNNER_ID), false);
-  assert.equal((driver.commands[0]?.session_key ?? '').includes(ORDER_ID), false);
+  const originalKey = driver.commands[0]?.session_key ?? '';
+  assert.match(originalKey, /^browsersession:[0-9a-f]{64}$/);
+  assert.equal(originalKey.includes(RUNNER_ID), false);
+  assert.equal(originalKey.includes(ORDER_ID), false);
+
+  const differentRunnerDriver = new FakeDriver();
+  const differentRunner = new BrowserExecutionAdapter(
+    differentRunnerDriver,
+    ['https://example.com'],
+    {
+      runner_id: '33333333-3333-7333-8333-333333333333',
+      order_id: ORDER_ID,
+      location: 'hostinger-shared',
+    },
+  );
+  await differentRunner.execute('browser.close', {});
+
+  const differentOrderDriver = new FakeDriver();
+  const differentOrder = new BrowserExecutionAdapter(
+    differentOrderDriver,
+    ['https://example.com'],
+    {
+      runner_id: RUNNER_ID,
+      order_id: '44444444-4444-7444-8444-444444444444',
+      location: 'hostinger-shared',
+    },
+  );
+  await differentOrder.execute('browser.close', {});
+
+  const differentRunnerKey = differentRunnerDriver.commands[0]?.session_key ?? '';
+  const differentOrderKey = differentOrderDriver.commands[0]?.session_key ?? '';
+  assert.notEqual(differentRunnerKey, originalKey);
+  assert.notEqual(differentOrderKey, originalKey);
+  assert.notEqual(differentRunnerKey, differentOrderKey);
 });
