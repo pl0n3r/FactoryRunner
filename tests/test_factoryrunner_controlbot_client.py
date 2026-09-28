@@ -27,13 +27,14 @@ class FactoryRunnerControlBotClientTests(unittest.TestCase):
         self.assertIn("parseExecutionOrder", source)
         self.assertIn("assertOrderExecutable", source)
         self.assertIn("assertIdempotentOrder", source)
+        self.assertIn("const staged = new Map", source)
         self.assertIn("collapses identical duplicates", tests)
 
     def test_ack_contract(self):
         source = read("src/controlbot/client.ts")
         tests = read("tests/controlbot-client-contracts.test.ts")
         self.assertIn("#validatedOrders", source)
-        self.assertIn("fingerprint: orderFingerprint", source)
+        self.assertIn("orderFingerprint(parsed)", source)
         self.assertIn("instruction_ref", tests)
         self.assertIn("fingerprint", tests)
 

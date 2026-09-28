@@ -108,6 +108,10 @@ test('poll validates orders, collapses identical duplicates and rejects conflict
     () => client.poll(null, 4, 1_500),
     (error: unknown) => error instanceof ControlBotClientError && error.message === 'controlbot_protocol_invalid',
   );
+  await assert.rejects(
+    () => client.ack(parseExecutionOrder(order())),
+    /controlbot_protocol_invalid/,
+  );
 
   transport.pollResponse = { version: 1, cursor: null, orders: [order({ runner_id: '33333333-3333-7333-8333-333333333333' })] };
   await assert.rejects(() => client.poll(null, 4, 1_500), /controlbot_protocol_invalid/);

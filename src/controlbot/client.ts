@@ -86,6 +86,7 @@ export class ControlBotClient {
 
     const orders: ExecutionOrder[] = [];
     const batch = new Map<string, ExecutionOrder>();
+    const staged = new Map<string, { fingerprint: string; order: ExecutionOrder }>();
     try {
       for (const rawOrder of response.orders) {
         const order = parseExecutionOrder(rawOrder);
@@ -97,13 +98,17 @@ export class ControlBotClient {
         }
         batch.set(order.order_id, order);
         orders.push(order);
-        this.#validatedOrders.set(order.order_id, {
+        staged.set(order.order_id, {
           fingerprint: orderFingerprint(order),
           order,
         });
       }
+      const nextCursor = parseCursor(response.cursor);
+      for (const [orderId, validated] of staged) {
+        this.#validatedOrders.set(orderId, validated);
+      }
       return {
-        cursor: parseCursor(response.cursor),
+        cursor: nextCursor,
         orders,
       };
     } catch {
