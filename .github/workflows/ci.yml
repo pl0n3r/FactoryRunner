@@ -35,6 +35,8 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Typecheck TypeScript
         run: npm run typecheck
+      - name: Contratos Python
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
 
   node-main:
     name: Validar Node en main

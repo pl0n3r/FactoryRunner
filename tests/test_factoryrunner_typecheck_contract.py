@@ -66,6 +66,10 @@ class FactoryRunnerTypecheckContractTests(unittest.TestCase):
         workflow = read(".github/workflows/ci.yml")
         self.assertIn("node-typecheck:", workflow)
         self.assertIn("npm run typecheck", workflow)
+        self.assertIn(
+            "python3 -m unittest discover -s tests -p 'test_*.py'",
+            workflow,
+        )
         self.assertIn("npm ci --ignore-scripts --no-audit --no-fund", workflow)
         self.assertIn(
             "needs: [ci, node-typecheck, node-main, release-version]",
