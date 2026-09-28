@@ -17,7 +17,7 @@
 
 | Tratamiento | Categoría | Campos | Finalidad | Base documentada | Consentimiento | Proveedores | Retención |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| sin_tratamientos | none | — | — | — | — | — | — |
+| runner_location_metadata | location | location | runner_routing | review_required | review_required | ninguno_declarado | review_required |
 
 ## Derechos y revisión
 
