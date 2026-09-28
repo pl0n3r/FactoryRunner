@@ -2,8 +2,6 @@ import {
   asRecord,
   exactKeys,
   noSensitiveText,
-  ref,
-  slug,
   stableSha256,
   stringValue,
   uuid,
@@ -187,11 +185,11 @@ function parseDriverResult(value: unknown): BrowserDriverResult {
 }
 
 function parseCapability(value: string): BrowserCapability {
-  const parsed = slug(value, 'browser capability') as BrowserCapability;
-  if (!CAPABILITIES.has(parsed)) {
+  const parsed = stringValue(value, 'browser capability', 64);
+  if (!CAPABILITIES.has(parsed as BrowserCapability)) {
     throw new TypeError('Browser capability no soportada.');
   }
-  return parsed;
+  return parsed as BrowserCapability;
 }
 
 export class BrowserExecutionAdapter {

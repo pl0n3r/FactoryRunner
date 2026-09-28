@@ -64,7 +64,7 @@ test('browser navigation requires allowlisted HTTPS origin without userinfo quer
   for (const url of [
     'http://example.com/path',
     'https://user@example.com/path',
-    'https://example.com/path?token=no',
+    'https://example.com/path?foo=bar',
     'https://example.com/path#frag',
     'https://evil.example/path',
     'https://example.com/a/../private',
