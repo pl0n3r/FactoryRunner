@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export type JsonRecord = Record<string, unknown>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -70,4 +72,24 @@ export function noSensitiveText(value: string, label: string): string {
     throw new TypeError(`${label} contiene material sensible.`);
   }
   return value;
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map((item) => canonicalValue(item));
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const ordered: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b, 'en'))) {
+      ordered[key] = canonicalValue(record[key]);
+    }
+    return ordered;
+  }
+  throw new TypeError('Valor no serializable para fingerprint.');
+}
+
+export function stableSha256(value: unknown): string {
+  const serialized = JSON.stringify(canonicalValue(value));
+  return createHash('sha256').update(serialized, 'utf8').digest('hex');
 }
