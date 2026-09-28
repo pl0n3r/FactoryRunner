@@ -162,6 +162,10 @@ test('session key is derived internally from runner/order and cannot be supplied
   assert.equal(originalKey.includes(RUNNER_ID), false);
   assert.equal(originalKey.includes(ORDER_ID), false);
 
+  await instance.execute('browser.close', {});
+  const repeatedKey = driver.commands[1]?.session_key ?? '';
+  assert.equal(repeatedKey, originalKey);
+
   const differentRunnerDriver = new FakeDriver();
   const differentRunner = new BrowserExecutionAdapter(
     differentRunnerDriver,
