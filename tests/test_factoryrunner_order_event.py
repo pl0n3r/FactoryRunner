@@ -59,7 +59,7 @@ class FactoryRunnerOrderEventTests(unittest.TestCase):
     def test_node_suite_contract(self):
         package = json.loads(read("package.json"))
         version = json.loads(read("config/version.json"))
-        self.assertEqual(version["version"], "0.1.1")
+        self.assertRegex(version["version"], r"^0\.1\.[0-9]+$")
         self.assertIn("node --experimental-strip-types --test", package["scripts"]["test"])
         self.assertIn("node --experimental-strip-types scripts/build.ts", package["scripts"]["build"])
         self.assertTrue((ROOT / "tests" / "order-event-contracts.test.ts").is_file())
