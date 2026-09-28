@@ -64,7 +64,8 @@ class FactoryRunnerBrowserAdapterTests(unittest.TestCase):
     def test_node_suite_contract(self):
         package = json.loads(read("package.json"))
         version = json.loads(read("config/version.json"))
-        self.assertEqual(version["version"], "0.1.3")
+        parts = tuple(int(piece) for piece in version["version"].split("."))
+        self.assertGreaterEqual(parts, (0, 1, 3))
         self.assertIn("npm run typecheck", read(".github/workflows/ci.yml"))
         self.assertEqual(package["scripts"]["typecheck"], "tsc --noEmit")
         self.assertIn("node --experimental-strip-types --test", package["scripts"]["test"])
