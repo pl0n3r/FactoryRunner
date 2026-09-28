@@ -51,6 +51,7 @@ export class ControlBotClient {
   readonly #identity: RunnerIdentity;
   readonly #transport: ControlBotTransport;
   readonly #validatedOrders = new Map<string, { fingerprint: string; order: ExecutionOrder }>();
+  readonly #lastPublishedSequence = new Map<string, number>();
 
   constructor(identity: RunnerIdentity, transport: ControlBotTransport) {
     this.#identity = parseRunnerIdentity(identity);
@@ -169,7 +170,8 @@ export class ControlBotClient {
       if (event.runner_id !== this.#identity.runner_id || !this.#validatedOrders.has(event.order_id)) {
         throw new ControlBotClientError('controlbot_protocol_invalid');
       }
-      const previous = lastSequence.get(event.order_id);
+      const previous =
+        lastSequence.get(event.order_id) ?? this.#lastPublishedSequence.get(event.order_id);
       if (previous !== undefined && event.sequence <= previous) {
         throw new ControlBotClientError('controlbot_protocol_invalid');
       }
@@ -187,6 +189,11 @@ export class ControlBotClient {
     } catch {
       throw new ControlBotClientError('controlbot_transport_failed');
     }
+
+    for (const [orderId, sequence] of lastSequence) {
+      this.#lastPublishedSequence.set(orderId, sequence);
+    }
+
     return { published: events.length };
   }
 

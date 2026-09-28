@@ -171,6 +171,53 @@ test('publishEvents requires validated order, runner match and monotonic batch s
   );
 });
 
+
+test('publishEvents keeps sequence monotonic across calls and commits only after transport success', async () => {
+  const transport = new FakeTransport();
+  const client = new ControlBotClient(identity(), transport);
+  await client.poll(null, 4, 1_500);
+
+  const accepted = {
+    version: 1,
+    event_id: '88888888-8888-7888-8888-888888888888',
+    order_id: ORDER_ID,
+    runner_id: RUNNER_ID,
+    sequence: 1,
+    state: 'accepted',
+    occurred_at: 1_510,
+    evidence: { code: 'accepted', summary: 'Order accepted', ref: null },
+  } as const;
+  const started = {
+    ...accepted,
+    event_id: '99999999-9999-7999-8999-999999999999',
+    sequence: 2,
+    state: 'started',
+    occurred_at: 1_520,
+  } as const;
+
+  assert.deepEqual(await client.publishEvents([accepted]), { published: 1 });
+
+  await assert.rejects(
+    () => client.publishEvents([{ ...accepted, event_id: 'aaaaaaaa-aaaa-7aaa-8aaa-aaaaaaaaaaaa' }]),
+    /controlbot_protocol_invalid/,
+  );
+
+  transport.failure = new Error('provider unavailable');
+  await assert.rejects(
+    () => client.publishEvents([started]),
+    (error: unknown) =>
+      error instanceof ControlBotClientError && error.message === 'controlbot_transport_failed',
+  );
+
+  transport.failure = null;
+  assert.deepEqual(await client.publishEvents([started]), { published: 1 });
+
+  await assert.rejects(
+    () => client.publishEvents([{ ...started, event_id: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb' }]),
+    /controlbot_protocol_invalid/,
+  );
+});
+
 test('heartbeat is runner-bound and provider errors collapse to generic code', async () => {
   const transport = new FakeTransport();
   const client = new ControlBotClient(identity(), transport);
