@@ -30,12 +30,16 @@ jobs:
         github.event.comment.body == '/adoptar-contrato-huerfana' ||
         startsWith(github.event.comment.body, '/liberar ') ||
         startsWith(github.event.comment.body, '/transferir ') ||
-        startsWith(github.event.comment.body, '/migrar-contrato ')
+        startsWith(github.event.comment.body, '/migrar-contrato ') ||
+        startsWith(github.event.comment.body, '/renovar-contrato ')
       )
+    # GitHub valida el máximo permission envelope del reusable antes de
+    # seleccionar el job interno. El reusable conserva mínimo privilegio por job.
     permissions:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: comment
@@ -53,6 +57,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: label
@@ -69,6 +74,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: pr
@@ -83,6 +89,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: validate
@@ -95,6 +102,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: issue
@@ -107,6 +115,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      checks: write
     uses: pl0n3r/factory/.github/workflows/coordinacion.yml@v1
     with:
       operation: sweep
