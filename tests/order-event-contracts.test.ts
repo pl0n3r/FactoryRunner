@@ -71,7 +71,7 @@ test('ExecutionOrder is exact, bounded and ControlBot-scoped', () => {
   assert.throws(() => parseExecutionOrder(order({ capability: 'Git' })), /capability inválido/);
   assert.throws(() => parseExecutionOrder(order({ instruction_ref: 'github:instruction:11' })), /ControlBot/);
   assert.throws(
-    () => parseExecutionOrder(order({ instruction_ref: 'controlbot:token=supersecretvalue' })),
+    () => parseExecutionOrder(order({ instruction_ref: 'controlbot:token:supersecretvalue' })),
     /sensible/,
   );
 });
@@ -121,7 +121,7 @@ test('ExecutionEvent validates state, sequence, evidence and safe refs', () => {
   );
   assert.throws(
     () => parseExecutionEvent(event({
-      evidence: { code: 'proof', summary: 'CI evidence', ref: 'https://github.com/pl0n3r/FactoryRunner?token=x' },
+      evidence: { code: 'proof', summary: 'CI evidence', ref: 'https://github.com/pl0n3r/FactoryRunner?foo=bar' },
     })),
     /no permitido/,
   );
