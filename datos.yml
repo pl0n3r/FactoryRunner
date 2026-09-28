@@ -8,5 +8,16 @@
     "address": "[COMPLETAR POR EL DUEÑO]",
     "rights_email": "[COMPLETAR POR EL DUEÑO]"
   },
-  "treatments": []
+  "treatments": [
+    {
+      "id": "runner_location_metadata",
+      "category": "location",
+      "fields": ["location"],
+      "purpose": "runner_routing",
+      "basis": "review_required",
+      "retention": "review_required",
+      "consent": "review_required",
+      "providers": []
+    }
+  ]
 }
