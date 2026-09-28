@@ -95,6 +95,10 @@ export class ControlBotClient {
       for (const rawOrder of response.orders) {
         const order = parseExecutionOrder(rawOrder);
         assertOrderExecutable(order, this.#identity, now);
+        const prior = this.#validatedOrders.get(order.order_id);
+        if (prior) {
+          assertIdempotentOrder(prior.order, order);
+        }
         const existing = batch.get(order.order_id);
         if (existing) {
           assertIdempotentOrder(existing, order);

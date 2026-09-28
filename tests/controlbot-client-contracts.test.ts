@@ -3,7 +3,6 @@ import test from 'node:test';
 import {
   ControlBotClient,
   ControlBotClientError,
-  parseExecutionOrder,
   parseRunnerHeartbeat,
   parseRunnerIdentity,
 } from '../src/index.ts';
@@ -105,13 +104,21 @@ test('poll validates orders, collapses identical duplicates and rejects conflict
   const result = await client.poll(null, 4, 1_500);
   assert.equal(result.orders.length, 1);
 
-  transport.pollResponse = { version: 1, cursor: null, orders: [order(), order({ attempt: 2 })] };
+  const conflictTransport = new FakeTransport();
+  const conflictClient = new ControlBotClient(identity(), conflictTransport);
+  conflictTransport.pollResponse = { version: 1, cursor: null, orders: [order(), order({ attempt: 2 })] };
   await assert.rejects(
-    () => client.poll(null, 4, 1_500),
+    () => conflictClient.poll(null, 4, 1_500),
     (error: unknown) => error instanceof ControlBotClientError && error.message === 'controlbot_protocol_invalid',
   );
   await assert.rejects(
-    () => client.ack(ORDER_ID),
+    () => conflictClient.ack(ORDER_ID),
+    /controlbot_protocol_invalid/,
+  );
+
+  transport.pollResponse = { version: 1, cursor: null, orders: [order({ attempt: 2 })] };
+  await assert.rejects(
+    () => client.poll(null, 4, 1_500),
     /controlbot_protocol_invalid/,
   );
 
