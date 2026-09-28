@@ -34,10 +34,18 @@ export class GitReadAdapter implements ProgrammaticAdapter {
   }
 
   async #runGit(args: readonly string[]): Promise<string> {
+    const hardenedArgs = [
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'core.untrackedCache=false',
+      ...args,
+    ];
+
     try {
       const result = await this.#runner.run({
         executable: 'git',
-        args,
+        args: hardenedArgs,
         cwd: this.#repoRoot,
         timeout_ms: 5_000,
         max_buffer: 65_536,

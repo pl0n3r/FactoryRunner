@@ -96,7 +96,7 @@ test('GitReadAdapter git.head uses fixed argv and validates stdout', async () =>
   assert.equal(result.evidence.ref, null);
   assert.deepEqual(runner.specs[0], {
     executable: 'git',
-    args: ['rev-parse', '--verify', 'HEAD'],
+    args: ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', 'rev-parse', '--verify', 'HEAD'],
     cwd: process.cwd(),
     timeout_ms: 5_000,
     max_buffer: 65_536,
@@ -139,4 +139,18 @@ test('GitReadAdapter executes real git.head against the CI checkout without netw
   const result = await adapter.execute('git.head');
   assert.equal(result.capability, 'git.head');
   assert.match(String(result.data.sha), /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
+});
+
+test('programmatic runner does not trust inherited PATH and git disables local fsmonitor helpers', async () => {
+  const source = await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL('../src/adapters/programmatic.ts', import.meta.url), 'utf8')
+  );
+  const gitSource = await import('node:fs/promises').then(({ readFile }) =>
+    readFile(new URL('../src/adapters/git-read.ts', import.meta.url), 'utf8')
+  );
+
+  assert.equal(source.includes('process.env.PATH'), false);
+  assert.equal(source.includes("'/usr/local/bin:/usr/bin:/bin'"), true);
+  assert.equal(gitSource.includes("'core.fsmonitor=false'"), true);
+  assert.equal(gitSource.includes("'core.untrackedCache=false'"), true);
 });

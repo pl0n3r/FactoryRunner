@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { integer, slug, stringValue } from '../validation.ts';
 
 const execFileAsync = promisify(execFile);
+const TRUSTED_EXEC_PATH = '/usr/local/bin:/usr/bin:/bin';
 
 export type ProgrammaticAdapterResult = {
   capability: string;
@@ -84,7 +85,7 @@ export class ExecFileCommandRunner implements CommandRunner {
         windowsHide: true,
         shell: false,
         env: {
-          PATH: process.env.PATH ?? '',
+          PATH: TRUSTED_EXEC_PATH,
           GIT_TERMINAL_PROMPT: '0',
           GIT_OPTIONAL_LOCKS: '0',
           GIT_CONFIG_NOSYSTEM: '1',

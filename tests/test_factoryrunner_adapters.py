@@ -28,11 +28,15 @@ class FactoryRunnerAdaptersTests(unittest.TestCase):
         self.assertIn("Ejecutable no permitido", source)
         self.assertIn("cwd debe ser absoluto", source)
         self.assertIn("GIT_TERMINAL_PROMPT: '0'", source)
+        self.assertIn("TRUSTED_EXEC_PATH = '/usr/local/bin:/usr/bin:/bin'", source)
+        self.assertNotIn("process.env.PATH", source)
         self.assertNotIn("...process.env", source)
 
     def test_git_head_contract(self):
         source = read("src/adapters/git-read.ts")
         tests = read("tests/programmatic-adapters.test.ts")
+        self.assertIn("'core.fsmonitor=false'", source)
+        self.assertIn("'core.untrackedCache=false'", source)
         self.assertIn("['rev-parse', '--verify', 'HEAD']", source)
         self.assertIn("GIT_SHA_RE", source)
         self.assertIn("git_head_invalid", source)
