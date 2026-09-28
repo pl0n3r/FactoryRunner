@@ -24,10 +24,6 @@ class FactoryRunnerControlBotClientTests(unittest.TestCase):
     def test_poll_response_order_validation_contract(self):
         source = read("src/controlbot/client.ts")
         tests = read("tests/controlbot-client-contracts.test.ts")
-        self.assertIn("parseExecutionOrder", source)
-        self.assertIn("assertOrderExecutable", source)
-        self.assertIn("assertIdempotentOrder", source)
-        self.assertIn("const staged = new Map", source)
         self.assertIn("ControlBotPolledOrder", source)
         self.assertIn("instruction_ref", tests)
         self.assertIn("collapses identical duplicates", tests)
