@@ -49,7 +49,7 @@ export type {
 } from './adapters/browser.ts';
 
 export { ControlBotClient, ControlBotClientError } from './controlbot/client.ts';
-export type { ControlBotPollResult } from './controlbot/client.ts';
+export type { ControlBotPollResult, ControlBotPolledOrder } from './controlbot/client.ts';
 export type {
   ControlBotTransport,
   ControlBotPollRequest,

@@ -91,6 +91,8 @@ test('poll envelope is exact, bounded and runner-scoped', async () => {
   });
   assert.equal(result.cursor, 'controlbotcursor:next');
   assert.equal(result.orders.length, 1);
+  assert.equal(JSON.stringify(result.orders[0]).includes('instruction_ref'), false);
+  assert.match(result.orders[0]?.fingerprint ?? '', /^[0-9a-f]{64}$/);
   await assert.rejects(() => client.poll('badcursor', 8, 1_500), /Cursor de ControlBot inválido/);
   await assert.rejects(() => client.poll(null, 65, 1_500), /limit inválido/);
 });
@@ -109,7 +111,7 @@ test('poll validates orders, collapses identical duplicates and rejects conflict
     (error: unknown) => error instanceof ControlBotClientError && error.message === 'controlbot_protocol_invalid',
   );
   await assert.rejects(
-    () => client.ack(parseExecutionOrder(order())),
+    () => client.ack(ORDER_ID),
     /controlbot_protocol_invalid/,
   );
 
@@ -120,11 +122,9 @@ test('poll validates orders, collapses identical duplicates and rejects conflict
 test('ack uses only validated identity and fingerprint fields', async () => {
   const transport = new FakeTransport();
   const client = new ControlBotClient(identity(), transport);
-  const parsed = parseExecutionOrder(order());
-
-  await assert.rejects(() => client.ack(parsed), /controlbot_protocol_invalid/);
+  await assert.rejects(() => client.ack(ORDER_ID), /controlbot_protocol_invalid/);
   await client.poll(null, 4, 1_500);
-  const result = await client.ack(parsed);
+  const result = await client.ack(ORDER_ID);
 
   assert.equal(result.acknowledged, true);
   assert.deepEqual(Object.keys(transport.ackRequests[0]).sort(), ['fingerprint', 'order_id', 'runner_id', 'version']);

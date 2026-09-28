@@ -13,7 +13,7 @@ import {
   type RunnerHeartbeat,
   type RunnerIdentity,
 } from '../runner.ts';
-import { asRecord, exactKeys, integer, ref } from '../validation.ts';
+import { asRecord, exactKeys, integer, ref, uuid } from '../validation.ts';
 import type {
   ControlBotAckRequest,
   ControlBotEventsRequest,
@@ -29,9 +29,13 @@ export class ControlBotClientError extends Error {
   }
 }
 
+export type ControlBotPolledOrder = Omit<ExecutionOrder, 'instruction_ref'> & {
+  fingerprint: string;
+};
+
 export type ControlBotPollResult = {
   cursor: string | null;
-  orders: ExecutionOrder[];
+  orders: ControlBotPolledOrder[];
 };
 
 function parseCursor(input: unknown): string | null {
@@ -84,7 +88,7 @@ export class ControlBotClient {
       throw new ControlBotClientError('controlbot_protocol_invalid');
     }
 
-    const orders: ExecutionOrder[] = [];
+    const orders: ControlBotPolledOrder[] = [];
     const batch = new Map<string, ExecutionOrder>();
     const staged = new Map<string, { fingerprint: string; order: ExecutionOrder }>();
     try {
@@ -97,9 +101,20 @@ export class ControlBotClient {
           continue;
         }
         batch.set(order.order_id, order);
-        orders.push(order);
+        const fingerprint = orderFingerprint(order);
+        orders.push({
+          version: order.version,
+          order_id: order.order_id,
+          work_item_id: order.work_item_id,
+          runner_id: order.runner_id,
+          capability: order.capability,
+          attempt: order.attempt,
+          issued_at: order.issued_at,
+          expires_at: order.expires_at,
+          fingerprint,
+        });
         staged.set(order.order_id, {
-          fingerprint: orderFingerprint(order),
+          fingerprint,
           order,
         });
       }
@@ -116,19 +131,18 @@ export class ControlBotClient {
     }
   }
 
-  async ack(order: ExecutionOrder): Promise<{ acknowledged: true; order_id: string; fingerprint: string }> {
-    const parsed = parseExecutionOrder(order);
-    const known = this.#validatedOrders.get(parsed.order_id);
-    const fingerprint = orderFingerprint(parsed);
-    if (!known || known.fingerprint !== fingerprint) {
+  async ack(orderIdInput: string): Promise<{ acknowledged: true; order_id: string; fingerprint: string }> {
+    const orderId = uuid(orderIdInput, 'order_id');
+    const known = this.#validatedOrders.get(orderId);
+    if (!known) {
       throw new ControlBotClientError('controlbot_protocol_invalid');
     }
 
     const request: ControlBotAckRequest = {
       version: 1,
-      order_id: parsed.order_id,
+      order_id: orderId,
       runner_id: this.#identity.runner_id,
-      fingerprint,
+      fingerprint: known.fingerprint,
     };
 
     try {
@@ -137,7 +151,7 @@ export class ControlBotClient {
       throw new ControlBotClientError('controlbot_transport_failed');
     }
 
-    return { acknowledged: true, order_id: parsed.order_id, fingerprint };
+    return { acknowledged: true, order_id: orderId, fingerprint: known.fingerprint };
   }
 
   async publishEvents(eventsInput: readonly ExecutionEvent[]): Promise<{ published: number }> {
