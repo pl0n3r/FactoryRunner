@@ -21,3 +21,18 @@ export {
   assertEventTransition,
 } from './event.ts';
 export type { ExecutionState, ExecutionEvidence, ExecutionEvent } from './event.ts';
+
+export {
+  AdapterRegistry,
+  ExecFileCommandRunner,
+  ProgrammaticProcessError,
+} from './adapters/programmatic.ts';
+export type {
+  ProgrammaticAdapter,
+  ProgrammaticAdapterResult,
+  CommandRunner,
+  CommandSpec,
+  CommandResult,
+} from './adapters/programmatic.ts';
+
+export { GitReadAdapter } from './adapters/git-read.ts';
