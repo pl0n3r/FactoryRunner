@@ -24,6 +24,10 @@ class FactoryRunnerBootstrapTests(unittest.TestCase):
         self.assertIn("stack: node", ci)
         self.assertIn("node_enabled: true", ci)
         self.assertIn("node_version: '24'", ci)
+        self.assertIn("node-main:", ci)
+        self.assertIn("npm test", ci)
+        self.assertIn("npm run build", ci)
+        self.assertIn("needs: [ci, node-main, release-version]", ci)
 
     def test_runner_identity_contract(self):
         source = read("src/runner.ts")
@@ -56,6 +60,8 @@ class FactoryRunnerBootstrapTests(unittest.TestCase):
         self.assertIn("availableCapacity", source)
         self.assertIn("heartbeat.status === 'draining'", source)
         self.assertIn("available capacity is bounded", tests)
+        self.assertIn("assertHeartbeatMatchesIdentity(identity, heartbeat)", source)
+        self.assertIn("max_parallel: 1", tests)
 
     def test_node_suite_contract(self):
         package = json.loads(read("package.json"))

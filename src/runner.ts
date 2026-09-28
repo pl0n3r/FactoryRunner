@@ -99,7 +99,9 @@ export function assertHeartbeatMatchesIdentity(identity: RunnerIdentity, heartbe
   if (heartbeat.capacity.max !== identity.max_parallel) throw new TypeError('Capacidad del heartbeat no coincide con RunnerIdentity.');
 }
 
-export function availableCapacity(heartbeat: RunnerHeartbeat | null, now: number): number {
-  if (heartbeat === null || heartbeatHealth(heartbeat, now) !== 'healthy' || heartbeat.status === 'draining') return 0;
+export function availableCapacity(identity: RunnerIdentity, heartbeat: RunnerHeartbeat | null, now: number): number {
+  if (heartbeat === null) return 0;
+  assertHeartbeatMatchesIdentity(identity, heartbeat);
+  if (heartbeatHealth(heartbeat, now) !== 'healthy' || heartbeat.status === 'draining') return 0;
   return heartbeat.capacity.max - heartbeat.capacity.active;
 }

@@ -71,12 +71,31 @@ test('heartbeat health is deterministic and fail-closed', () => {
 });
 
 test('available capacity is bounded and only exposed for healthy non-draining runner', () => {
+  const parsedIdentity = parseRunnerIdentity(identity());
   const parsed = parseRunnerHeartbeat(heartbeat());
-  assert.equal(availableCapacity(parsed, 1050), 3);
-  assert.equal(availableCapacity(parsed, 1100), 0);
-  assert.equal(availableCapacity(null, 1050), 0);
-  assert.equal(availableCapacity(parseRunnerHeartbeat(heartbeat({ status: 'draining' })), 1050), 0);
-  assert.equal(availableCapacity(parseRunnerHeartbeat(heartbeat({ capacity: { max: 4, active: 4 }, active_sessions: [] })), 1050), 0);
+  assert.equal(availableCapacity(parsedIdentity, parsed, 1050), 3);
+  assert.equal(availableCapacity(parsedIdentity, parsed, 1100), 0);
+  assert.equal(availableCapacity(parsedIdentity, null, 1050), 0);
+  assert.equal(
+    availableCapacity(parsedIdentity, parseRunnerHeartbeat(heartbeat({ status: 'draining' })), 1050),
+    0,
+  );
+  assert.equal(
+    availableCapacity(
+      parsedIdentity,
+      parseRunnerHeartbeat(heartbeat({ capacity: { max: 4, active: 4 }, active_sessions: [] })),
+      1050,
+    ),
+    0,
+  );
+  assert.throws(
+    () => availableCapacity(
+      parseRunnerIdentity(identity({ max_parallel: 1 })),
+      parseRunnerHeartbeat(heartbeat({ capacity: { max: 4, active: 0 }, active_sessions: [] })),
+      1050,
+    ),
+    /no coincide/,
+  );
 });
 
 test('heartbeat identity binding rejects runner or max_parallel drift', () => {
