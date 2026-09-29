@@ -23,7 +23,8 @@ function descriptor(operation:'upload'|'materialize'|'verify'='upload',overrides
 
 class FakeDriver implements RecoveryObjectStorageDriver {
   readonly commands:RecoveryObjectStorageCommand[]=[];
-  constructor(readonly handler:(command:RecoveryObjectStorageCommand)=>unknown|Error){}
+  readonly handler:(command:RecoveryObjectStorageCommand)=>unknown|Error;
+  constructor(handler:(command:RecoveryObjectStorageCommand)=>unknown|Error){this.handler=handler;}
   async execute(command:RecoveryObjectStorageCommand):Promise<unknown>{
     this.commands.push(command);
     const value=this.handler(command);
