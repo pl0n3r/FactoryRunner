@@ -1,0 +1,8 @@
+{
+  "name": "FactoryRunner",
+  "tagline": "Execution plane programático y auditable para ejecutar órdenes gobernadas por ControlBot.",
+  "role": "execution plane",
+  "phase": "construction",
+  "roadmap": "GitHub Issues + pl0n3r/Factory#168",
+  "stack": "Node.js 24 LTS + TypeScript + Factory Kit v1; Hostinger Shared/Web Hosting con macOS local solo como fallback"
+}
