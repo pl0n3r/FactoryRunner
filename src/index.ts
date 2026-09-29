@@ -66,3 +66,12 @@ export type {
   RecoveryObjectStorageDriverResult,
   RecoveryObjectStorageResult,
 } from './adapters/recovery-object-storage.ts';
+
+export { RecoveryGoogleDriveAdapter, RecoveryGoogleDriveError } from './adapters/recovery-google-drive.ts';
+export type {
+  RecoveryGoogleDriveCapability,
+  RecoveryGoogleDriveCommand,
+  RecoveryGoogleDriveDriver,
+  RecoveryGoogleDriveDriverResult,
+  RecoveryGoogleDriveResult,
+} from './adapters/recovery-google-drive.ts';
