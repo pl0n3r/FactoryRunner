@@ -120,5 +120,5 @@ test('adapter is exported and uses only injected driver with no network implemen
   const source=await import('node:fs/promises').then(({readFile})=>
     readFile(new URL('../src/adapters/recovery-object-storage.ts',import.meta.url),'utf8')
   );
-  for(const forbidden of ('fetch(', 'http.request', 'https.request', 'execFile', 'spawn(')) assert.equal(source.includes(forbidden),false);
+  for(const forbidden of ['fetch(', 'http.request', 'https.request', 'execFile', 'spawn(']) assert.equal(source.includes(forbidden),false);
 });
