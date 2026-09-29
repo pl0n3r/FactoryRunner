@@ -57,6 +57,13 @@ function capability(value:string):RecoveryDatabaseCapability{
   }
   return value;
 }
+function descriptorOperation(value:unknown):Operation{
+  const raw=asRecord(value,'Recovery database descriptor');
+  if(raw.operation!=='snapshot'&&raw.operation!=='restore_disposable'){
+    throw new TypeError('Recovery database operation no soportada.');
+  }
+  return raw.operation;
+}
 
 function snapshotDescriptor(value:unknown):Omit<RecoveryDatabaseSnapshotCommand,'connection_ref'>{
   const raw=asRecord(value,'Recovery database snapshot descriptor');
@@ -124,7 +131,10 @@ export class RecoveryDatabaseAdapter {
 
   async execute(capabilityInput:string,descriptorInput:unknown):Promise<RecoveryDatabaseResult>{
     const cap=capability(capabilityInput);
-    const parsed=cap==='recovery.database.snapshot'?snapshotDescriptor(descriptorInput):restoreDescriptor(descriptorInput);
+    const operation=descriptorOperation(descriptorInput);
+    const expected=cap==='recovery.database.snapshot'?'snapshot':'restore_disposable';
+    if(operation!==expected) throw new TypeError('Capability y operation no coinciden.');
+    const parsed=operation==='snapshot'?snapshotDescriptor(descriptorInput):restoreDescriptor(descriptorInput);
     const command=Object.freeze({...parsed,connection_ref:this.#connectionRef}) as RecoveryDatabaseCommand;
     let raw:unknown;
     try{raw=await this.#driver.execute(command);}
