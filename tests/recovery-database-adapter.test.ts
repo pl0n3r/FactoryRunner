@@ -50,7 +50,7 @@ test('snapshot descriptor and capability contract',async()=>{
   const out=await adapter.execute('recovery.database.snapshot',value);
   assert.equal(out.operation,'snapshot');
   assert.equal(driver.commands[0]?.connection_ref,'controlbot:connection/recovery-db');
-  await assert.rejects(()=>adapter.execute('recovery.database.restore-disposable',value),/restore descriptor/);
+  await assert.rejects(()=>adapter.execute('recovery.database.restore-disposable',value),/no coinciden/);
   await assert.rejects(()=>adapter.execute('recovery.database.snapshot',snapshot({source:'media'})),/fuera de contrato/);
   await assert.rejects(()=>adapter.execute('recovery.database.snapshot',{...snapshot(),extra:true}),/campos inválidos/);
 });
