@@ -101,11 +101,28 @@ function harness(){
 }
 
 function assertSanitized(value:unknown){
-  const serialized=JSON.stringify(value).toLowerCase();
-  for(const forbidden of [
-    'password','passwd','bearer ','oauth','service_account','private_key',
-    'mysql://','postgres://','https://','http://','drop table','select *',
-  ]) assert.equal(serialized.includes(forbidden),false,`payload leaked forbidden text: ${forbidden}`);
+  const sensitiveKey=/(?:^|_)(?:password|passwd|token|oauth|service_account|private_key|secret|credential|dsn|sql|url)(?:$|_)/i;
+  const inspect=(candidate:unknown):void=>{
+    if(Array.isArray(candidate)){
+      for(const item of candidate) inspect(item);
+      return;
+    }
+    if(candidate&&typeof candidate==='object'){
+      for(const [key,nested] of Object.entries(candidate)){
+        assert.equal(sensitiveKey.test(key),false,`payload leaked sensitive field: ${key}`);
+        inspect(nested);
+      }
+      return;
+    }
+    if(typeof candidate!=='string') return;
+    const normalized=candidate.toLowerCase();
+    for(const forbidden of [
+      'password=','passwd=','token=','bearer ','oauth','service_account','private_key',
+      'mysql://','postgres://','postgresql://','https://','http://',
+      'drop table','delete from','insert into','update ','select *',
+    ]) assert.equal(normalized.includes(forbidden),false,`payload leaked forbidden text: ${forbidden}`);
+  };
+  inspect(value);
 }
 
 test('object storage and Google Drive execute descriptor to evidence with exact roles and refs',async()=>{
@@ -120,11 +137,13 @@ test('object storage and Google Drive execute descriptor to evidence with exact 
   assert.equal(primaryEvidence.object_ref,primary.object_ref);
   assert.equal(primaryEvidence.checksum_sha256,primary.checksum_sha256);
   assert.equal(primaryEvidence.immutable_version_ref,'version:object-001');
+  assert.equal(primaryEvidence.evidence_ref,'evidence:object-001');
 
   assert.equal(coldEvidence.descriptor_id,cold.descriptor_id);
   assert.equal(coldEvidence.object_ref,cold.object_ref);
   assert.equal(coldEvidence.checksum_sha256,cold.checksum_sha256);
   assert.equal(coldEvidence.remote_version_ref,'drive-version:001');
+  assert.equal(coldEvidence.evidence_ref,'evidence:drive-001');
 
   assert.equal(h.objectCommands.length,1);
   assert.equal(h.driveCommands.length,1);
@@ -143,18 +162,33 @@ test('database snapshot and disposable restore execute descriptor to evidence on
   assert.equal(snapshotEvidence.descriptor_id,snapshot.descriptor_id);
   assert.equal(snapshotEvidence.operation,'snapshot');
   assert.equal(snapshotEvidence.snapshot_ref,snapshot.snapshot_ref);
+  assert.equal(snapshotEvidence.evidence_ref,'evidence:db-snapshot-001');
 
   assert.equal(restoreEvidence.descriptor_id,restore.descriptor_id);
   assert.equal(restoreEvidence.operation,'restore_disposable');
   assert.equal(restoreEvidence.backup_id,restore.backup_id);
   assert.equal(restoreEvidence.checksum_sha256,restore.checksum_sha256);
   assert.equal(restoreEvidence.target_ref,restore.target.target_ref);
+  assert.equal(restoreEvidence.evidence_ref,'evidence:db-restore-001');
 
   await assert.rejects(
     ()=>h.database.execute('recovery.database.restore-disposable',databaseRestoreDescriptor('production')),
     /disposable/,
   );
   assert.equal(h.databaseCommands.length,2);
+});
+
+test('sanitizer rejects sensitive keys and representative secret-like values',()=>{
+  for(const payload of [
+    {token:'opaque'},
+    {dsn:'db-reference'},
+    {url:'opaque-reference'},
+    {sql:'statement-reference'},
+    {value:'postgresql://user:pw@db.example/app'},
+    {value:'https://provider.example/object'},
+    {value:'DELETE FROM users'},
+    {nested:{credential:'opaque'}},
+  ]) assert.throws(()=>assertSanitized(payload));
 });
 
 test('commands and aggregated evidence remain secret-free across all Recovery adapters',async()=>{
