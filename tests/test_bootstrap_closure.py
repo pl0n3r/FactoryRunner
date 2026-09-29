@@ -1,4 +1,4 @@
-"""Regresiones del cierre de bootstrap FactoryRunner (Issue #22)."""
+"""Regresiones del cierre de bootstrap FactoryRunner."""
 
 import json
 import re
@@ -40,6 +40,24 @@ class BootstrapClosureTests(unittest.TestCase):
         self.assertNotIn("exige repositorio privado", text)
         self.assertNotIn("la visibilidad GitHub sigue siendo pública", text)
         self.assertIn("PII, credenciales, cookies y secretos siguen prohibidos", text)
+
+    def test_post_bootstrap_work_queue_has_no_closed_now(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        queue = text.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
+        now_entry = next(
+            line for line in queue.splitlines() if line.startswith("- **NOW:**")
+        )
+        self.assertIn("**NOW:** sin Issues abiertos", now_entry)
+        self.assertNotIn("#22", now_entry)
+        for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
+            self.assertIn(f"**{lane}:**", queue)
+
+    def test_post_bootstrap_work_queue_points_to_canonical_issues(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        queue = text.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues", queue)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/20", queue)
+        self.assertIn("https://github.com/pl0n3r/Factory/issues/168", queue)
 
     def test_acceptance_caller_derives_issue_from_canonical_branch(self) -> None:
         text = (
