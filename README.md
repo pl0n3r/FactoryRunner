@@ -44,10 +44,10 @@ FactoryRunner ejecuta trabajo; no decide prioridades, no amplía autoridad y no 
 
 ## Work Queue
 
-- **NOW:** [#20 — adoptar README Contract v1](https://github.com/pl0n3r/FactoryRunner/issues/20).
-- **NEXT:** completar los criterios técnicos pendientes del bootstrap enlazados desde [Factory #168](https://github.com/pl0n3r/Factory/issues/168), sin mezclar datos privados.
+- **NOW:** [#22 — cerrar bootstrap con D-062 y Dependabot](https://github.com/pl0n3r/FactoryRunner/issues/22).
+- **NEXT:** cerrar los criterios técnicos restantes de [Factory #168](https://github.com/pl0n3r/Factory/issues/168) con evidencia del bootstrap actual; baseline documental ya integrado: [#20 — README Contract v1](https://github.com/pl0n3r/FactoryRunner/issues/20).
 - **LATER:** ampliar adapters de ejecución y browser únicamente mediante Issues gobernados y capacidades explícitas.
-- **BLOCKED:** la visibilidad GitHub sigue siendo pública mientras [Factory #168](https://github.com/pl0n3r/Factory/issues/168) exige repositorio privado; no introducir PII, credenciales ni secretos mientras ese bloqueo exista.
+- **BLOCKED:** ninguno por visibilidad. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
 
 Esta cola es un resumen operativo; los Issues son la planificación canónica y el README no funciona como changelog.
 
