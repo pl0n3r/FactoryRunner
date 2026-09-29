@@ -57,3 +57,12 @@ export type {
   ControlBotEventsRequest,
   ControlBotHeartbeatRequest,
 } from './controlbot/transport.ts';
+
+export { RecoveryObjectStorageAdapter, RecoveryObjectStorageError } from './adapters/recovery-object-storage.ts';
+export type {
+  RecoveryObjectStorageCapability,
+  RecoveryObjectStorageCommand,
+  RecoveryObjectStorageDriver,
+  RecoveryObjectStorageDriverResult,
+  RecoveryObjectStorageResult,
+} from './adapters/recovery-object-storage.ts';
