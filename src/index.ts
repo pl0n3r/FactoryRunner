@@ -75,3 +75,13 @@ export type {
   RecoveryGoogleDriveDriverResult,
   RecoveryGoogleDriveResult,
 } from './adapters/recovery-google-drive.ts';
+
+export { RecoveryDatabaseAdapter, RecoveryDatabaseError } from './adapters/recovery-database.ts';
+export type {
+  RecoveryDatabaseCapability,
+  RecoveryDatabaseSnapshotCommand,
+  RecoveryDatabaseRestoreCommand,
+  RecoveryDatabaseCommand,
+  RecoveryDatabaseDriver,
+  RecoveryDatabaseResult,
+} from './adapters/recovery-database.ts';
