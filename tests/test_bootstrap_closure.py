@@ -44,8 +44,11 @@ class BootstrapClosureTests(unittest.TestCase):
     def test_post_bootstrap_work_queue_has_no_closed_now(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         queue = text.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("**NOW:** sin Issues abiertos", queue)
-        self.assertNotIn("**NOW:** [#22", queue)
+        now_entry = next(
+            line for line in queue.splitlines() if line.startswith("- **NOW:**")
+        )
+        self.assertIn("**NOW:** sin Issues abiertos", now_entry)
+        self.assertNotIn("#22", now_entry)
         for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
             self.assertIn(f"**{lane}:**", queue)
 
