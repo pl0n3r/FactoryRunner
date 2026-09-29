@@ -1,0 +1,24 @@
+name: README Contract
+
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'readme/**'
+      - '.github/workflows/readme-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'readme/**'
+      - '.github/workflows/readme-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  readme-contract:
+    uses: pl0n3r/factory/.github/workflows/readme.yml@v1
+    with:
+      readme_path: README.md
+      metadata_path: readme/project.json
