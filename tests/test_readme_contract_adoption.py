@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import unittest
 from pathlib import Path
 
@@ -81,7 +80,10 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
             "último release",
         ):
             self.assertIn(f"| {label} | UNKNOWN |", status)
-        self.assertNotRegex(status, r"\| (?:CI|health|smoke/observer|quality/security) \| GREEN \|")
+        self.assertNotIn("| CI | GREEN |", status)
+        self.assertNotIn("| health | GREEN |", status)
+        self.assertNotIn("| smoke/observer | GREEN |", status)
+        self.assertNotIn("| quality/security | GREEN |", status)
 
         progress = readme.split(
             "<!-- factory:progress-readiness:start -->", 1
@@ -101,7 +103,7 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
         readme = self.readme()
         queue = readme.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
         for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
-            self.assertRegex(queue, rf"\*\*{lane}\*\*:")
+            self.assertIn(f"**{lane}:**", queue)
         self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/20", queue)
         self.assertIn("https://github.com/pl0n3r/Factory/issues/168", queue)
 
