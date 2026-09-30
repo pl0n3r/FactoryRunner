@@ -85,3 +85,8 @@ export type {
   RecoveryDatabaseDriver,
   RecoveryDatabaseResult,
 } from './adapters/recovery-database.ts';
+
+export { RecoveryLiveObjectStorage, RecoveryLiveObjectStorageError } from './recovery/live-object-storage.ts';
+export type { RecoveryLiveObjectStorageInput } from './recovery/live-object-storage.ts';
+export { RecoveryConnectionError, resolveRecoveryS3Connection } from './recovery/connection-resolver.ts';
+export type { RecoveryS3Connection } from './recovery/connection-resolver.ts';
