@@ -10,10 +10,28 @@ function descriptor(operation:'upload'|'verify'|'materialize'){
   const base={version:1,project:'condor',provider:'object_storage',role:'primary_offsite',operation,namespace:'recovery:condor',object_ref:'backup:001',checksum_sha256:digest,idempotency_key:'backup:001',authority:'unchanged',execute:false};
   return {...base,descriptor_id:stableSha256(base)};
 }
-const env={FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_ENDPOINT:'https://s3.example.com',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_BUCKET:'condor-backups',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_REGION:'us-east-1',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_PREFIX:'recovery/condor',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_ACCESS_KEY_ID:'AKIATESTONLY',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_SECRET_ACCESS_KEY:'not-a-real-secret',FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_AWS_SECURITY_TOKEN:'provider-temporary-credential'};
+const env={
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_ENDPOINT:'https://s3.example.com',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_BUCKET:'condor-backups',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_REGION:'us-east-1',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_PREFIX:'recovery/condor',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_OBJECT_LOCK_DAYS:'30',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_ACCESS_KEY_ID:'AKIATESTONLY',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_SECRET_ACCESS_KEY:'not-a-real-secret',
+  FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_AWS_SECURITY_TOKEN:'provider-temporary-credential',
+};
 const source={async read(){return body;}}, written:Uint8Array[]=[];
 const sink={async write(_ref:string,value:Uint8Array){written.push(value);}};
-function response(method:string){return new Response(method==='GET'?body:null,{status:200,headers:{'x-amz-version-id':'v1','x-amz-meta-sha256':digest}});}
+const futureRetention='2099-12-31T23:59:59.000Z';
+function response(method:string,headers:Record<string,string>={}){
+  return new Response(method==='GET'?body:null,{status:200,headers:{
+    'x-amz-version-id':'v1',
+    'x-amz-meta-sha256':digest,
+    'x-amz-object-lock-mode':'COMPLIANCE',
+    'x-amz-object-lock-retain-until-date':futureRetention,
+    ...headers,
+  }});
+}
 
 test('opaque alias resolves runtime config and secrets never enter request URL or result',async()=>{
   const seen:{url:string;authorization:string;securityToken:string}[]=[];
@@ -24,6 +42,7 @@ test('opaque alias resolves runtime config and secrets never enter request URL o
 });
 
 test('upload verify and materialize preserve checksum and sanitized evidence',async()=>{
+  written.length=0;
   const live=new RecoveryLiveObjectStorage({env,source,sink,transport:async(_u,i)=>response(i.method??'GET')});
   for(const operation of ['upload','verify','materialize'] as const){const r=await live.execute({capability:'recovery.object-storage.'+operation,connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor(operation)});assert.equal(r.checksum_sha256,digest);assert.match(r.evidence_ref,/^evidence:/);}
   assert.deepEqual(written[0],body);
@@ -41,7 +60,7 @@ test('endpoint is alias-bound and SSRF-shaped runtime endpoints fail closed',asy
 test('checksum mismatch and provider version absence fail closed generically',async()=>{
   const live=new RecoveryLiveObjectStorage({env,source:{async read(){return new TextEncoder().encode('tampered');}},sink,transport:async(_u,i)=>i.method==='HEAD'?new Response(null,{status:404}):response('PUT')});
   await assert.rejects(()=>live.execute({capability:'recovery.object-storage.upload',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('upload')}),RecoveryLiveObjectStorageError);
-  const noVersion=new RecoveryLiveObjectStorage({env,source,sink,transport:async()=>new Response(null,{status:200})});
+  const noVersion=new RecoveryLiveObjectStorage({env,source,sink,transport:async()=>new Response(null,{status:200,headers:{'x-amz-meta-sha256':digest,'x-amz-object-lock-mode':'COMPLIANCE','x-amz-object-lock-retain-until-date':futureRetention}})});
   await assert.rejects(()=>noVersion.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')}),RecoveryLiveObjectStorageError);
 });
 
@@ -50,7 +69,7 @@ test('repeated upload reuses matching immutable version and mismatched existing 
   const matching=new RecoveryLiveObjectStorage({env,source,sink,transport:async(_u,i)=>{if(i.method==='HEAD')return response('HEAD');puts+=1;return response('PUT');}});
   const input={capability:'recovery.object-storage.upload',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('upload')};
   assert.deepEqual(await matching.execute(input),await matching.execute(input)); assert.equal(puts,0);
-  const mismatch=new RecoveryLiveObjectStorage({env,source,sink,transport:async()=>new Response(null,{status:200,headers:{'x-amz-version-id':'v-existing','x-amz-meta-sha256':'b'.repeat(64)}})});
+  const mismatch=new RecoveryLiveObjectStorage({env,source,sink,transport:async()=>response('HEAD',{'x-amz-version-id':'v-existing','x-amz-meta-sha256':'b'.repeat(64)})});
   await assert.rejects(()=>mismatch.execute(input),RecoveryLiveObjectStorageError);
 });
 
@@ -59,4 +78,67 @@ test('live caller preserves descriptor authority and excludes destructive operat
   const unsafe=descriptor('upload') as Record<string,unknown>; unsafe.authority='expanded'; unsafe.descriptor_id=stableSha256(Object.fromEntries(Object.entries(unsafe).filter(([k])=>k!=='descriptor_id')));
   await assert.rejects(()=>live.execute({capability:'recovery.object-storage.upload',connection_ref:'controlbot:connection/recovery-primary',descriptor:unsafe}),RecoveryLiveObjectStorageError);
   await assert.rejects(()=>live.execute({capability:'recovery.object-storage.delete',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('upload')}),RecoveryLiveObjectStorageError);
+});
+
+test('version without Object Lock compliance fails closed',async()=>{
+  const live=new RecoveryLiveObjectStorage({env,source,sink,transport:async()=>new Response(null,{status:200,headers:{'x-amz-version-id':'v1','x-amz-meta-sha256':digest}})});
+  await assert.rejects(()=>live.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')}),RecoveryLiveObjectStorageError);
+});
+
+test('upload requests COMPLIANCE retention and verifies immutable HEAD before success',async()=>{
+  const calls:string[]=[];
+  let requestedRetention='';
+  const live=new RecoveryLiveObjectStorage({
+    env,source,sink,clock:()=>new Date('2026-09-30T05:00:00Z'),
+    transport:async(_url,init)=>{
+      const method=init.method??'GET'; calls.push(method);
+      if(method==='HEAD'&&calls.length===1) return new Response(null,{status:404});
+      if(method==='PUT'){
+        const headers=new Headers(init.headers);
+        assert.equal(headers.get('x-amz-object-lock-mode'),'COMPLIANCE');
+        requestedRetention=headers.get('x-amz-object-lock-retain-until-date')??'';
+        assert.equal(requestedRetention,'2026-10-30T05:00:00.000Z');
+        return new Response(null,{status:200,headers:{'x-amz-version-id':'v-new'}});
+      }
+      return response('HEAD',{'x-amz-version-id':'v-new','x-amz-object-lock-retain-until-date':requestedRetention});
+    },
+  });
+  const result=await live.execute({capability:'recovery.object-storage.upload',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('upload')});
+  assert.deepEqual(calls,['HEAD','PUT','HEAD']); assert.match(result.immutable_version_ref,/^version:/);
+});
+
+test('verify requires checksum version compliance and future retention',async()=>{
+  const now=()=>new Date('2026-09-30T05:00:00Z');
+  const variants=[
+    {'x-amz-meta-sha256':'b'.repeat(64)},
+    {'x-amz-version-id':''},
+    {'x-amz-object-lock-mode':'GOVERNANCE'},
+    {'x-amz-object-lock-retain-until-date':'2026-09-30T04:59:59.000Z'},
+  ];
+  for(const headers of variants){
+    const live=new RecoveryLiveObjectStorage({env,source,sink,clock:now,transport:async()=>response('HEAD',headers)});
+    await assert.rejects(()=>live.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')}),RecoveryLiveObjectStorageError);
+  }
+});
+
+test('materialize requires GET to match the immutable HEAD version and checksum',async()=>{
+  const writes:Uint8Array[]=[];
+  const localSink={async write(_ref:string,value:Uint8Array){writes.push(value);}};
+  let calls=0;
+  const live=new RecoveryLiveObjectStorage({env,source,sink:localSink,transport:async(_url,init)=>{
+    calls+=1;
+    if(init.method==='HEAD') return response('HEAD',{'x-amz-version-id':'v1'});
+    return response('GET',{'x-amz-version-id':'v2'});
+  }});
+  await assert.rejects(()=>live.execute({capability:'recovery.object-storage.materialize',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('materialize')}),RecoveryLiveObjectStorageError);
+  assert.equal(calls,2); assert.equal(writes.length,0);
+});
+
+test('invalid or expired Object Lock configuration is a generic failure',async()=>{
+  for(const days of ['0','3651','abc']){
+    const live=new RecoveryLiveObjectStorage({env:{...env,FACTORYRUNNER_CONNECTION_RECOVERY_PRIMARY_OBJECT_LOCK_DAYS:days},source,sink,transport:async()=>response('HEAD')});
+    await assert.rejects(()=>live.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')}),RecoveryLiveObjectStorageError);
+  }
+  const expired=new RecoveryLiveObjectStorage({env,source,sink,clock:()=>new Date('2026-09-30T05:00:00Z'),transport:async()=>response('HEAD',{'x-amz-object-lock-retain-until-date':'2026-09-30T04:00:00.000Z'})});
+  await assert.rejects(()=>expired.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')}),error=>error instanceof RecoveryLiveObjectStorageError&&error.message==='recovery_live_object_storage_failed');
 });
