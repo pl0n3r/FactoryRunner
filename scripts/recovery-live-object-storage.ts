@@ -38,6 +38,23 @@ async function confinedPath(rootInput:string,pathInput:string,forWrite=false):Pr
   return candidate;
 }
 
+async function preflightArtifactPath(rootInput:string,pathInput:string):Promise<void>{
+  if(!isAbsolute(rootInput)||!isAbsolute(pathInput)) throw new RecoveryArtifactPathError();
+  const root=await realpath(rootInput);
+  const candidate=resolve(pathInput);
+  const rel=relative(root,candidate);
+  if(rel===''||rel.startsWith('..')||isAbsolute(rel)) throw new RecoveryArtifactPathError();
+  const parent=await realpath(dirname(candidate));
+  const parentRel=relative(root,parent);
+  if(parentRel.startsWith('..')||isAbsolute(parentRel)) throw new RecoveryArtifactPathError();
+  try{
+    const stat=await lstat(candidate);
+    if(stat.isSymbolicLink()) throw new RecoveryArtifactPathError();
+  }catch(error){
+    if((error as NodeJS.ErrnoException).code!=='ENOENT') throw error;
+  }
+}
+
 export async function runRecoveryLiveObjectStorageCli(
   raw:string,
   env:NodeJS.ProcessEnv=process.env,
@@ -48,6 +65,7 @@ export async function runRecoveryLiveObjectStorageCli(
   const root=env.FACTORYRUNNER_RECOVERY_ARTIFACT_ROOT;
   const artifact=env.FACTORYRUNNER_RECOVERY_ARTIFACT_PATH;
   if(!root||!artifact) throw new RecoveryArtifactPathError();
+  await preflightArtifactPath(root,artifact);
   const source={
     read:async()=>readFile(await confinedPath(root,artifact)),
   };
