@@ -6,6 +6,7 @@ export type RecoveryS3Connection = Readonly<{
   bucket:string;
   region:string;
   prefix:string;
+  objectLockDays:number;
   accessKeyId:string;
   secretAccessKey:string;
   awsSecurityToken?:string;
@@ -49,6 +50,13 @@ function opaqueConfig(value:string,pattern:RegExp):string{
   return value;
 }
 
+function objectLockDays(value:string):number{
+  if(!/^[1-9][0-9]{0,3}$/.test(value)) throw new RecoveryConnectionError();
+  const days=Number(value);
+  if(!Number.isSafeInteger(days)||days<1||days>3650) throw new RecoveryConnectionError();
+  return days;
+}
+
 export function resolveRecoveryS3Connection(alias:string,env:NodeJS.ProcessEnv=process.env):RecoveryS3Connection{
   const stem=envStem(alias);
   const config:RecoveryS3Connection={
@@ -57,6 +65,7 @@ export function resolveRecoveryS3Connection(alias:string,env:NodeJS.ProcessEnv=p
     bucket:opaqueConfig(required(env,stem+'BUCKET'),BUCKET),
     region:opaqueConfig(required(env,stem+'REGION'),REGION),
     prefix:opaqueConfig(required(env,stem+'PREFIX'),PREFIX),
+    objectLockDays:objectLockDays(required(env,stem+'OBJECT_LOCK_DAYS')),
     accessKeyId:required(env,stem+'ACCESS_KEY_ID'),
     secretAccessKey:required(env,stem+'SECRET_ACCESS_KEY'),
     ...(env[stem+'AWS_SECURITY_TOKEN']?{awsSecurityToken:env[stem+'AWS_SECURITY_TOKEN']}:{}),

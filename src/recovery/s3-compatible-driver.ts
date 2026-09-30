@@ -9,7 +9,7 @@ export interface RecoveryArtifactSink { write(objectRef:string,body:Uint8Array):
 export type RecoveryS3Transport=(url:string,init:RequestInit)=>Promise<Response>;
 
 type Clock=()=>Date;
-const SHA256=/^[0-9a-f]{64}$/;
+const DAY_MS=24*60*60*1000;
 
 function sha256(value:Uint8Array|string):string{return createHash('sha256').update(value).digest('hex');}
 function hmac(key:Uint8Array|string,value:string):Buffer{return createHmac('sha256',key).update(value).digest();}
@@ -20,6 +20,11 @@ function path(config:RecoveryS3Connection,command:RecoveryObjectStorageCommand):
 function safeVersion(value:string|null):string{
   if(!value||value.length>1024||/[\u0000-\u001f\u007f]/.test(value)) throw new Error('invalid_version');
   return value;
+}
+function futureRetention(value:string|null,now:Date):void{
+  if(!value||value.length>128||/[\u0000-\u001f\u007f]/.test(value)) throw new Error('invalid_retention');
+  const timestamp=Date.parse(value);
+  if(!Number.isFinite(timestamp)||timestamp<=now.getTime()) throw new Error('invalid_retention');
 }
 function signedRequest(
   config:RecoveryS3Connection,method:string,pathname:string,payloadHash:string,now:Date,extra:Record<string,string>={},
@@ -77,39 +82,64 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
     }catch{return this.#blocked(command);}
   }
 
+  #immutableVersion(response:Response,command:RecoveryObjectStorageCommand,now:Date):string{
+    if(response.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) throw new Error('checksum_mismatch');
+    const version=safeVersion(response.headers.get('x-amz-version-id'));
+    if(response.headers.get('x-amz-object-lock-mode')!=='COMPLIANCE') throw new Error('object_lock_required');
+    futureRetention(response.headers.get('x-amz-object-lock-retain-until-date'),now);
+    return version;
+  }
+
+  async #headImmutable(command:RecoveryObjectStorageCommand,pathname:string):Promise<string>{
+    const now=this.#clock();
+    const req=signedRequest(this.#config,'HEAD',pathname,sha256(''),now);
+    const response=await this.#transport(req.url,req.init);
+    if(!response.ok) throw new Error('object_unavailable');
+    return this.#immutableVersion(response,command,now);
+  }
+
   async #upload(command:RecoveryObjectStorageCommand,pathname:string):Promise<unknown>{
-    const probe=signedRequest(this.#config,'HEAD',pathname,sha256(''),this.#clock());
+    const probeNow=this.#clock();
+    const probe=signedRequest(this.#config,'HEAD',pathname,sha256(''),probeNow);
     const existing=await this.#transport(probe.url,probe.init);
-    if(existing.ok){
-      if(existing.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) return this.#blocked(command);
-      return this.#ok(command,safeVersion(existing.headers.get('x-amz-version-id')));
-    }
+    if(existing.ok) return this.#ok(command,this.#immutableVersion(existing,command,probeNow));
     if(existing.status!==404) return this.#blocked(command);
+
     const body=await this.#source.read(command.object_ref);
     const digest=sha256(body);
     if(digest!==command.checksum_sha256) return this.#blocked(command);
-    const req=signedRequest(this.#config,'PUT',pathname,digest,this.#clock(),{'x-amz-meta-sha256':digest});
+
+    const now=this.#clock();
+    const retainUntil=new Date(now.getTime()+this.#config.objectLockDays*DAY_MS).toISOString();
+    const req=signedRequest(this.#config,'PUT',pathname,digest,now,{
+      'x-amz-meta-sha256':digest,
+      'x-amz-object-lock-mode':'COMPLIANCE',
+      'x-amz-object-lock-retain-until-date':retainUntil,
+    });
     req.init.body=Buffer.from(body);
     const response=await this.#transport(req.url,req.init);
     if(!response.ok) return this.#blocked(command);
-    return this.#ok(command,safeVersion(response.headers.get('x-amz-version-id')));
+    const putVersion=safeVersion(response.headers.get('x-amz-version-id'));
+    const verifiedVersion=await this.#headImmutable(command,pathname);
+    if(verifiedVersion!==putVersion) return this.#blocked(command);
+    return this.#ok(command,verifiedVersion);
   }
 
   async #verify(command:RecoveryObjectStorageCommand,pathname:string):Promise<unknown>{
-    const req=signedRequest(this.#config,'HEAD',pathname,sha256(''),this.#clock());
-    const response=await this.#transport(req.url,req.init);
-    if(!response.ok||response.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) return this.#blocked(command);
-    return this.#ok(command,safeVersion(response.headers.get('x-amz-version-id')));
+    return this.#ok(command,await this.#headImmutable(command,pathname));
   }
 
   async #materialize(command:RecoveryObjectStorageCommand,pathname:string):Promise<unknown>{
+    const verifiedVersion=await this.#headImmutable(command,pathname);
     const req=signedRequest(this.#config,'GET',pathname,sha256(''),this.#clock());
     const response=await this.#transport(req.url,req.init);
     if(!response.ok) return this.#blocked(command);
+    const getVersion=safeVersion(response.headers.get('x-amz-version-id'));
+    if(getVersion!==verifiedVersion||response.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) return this.#blocked(command);
     const body=new Uint8Array(await response.arrayBuffer());
     if(sha256(body)!==command.checksum_sha256) return this.#blocked(command);
     await this.#sink.write(command.object_ref,body);
-    return this.#ok(command,safeVersion(response.headers.get('x-amz-version-id')));
+    return this.#ok(command,verifiedVersion);
   }
 
   #ok(command:RecoveryObjectStorageCommand,version:string){
