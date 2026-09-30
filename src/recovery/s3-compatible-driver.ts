@@ -17,6 +17,7 @@ function awsEncode(value:string):string{return encodeURIComponent(value).replace
 function path(config:RecoveryS3Connection,command:RecoveryObjectStorageCommand):string{
   return '/'+[config.bucket,config.prefix,command.namespace,command.object_ref].flatMap(x=>x.split('/')).filter(Boolean).map(awsEncode).join('/');
 }
+function bucketPath(config:RecoveryS3Connection):string{return '/'+awsEncode(config.bucket);}
 function safeVersion(value:string|null):string{
   if(!value||value.length>1024||/[\u0000-\u001f\u007f]/.test(value)) throw new Error('invalid_version');
   return value;
@@ -26,8 +27,15 @@ function futureRetention(value:string|null,now:Date):void{
   const timestamp=Date.parse(value);
   if(!Number.isFinite(timestamp)||timestamp<=now.getTime()) throw new Error('invalid_retention');
 }
+function canonicalQuery(query:Record<string,string>):string{
+  return Object.entries(query)
+    .sort(([left],[right])=>left<right?-1:left>right?1:0)
+    .map(([key,value])=>awsEncode(key)+'='+awsEncode(value))
+    .join('&');
+}
 function signedRequest(
-  config:RecoveryS3Connection,method:string,pathname:string,payloadHash:string,now:Date,extra:Record<string,string>={},
+  config:RecoveryS3Connection,method:string,pathname:string,payloadHash:string,now:Date,
+  extra:Record<string,string>={},query:Record<string,string>={},
 ):{url:string;init:RequestInit}{
   const amzDate=now.toISOString().replace(/[:-]|\.\d{3}/g,'');
   const date=amzDate.slice(0,8);
@@ -42,7 +50,8 @@ function signedRequest(
   const names=Object.keys(headers).sort((a,b)=>a.localeCompare(b));
   const canonicalHeaders=names.map(name=>name.toLowerCase()+':'+headers[name].trim()+'\n').join('');
   const signedHeaders=names.map(name=>name.toLowerCase()).join(';');
-  const canonicalRequest=[method,pathname,'',canonicalHeaders,signedHeaders,payloadHash].join('\n');
+  const queryString=canonicalQuery(query);
+  const canonicalRequest=[method,pathname,queryString,canonicalHeaders,signedHeaders,payloadHash].join('\n');
   const scope=`${date}/${config.region}/s3/aws4_request`;
   const toSign=['AWS4-HMAC-SHA256',amzDate,scope,sha256(canonicalRequest)].join('\n');
   const kDate=hmac('AWS4'+config.secretAccessKey,date);
@@ -52,7 +61,16 @@ function signedRequest(
   const signature=createHmac('sha256',kSigning).update(toSign).digest('hex');
   headers.authorization=`AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   delete headers.host;
-  return {url:config.endpoint+pathname,init:{method,headers}};
+  return {url:config.endpoint+pathname+(queryString?'?'+queryString:''),init:{method,headers}};
+}
+function exactXmlValue(xml:string,root:string,tag:string):string{
+  if(xml.length===0||xml.length>8192||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(xml)) throw new Error('invalid_bucket_configuration');
+  const open=new RegExp('<'+root+'(?:\\s[^>]*)?>','g');
+  const close=new RegExp('</'+root+'>','g');
+  if([...xml.matchAll(open)].length!==1||[...xml.matchAll(close)].length!==1) throw new Error('invalid_bucket_configuration');
+  const values=[...xml.matchAll(new RegExp('<'+tag+'>\\s*([^<]+?)\\s*</'+tag+'>','g'))];
+  if(values.length!==1) throw new Error('invalid_bucket_configuration');
+  return values[0]![1]!.trim();
 }
 
 export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
@@ -61,6 +79,7 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
   readonly #sink:RecoveryArtifactSink;
   readonly #transport:RecoveryS3Transport;
   readonly #clock:Clock;
+  #bucketPreflight:Promise<void>|undefined;
 
   constructor(options:{
     config:RecoveryS3Connection; source:RecoveryArtifactSource; sink:RecoveryArtifactSink;
@@ -75,11 +94,32 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
 
   async execute(command:RecoveryObjectStorageCommand):Promise<unknown>{
     try{
+      await this.#ensureBucketReady();
       const pathname=path(this.#config,command);
       if(command.operation==='upload') return await this.#upload(command,pathname);
       if(command.operation==='verify') return await this.#verify(command,pathname);
       return await this.#materialize(command,pathname);
     }catch{return this.#blocked(command);}
+  }
+
+  async #ensureBucketReady():Promise<void>{
+    this.#bucketPreflight??=this.#verifyBucketConfiguration();
+    await this.#bucketPreflight;
+  }
+
+  async #verifyBucketConfiguration():Promise<void>{
+    const pathname=bucketPath(this.#config);
+    const checks:[string,string,string][]=[
+      ['versioning','VersioningConfiguration','Status'],
+      ['object-lock','ObjectLockConfiguration','ObjectLockEnabled'],
+    ];
+    for(const [query,root,tag] of checks){
+      const req=signedRequest(this.#config,'GET',pathname,sha256(''),this.#clock(),{}, {[query]:''});
+      const response=await this.#transport(req.url,req.init);
+      if(!response.ok) throw new Error('bucket_preflight_failed');
+      const value=exactXmlValue(await response.text(),root,tag);
+      if(value!=='Enabled') throw new Error('bucket_preflight_failed');
+    }
   }
 
   #immutableVersion(response:Response,command:RecoveryObjectStorageCommand,now:Date):string{
