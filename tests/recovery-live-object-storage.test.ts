@@ -109,7 +109,7 @@ test('upload requests COMPLIANCE retention and verifies immutable HEAD before su
 
 test('verify requires checksum version compliance and future retention',async()=>{
   const now=()=>new Date('2026-09-30T05:00:00Z');
-  const variants=[
+  const variants:Record<string,string>[]=[
     {'x-amz-meta-sha256':'b'.repeat(64)},
     {'x-amz-version-id':''},
     {'x-amz-object-lock-mode':'GOVERNANCE'},
