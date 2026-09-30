@@ -1,6 +1,7 @@
 """Aceptación ejecutable FactoryRunner #47."""
 from __future__ import annotations
 
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -44,8 +45,18 @@ class RecoveryBucketPreflightTests(unittest.TestCase):
 
     def test_driver_remains_provider_agnostic(self) -> None:
         source = DRIVER.read_text(encoding="utf-8")
-        for provider in ("Backblaze", "backblaze", "B2", "Amazon", "AWS"):
+        for provider in (
+            "Backblaze", "backblaze", "B2", "Amazon", "amazonaws.com"
+        ):
             self.assertNotIn(provider, source)
+        compact = re.sub(r"\\s+", " ", source)
+        for branch in (
+            r"(?i)\\b(?:if|switch)\\s*\\([^)]*['\"]AWS['\"][^)]*\\)",
+            r"(?i)\\bcase\\s+['\"]AWS['\"]",
+            r"(?i)\\b(?:provider|vendor|backend)\\s*[:=]{1,3}\\s*['\"]AWS['\"]",
+        ):
+            self.assertNotRegex(compact, branch)
+        self.assertIn("AWS4-HMAC-SHA256", source)
         self.assertIn("versioning", source)
         self.assertIn("object-lock", source)
         self.assertIn("S3-compatible", DOC.read_text(encoding="utf-8"))
