@@ -22,6 +22,9 @@ export {
 } from './event.ts';
 export type { ExecutionState, ExecutionEvidence, ExecutionEvent } from './event.ts';
 
+export { DurableJournal, DurableJournalError } from './journal.ts';
+export type { RecoveredJournal } from './journal.ts';
+
 export {
   AdapterRegistry,
   ExecFileCommandRunner,
