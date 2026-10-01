@@ -28,6 +28,9 @@ export type { RecoveredJournal } from './journal.ts';
 export { ExecutionLoop } from './execution-loop.ts';
 export type { ExecutionLoopDependencies, ExecutionLoopOptions, ExecutionLoopResult } from './execution-loop.ts';
 
+export { resultEnvelope, capacitySnapshot } from './result.ts';
+export type { ExecutionResultEnvelope, ObservedQueueState, CapacitySnapshot } from './result.ts';
+
 export {
   AdapterRegistry,
   ExecFileCommandRunner,
