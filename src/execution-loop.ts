@@ -114,6 +114,7 @@ export class ExecutionLoop {
       throw new TypeError('Estado de ejecución inconsistente.');
     }
 
+    const timeoutMs = integer(options.timeout_ms ?? 30_000, 'timeout_ms', 1, 30_000);
     if (options.signal?.aborted) {
       const cancelled = this.#append(order, accepted.sequence + 1, 'cancelled', {
         code: 'cancelled',
@@ -128,7 +129,6 @@ export class ExecutionLoop {
       summary: 'Adapter dispatch started',
       ref: null,
     });
-    const timeoutMs = integer(options.timeout_ms ?? 30_000, 'timeout_ms', 1, 30_000);
     const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal);
 
     if (outcome.kind === 'completed') {
