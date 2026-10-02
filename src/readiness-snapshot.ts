@@ -113,20 +113,22 @@ function verdict(
   reasonsInput: readonly string[],
   evidence: EvidenceRefs,
 ): ReadinessSnapshot {
-  const reasons = [...new Set(reasonsInput)].sort((a, b) => a.localeCompare(b, 'en'));
-  const core: SnapshotCore = {
-    version: 1,
-    status,
-    ready: status === 'READY',
-    authority: 'unchanged',
-    runner_id: runnerId,
-    ...evidence,
-    reasons,
-  };
-  return Object.freeze({
-    ...core,
-    fingerprint: stableSha256(core),
-  });
+  const normalizedReasons = Array.from(new Set(reasonsInput));
+  normalizedReasons.sort((left, right) => left.localeCompare(right, 'en'));
+
+  const snapshot: SnapshotCore = Object.assign(
+    {
+      version: 1 as const,
+      status,
+      ready: status === 'READY',
+      authority: 'unchanged' as const,
+      runner_id: runnerId,
+    },
+    evidence,
+    { reasons: normalizedReasons },
+  );
+  const fingerprint = stableSha256(snapshot);
+  return Object.freeze(Object.assign(snapshot, { fingerprint }));
 }
 
 function emptyEvidence(): EvidenceRefs {
