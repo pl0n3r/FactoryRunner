@@ -50,7 +50,7 @@ function canonicalProfile(value: unknown): BrowserRemoteProfile {
     throw new TypeError('BrowserRemoteProfile no es canónico.');
   }
 
-  return canonical;
+  return value as BrowserRemoteProfile;
 }
 
 export function browserRemoteEntryHandle(
