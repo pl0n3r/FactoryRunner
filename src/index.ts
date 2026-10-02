@@ -25,6 +25,9 @@ export type { ExecutionState, ExecutionEvidence, ExecutionEvent } from './event.
 export { DurableJournal, DurableJournalError } from './journal.ts';
 export type { RecoveredJournal } from './journal.ts';
 
+export { DurableOutbox, DurableOutboxError } from './outbox.ts';
+export type { OutboxDelivery, RecoveredOutbox } from './outbox.ts';
+
 export { ExecutionLoop } from './execution-loop.ts';
 export type { ExecutionLoopDependencies, ExecutionLoopOptions, ExecutionLoopResult } from './execution-loop.ts';
 
