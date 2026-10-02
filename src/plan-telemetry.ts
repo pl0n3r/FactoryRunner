@@ -1,6 +1,7 @@
 import { orderFingerprint, parseExecutionOrder } from './order.ts';
 import {
   asRecord,
+  capability,
   exactKeys,
   ref,
   slug,
@@ -58,7 +59,7 @@ export function planTelemetry(
   const runnerId = uuid(plan.runner_id, 'plan.runner_id');
   const orderId = uuid(plan.order_id, 'plan.order_id');
   const workItemId = ref(plan.work_item_id, 'plan.work_item_id', 160);
-  const capability = slug(plan.capability, 'plan.capability');
+  const parsedCapability = capability(plan.capability, 'plan.capability');
   const adapterId = slug(plan.adapter_id, 'plan.adapter_id');
   const executedAdapterId = slug(executedAdapterIdInput, 'executed_adapter_id');
   const planFingerprint = sha256(plan.fingerprint, 'plan.fingerprint');
@@ -67,7 +68,7 @@ export function planTelemetry(
     runnerId !== order.runner_id
     || orderId !== order.order_id
     || workItemId !== order.work_item_id
-    || capability !== order.capability
+    || parsedCapability !== order.capability
     || sha256(plan.order_fingerprint, 'plan.order_fingerprint') !== orderFingerprint(order)
     || adapterId !== executedAdapterId
   ) {

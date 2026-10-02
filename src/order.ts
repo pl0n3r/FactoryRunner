@@ -1,5 +1,5 @@
 import type { RunnerIdentity } from './runner.ts';
-import { asRecord, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
+import { asRecord, capability, exactKeys, integer, ref, stableSha256, uuid } from './validation.ts';
 
 export type ExecutionOrder = {
   version: 1;
@@ -44,7 +44,7 @@ export function parseExecutionOrder(input: unknown): ExecutionOrder {
     order_id: uuid(record.order_id, 'order_id'),
     work_item_id: ref(record.work_item_id, 'work_item_id', 160),
     runner_id: uuid(record.runner_id, 'runner_id'),
-    capability: slug(record.capability, 'capability'),
+    capability: capability(record.capability, 'capability'),
     attempt: integer(record.attempt, 'attempt', 1, 10),
     issued_at: issuedAt,
     expires_at: expiresAt,

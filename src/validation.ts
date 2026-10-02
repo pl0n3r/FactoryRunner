@@ -4,6 +4,7 @@ export type JsonRecord = Record<string, unknown>;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z][a-z0-9.-]{0,63}$/;
+const CAPABILITY_RE = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,255}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SECRET_TEXT_PATTERNS = [
@@ -45,6 +46,12 @@ export function uuid(value: unknown, label: string): string {
 export function slug(value: unknown, label: string): string {
   const parsed = stringValue(value, label, 64);
   if (!SLUG_RE.test(parsed)) throw new TypeError(`${label} inválido.`);
+  return parsed;
+}
+
+export function capability(value: unknown, label: string): string {
+  const parsed = stringValue(value, label, 64);
+  if (!CAPABILITY_RE.test(parsed)) throw new TypeError(`${label} inválido.`);
   return parsed;
 }
 

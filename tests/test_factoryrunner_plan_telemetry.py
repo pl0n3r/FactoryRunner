@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def observe() -> dict[str, object]:
     script = r"""
-import { orderFingerprint } from './src/order.ts';
+import { orderFingerprint, parseExecutionOrder } from './src/order.ts';
 import { planTelemetry } from './src/plan-telemetry.ts';
-import { stableSha256 } from './src/validation.ts';
+import { capability, slug, stableSha256 } from './src/validation.ts';
 
 const order = {
   version: 1,
@@ -64,6 +64,63 @@ const mismatchedOrderRejected = rejected(() => planTelemetry(
   'git-adapter',
 ));
 
+const canonicalCapabilities = [
+  'git',
+  'git.head',
+  'openai-api',
+  'browser.click_ref',
+  'browser.type_ref',
+];
+const acceptedCapabilities = canonicalCapabilities.map((candidate) => {
+  const candidateOrder = { ...order, capability: candidate };
+  const parsedOrder = parseExecutionOrder(candidateOrder);
+  const candidatePlanCore = {
+    ...planCore,
+    capability: candidate,
+    order_fingerprint: orderFingerprint(parsedOrder),
+  };
+  const candidatePlan = {
+    ...candidatePlanCore,
+    fingerprint: stableSha256(candidatePlanCore),
+  };
+  return {
+    order: parsedOrder.capability,
+    telemetry: planTelemetry(candidateOrder, candidatePlan, 'git-adapter').plan_fingerprint,
+  };
+});
+
+const invalidCapabilities = [
+  'Git',
+  'browser click_ref',
+  'browser..click',
+  'browser._ref',
+  'browser.click_',
+  '_browser',
+  'browser/close',
+  'a'.repeat(65),
+];
+const boundedGrammarRejected = invalidCapabilities.every((candidate) =>
+  rejected(() => capability(candidate, 'capability'))
+);
+const slugUnchanged = (
+  slug('git.head', 'slug') === 'git.head'
+  && rejected(() => slug('browser.click_ref', 'slug'))
+);
+const capabilityDriftRejected = rejected(() => {
+  const driftOrder = { ...order, capability: 'browser.click_ref' };
+  const parsedDriftOrder = parseExecutionOrder(driftOrder);
+  const driftPlanCore = {
+    ...planCore,
+    capability: 'browser.type_ref',
+    order_fingerprint: orderFingerprint(parsedDriftOrder),
+  };
+  const driftPlan = {
+    ...driftPlanCore,
+    fingerprint: stableSha256(driftPlanCore),
+  };
+  planTelemetry(driftOrder, driftPlan, 'git-adapter');
+});
+
 console.log(JSON.stringify({
   telemetry,
   frozen: Object.isFrozen(telemetry),
@@ -72,6 +129,10 @@ console.log(JSON.stringify({
   mismatchAdapterRejected,
   sensitivePlanRejected,
   mismatchedOrderRejected,
+  acceptedCapabilities,
+  boundedGrammarRejected,
+  slugUnchanged,
+  capabilityDriftRejected,
 }));
 """
     raw = subprocess.check_output(
@@ -116,6 +177,20 @@ class FactoryRunnerPlanTelemetryTests(unittest.TestCase):
             "credential",
         ):
             self.assertNotIn(forbidden, serialized)
+
+    def test_order_and_plan_telemetry_accept_canonical_browser_ref_capabilities(self):
+        accepted = self.observed["acceptedCapabilities"]
+        self.assertEqual(
+            [entry["order"] for entry in accepted],
+            ["git", "git.head", "openai-api", "browser.click_ref", "browser.type_ref"],
+        )
+        for entry in accepted:
+            self.assertRegex(entry["telemetry"], r"^[0-9a-f]{64}$")
+
+    def test_capability_grammar_remains_bounded_without_relaxing_slug(self):
+        self.assertTrue(self.observed["boundedGrammarRejected"])
+        self.assertTrue(self.observed["slugUnchanged"])
+        self.assertTrue(self.observed["capabilityDriftRejected"])
 
     def test_mismatched_plan_adapter_or_sensitive_input_fails_closed(self):
         self.assertTrue(self.observed["mismatchAdapterRejected"])
