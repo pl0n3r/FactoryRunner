@@ -4,10 +4,7 @@ import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import { browserPlacementGuard } from './browser-placement-guard.ts';
 import { browserRemoteDispatchBinding } from './browser-remote-dispatch-binding.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
-import {
-  browserRemoteEntryHandle,
-  type BrowserRemoteEntryHandle,
-} from './browser-remote-entry-handle.ts';
+import { browserRemoteEntryHandle } from './browser-remote-entry-handle.ts';
 import { browserRemoteOriginPolicy } from './browser-remote-origin-policy.ts';
 import { BrowserRemotePinRegistry } from './browser-remote-pin-registry.ts';
 import { resolveBrowserRemoteHandleAdapter } from './browser-remote-resolver.ts';
