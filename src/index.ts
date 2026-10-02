@@ -52,6 +52,9 @@ export type {
 
 export { GitReadAdapter } from './adapters/git-read.ts';
 
+export { capabilityManifest } from './capability-manifest.ts';
+export type { CapabilityManifest, CapabilityManifestAdapter, CapabilityAdapterSource } from './capability-manifest.ts';
+
 export { BrowserExecutionAdapter, BrowserExecutionError } from './adapters/browser.ts';
 export type {
   BrowserCapability,
