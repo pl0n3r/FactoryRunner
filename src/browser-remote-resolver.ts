@@ -4,6 +4,8 @@ import type {
   BrowserExecutionContext,
 } from './adapters/browser.ts';
 import { bindBrowserRemoteAdapter } from './browser-remote-binding.ts';
+import type { BrowserRemoteEntryHandle } from './browser-remote-entry-handle.ts';
+import type { BrowserRemoteTransport } from './browser-remote-driver.ts';
 import {
   BrowserRemoteDirectory,
   type BrowserRemoteDirectoryEntry,
@@ -21,12 +23,41 @@ export type BrowserRemotePinnedResolverInput = BrowserRemoteResolverInput & {
   binding_fingerprint: string;
 };
 
+export type BrowserRemoteHandleResolverInput = {
+  handle: BrowserRemoteEntryHandle;
+  allowed_origins: readonly string[];
+  context: BrowserExecutionContext;
+  capability: BrowserCapability;
+  binding_fingerprint: string;
+};
+
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
 function sha256(value: unknown, label: string): string {
   const parsed = stringValue(value, label, 64);
   if (!SHA256_RE.test(parsed)) throw new TypeError(label + ' inválido.');
   return parsed;
+}
+
+function resolverBindingContext(
+  record: Record<string, unknown>,
+): {
+  allowedOrigins: readonly string[];
+  context: BrowserExecutionContext;
+  capability: BrowserCapability;
+} {
+  if (!Array.isArray(record.allowed_origins)) {
+    throw new TypeError('allowed_origins debe ser un arreglo.');
+  }
+
+  const context = asRecord(record.context, 'BrowserExecutionContext');
+  exactKeys(context, ['runner_id', 'order_id', 'location'], 'BrowserExecutionContext');
+
+  return {
+    allowedOrigins: record.allowed_origins as readonly string[],
+    context: record.context as BrowserExecutionContext,
+    capability: record.capability as BrowserCapability,
+  };
 }
 
 function resolverContext(
@@ -40,18 +71,10 @@ function resolverContext(
   if (!(record.directory instanceof BrowserRemoteDirectory)) {
     throw new TypeError('BrowserRemoteDirectory requerido.');
   }
-  if (!Array.isArray(record.allowed_origins)) {
-    throw new TypeError('allowed_origins debe ser un arreglo.');
-  }
-
-  const context = asRecord(record.context, 'BrowserExecutionContext');
-  exactKeys(context, ['runner_id', 'order_id', 'location'], 'BrowserExecutionContext');
 
   return {
     directory: record.directory,
-    allowedOrigins: record.allowed_origins as readonly string[],
-    context: record.context as BrowserExecutionContext,
-    capability: record.capability as BrowserCapability,
+    ...resolverBindingContext(record),
   };
 }
 
@@ -123,4 +146,71 @@ export function resolvePinnedBrowserRemoteAdapter(
   }
 
   return bindResolvedEntry(matches[0], parsed);
+}
+
+
+export function resolveBrowserRemoteHandleAdapter(
+  input: BrowserRemoteHandleResolverInput,
+): BrowserExecutionAdapter {
+  const record = asRecord(input, 'BrowserRemoteHandleResolverInput');
+  exactKeys(
+    record,
+    ['handle', 'allowed_origins', 'context', 'capability', 'binding_fingerprint'],
+    'BrowserRemoteHandleResolverInput',
+  );
+
+  const parsed = resolverBindingContext(record);
+  const handle = asRecord(record.handle, 'BrowserRemoteEntryHandle');
+  exactKeys(
+    handle,
+    ['version', 'authority', 'profile', 'binding_fingerprint', 'execute', 'invoke'],
+    'BrowserRemoteEntryHandle',
+  );
+
+  if (
+    handle.version !== 1
+    || handle.authority !== 'unchanged'
+    || typeof handle.execute !== 'function'
+    || typeof handle.invoke !== 'function'
+  ) {
+    throw new TypeError('BrowserRemoteEntryHandle inválido.');
+  }
+
+  const expectedFingerprint = sha256(
+    record.binding_fingerprint,
+    'binding_fingerprint',
+  );
+  const handleFingerprint = sha256(
+    handle.binding_fingerprint,
+    'handle.binding_fingerprint',
+  );
+  const profile = asRecord(handle.profile, 'BrowserRemoteProfile');
+  const profileFingerprint = sha256(
+    profile.fingerprint,
+    'profile.fingerprint',
+  );
+
+  if (
+    handleFingerprint !== expectedFingerprint
+    || profileFingerprint !== expectedFingerprint
+    || profile.runner_id !== parsed.context.runner_id
+    || profile.location !== parsed.context.location
+    || profile.capability !== parsed.capability
+  ) {
+    throw new TypeError('Handle browser remoto pinneado desalineado.');
+  }
+
+  const pinnedTransport: BrowserRemoteTransport = Object.freeze({
+    execute: (request: Parameters<BrowserRemoteTransport['execute']>[0]) => (
+      (handle.invoke as BrowserRemoteEntryHandle['invoke'])(request)
+    ),
+  });
+
+  return bindBrowserRemoteAdapter({
+    profile: handle.profile as BrowserRemoteEntryHandle['profile'],
+    transport: pinnedTransport,
+    allowed_origins: parsed.allowedOrigins,
+    context: parsed.context,
+    capability: parsed.capability,
+  });
 }
