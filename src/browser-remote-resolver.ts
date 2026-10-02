@@ -201,7 +201,7 @@ export function resolveBrowserRemoteHandleAdapter(
   }
 
   const pinnedTransport: BrowserRemoteTransport = Object.freeze({
-    execute: (request) => (
+    execute: (request: Parameters<BrowserRemoteTransport['execute']>[0]) => (
       (handle.invoke as BrowserRemoteEntryHandle['invoke'])(request)
     ),
   });
