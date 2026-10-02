@@ -1,6 +1,7 @@
 import type { BrowserCapability, BrowserLocation } from './adapters/browser.ts';
 import type { AdapterRegistry } from './adapters/programmatic.ts';
 import type { BrowserLoopRequest } from './browser-loop-request.ts';
+import { browserPlacementGuard } from './browser-placement-guard.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
 import { resolveBrowserRemoteAdapter } from './browser-remote-resolver.ts';
 import type { ControlBotClient } from './controlbot/client.ts';
@@ -21,6 +22,11 @@ const BROWSER_LOCATIONS = new Set<BrowserLocation>([
   'macos-local',
 ]);
 
+export type BrowserPlacementProfileResolver = (
+  order: ExecutionOrder,
+  plan: ExecutionPlan,
+) => unknown;
+
 export type BrowserRemoteSupervisorDependencies = {
   client: ControlBotClient;
   journal: DurableJournal;
@@ -38,6 +44,7 @@ export type BrowserRemoteSupervisorDependencies = {
     admission: ExecutionAdmissionDecision,
     now: number,
   ) => ExecutionPlan;
+  placement_profile: BrowserPlacementProfileResolver;
   browser_request: RuntimeBrowserRequestResolver;
   now?: () => number;
   event_id?: () => string;
@@ -89,6 +96,25 @@ export function createBrowserRemoteSupervisor(
     event_id: dependencies.event_id,
   });
 
+  const guardedBrowserRequest: RuntimeBrowserRequestResolver = (order, plan) => {
+    let placementProfile: unknown;
+    let rawRequest: unknown;
+    try {
+      placementProfile = dependencies.placement_profile(order, plan);
+      rawRequest = dependencies.browser_request(order, plan);
+    } catch {
+      throw new TypeError('Browser placement/request no disponible.');
+    }
+
+    return browserPlacementGuard(
+      placementProfile,
+      dependencies.directory,
+      order,
+      plan,
+      rawRequest,
+    ).request;
+  };
+
   return new RuntimeSupervisor({
     client: dependencies.client,
     journal: dependencies.journal,
@@ -96,7 +122,7 @@ export function createBrowserRemoteSupervisor(
     loop,
     admission: dependencies.admission,
     plan: dependencies.plan,
-    browser_request: dependencies.browser_request,
+    browser_request: guardedBrowserRequest,
     now: dependencies.now,
     event_id: dependencies.event_id,
   });
