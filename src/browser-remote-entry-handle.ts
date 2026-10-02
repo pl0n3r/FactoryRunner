@@ -70,9 +70,16 @@ export function browserRemoteEntryHandle(
   }
 
   const execute = transport.execute;
-  const invoke = (request: BrowserRemoteTransportRequest): Promise<unknown> => (
-    execute.call(transport, request)
-  );
+  let consumed = false;
+  const invoke = (request: BrowserRemoteTransportRequest): Promise<unknown> => {
+    if (consumed) {
+      return Promise.reject(
+        new TypeError('BrowserRemoteEntryHandle ya fue consumido.'),
+      );
+    }
+    consumed = true;
+    return execute.call(transport, request);
+  };
 
   return Object.freeze({
     version: 1 as const,
