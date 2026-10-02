@@ -54,7 +54,7 @@ function normalizeAdapters(
       throw new TypeError('Adapter sin capabilities.');
     }
 
-    const capabilities = adapter.capabilities.map((value) => slug(value, 'capability'));
+    const capabilities = adapter.capabilities.map((value: unknown) => slug(value, 'capability'));
     if (new Set(capabilities).size !== capabilities.length) {
       throw new TypeError('Adapter contiene capabilities duplicadas.');
     }
