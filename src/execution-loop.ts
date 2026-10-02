@@ -14,7 +14,6 @@ import { assertIdempotentOrder, assertOrderExecutable, orderFingerprint, parseEx
 import type { RunnerIdentity } from './runner.ts';
 import { asRecord, capability, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
 
-const TERMINAL_STATES = new Set<ExecutionState>(['failed', 'completed', 'cancelled']);
 const PLAN_KEYS = [
   'version', 'authority', 'runner_id', 'order_id', 'work_item_id', 'capability',
   'order_fingerprint', 'admission_fingerprint', 'adapter_id',
@@ -206,8 +205,8 @@ export class ExecutionLoop {
     ) => Promise<AdapterOutcome<TAdapterResult>>,
     completedEvidence: (result: TAdapterResult) => ExecutionEvent['evidence'],
   ): Promise<ExecutionLoopResult<TAdapterResult>> {
-    const recoveredBefore = this.#journal.recover();
-    const existing = recoveredBefore.orders.find((order) => order.order_id === incoming.order_id);
+    const recoveredExecution = this.#journal.recoverExecution(incoming.order_id);
+    const existing = recoveredExecution?.order;
 
     let order: ExecutionOrder;
     if (existing) {
@@ -218,13 +217,13 @@ export class ExecutionLoop {
       order = this.#journal.appendOrder(incoming);
     }
 
-    let history = this.#events(order.order_id);
-    const last = history.at(-1);
-    if (last && TERMINAL_STATES.has(last.state)) {
+    let history = recoveredExecution?.events ?? [];
+    const last = recoveredExecution?.last_event ?? null;
+    if (recoveredExecution?.recovery === 'terminal' && last) {
       return { order, event: last, adapter_result: null, reused: true };
     }
 
-    if (last && last.state !== 'accepted') {
+    if (recoveredExecution?.recovery === 'interrupted' && last) {
       const interrupted = this.#append(order, last.sequence + 1, 'failed', {
         code: 'restart-interrupted',
         summary: 'Recovered non-terminal execution; retry refused to avoid duplicate effect',
@@ -302,7 +301,7 @@ export class ExecutionLoop {
   }
 
   #events(orderId: string): ExecutionEvent[] {
-    return this.#journal.recover().events.filter((event) => event.order_id === orderId);
+    return [...(this.#journal.recoverExecution(orderId)?.events ?? [])];
   }
 
   #timestamp(): number {
