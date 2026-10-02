@@ -8,33 +8,15 @@ const MAX_RECORD_BYTES = 64 * 1024;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
 export type OutboxDelivery =
-  | {
-      version: 1;
-      kind: 'ack';
-      delivery_id: string;
-      fingerprint: string;
-      request: ControlBotAckRequest;
-    }
-  | {
-      version: 1;
-      kind: 'events';
-      delivery_id: string;
-      fingerprint: string;
-      request: ControlBotEventsRequest;
-    };
-
-export type RecoveredOutbox = {
-  pending: readonly OutboxDelivery[];
-  delivered: readonly OutboxDelivery[];
-};
-
+  | { version: 1; kind: 'ack'; delivery_id: string; fingerprint: string; request: ControlBotAckRequest }
+  | { version: 1; kind: 'events'; delivery_id: string; fingerprint: string; request: ControlBotEventsRequest };
+export type RecoveredOutbox = { pending: readonly OutboxDelivery[]; delivered: readonly OutboxDelivery[] };
 type OutboxRecord =
   | { version: 1; op: 'enqueue'; delivery: OutboxDelivery }
   | { version: 1; op: 'delivered'; delivery_id: string; fingerprint: string };
 
 export class DurableOutboxError extends Error {
   readonly code: 'outbox_invalid' | 'outbox_io';
-
   constructor(code: DurableOutboxError['code'], message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = 'DurableOutboxError';
@@ -43,19 +25,13 @@ export class DurableOutboxError extends Error {
 }
 
 function invalid(message: string, cause?: unknown): never {
-  throw new DurableOutboxError(
-    'outbox_invalid',
-    message,
-    cause === undefined ? undefined : { cause },
-  );
+  throw new DurableOutboxError('outbox_invalid', message, cause === undefined ? undefined : { cause });
 }
-
 function sha256(value: unknown, label: string): string {
   const parsed = ref(value, label, 64).toLowerCase();
   if (!SHA256_RE.test(parsed)) throw new TypeError(`${label} inválido.`);
   return parsed;
 }
-
 function parseAckRequest(input: unknown): ControlBotAckRequest {
   const record = asRecord(input, 'ControlBotAckRequest');
   exactKeys(record, ['version', 'order_id', 'runner_id', 'fingerprint'], 'ControlBotAckRequest');
@@ -67,65 +43,39 @@ function parseAckRequest(input: unknown): ControlBotAckRequest {
     fingerprint: sha256(record.fingerprint, 'fingerprint'),
   };
 }
-
 function parseEventsRequest(input: unknown): ControlBotEventsRequest {
   const record = asRecord(input, 'ControlBotEventsRequest');
   exactKeys(record, ['version', 'runner_id', 'events'], 'ControlBotEventsRequest');
-  if (
-    record.version !== 1
-    || !Array.isArray(record.events)
-    || record.events.length === 0
-    || record.events.length > 128
-  ) {
+  if (record.version !== 1 || !Array.isArray(record.events) || record.events.length === 0 || record.events.length > 128) {
     throw new TypeError('Batch de eventos inválido.');
   }
   const runnerId = uuid(record.runner_id, 'runner_id');
   const events: ExecutionEvent[] = record.events.map((raw) => parseExecutionEvent(raw));
-  if (events.some((event) => event.runner_id !== runnerId)) {
-    throw new TypeError('Evento pertenece a otro runner.');
-  }
+  if (events.some((event) => event.runner_id !== runnerId)) throw new TypeError('Evento pertenece a otro runner.');
   return { version: 1, runner_id: runnerId, events };
 }
-
 function buildDelivery(kind: 'ack' | 'events', input: unknown): OutboxDelivery {
   if (kind === 'ack') {
     const request = parseAckRequest(input);
     const fingerprint = stableSha256({ kind, request });
-    return {
-      version: 1,
-      kind,
-      delivery_id: `outbox:${kind}:${fingerprint}`,
-      fingerprint,
-      request,
-    };
+    return { version: 1, kind, delivery_id: `outbox:${kind}:${fingerprint}`, fingerprint, request };
   }
-
   const request = parseEventsRequest(input);
   const fingerprint = stableSha256({ kind, request });
-  return {
-    version: 1,
-    kind,
-    delivery_id: `outbox:${kind}:${fingerprint}`,
-    fingerprint,
-    request,
-  };
+  return { version: 1, kind, delivery_id: `outbox:${kind}:${fingerprint}`, fingerprint, request };
 }
-
 function parseDelivery(input: unknown): OutboxDelivery {
   const record = asRecord(input, 'outbox delivery');
   exactKeys(record, ['version', 'kind', 'delivery_id', 'fingerprint', 'request'], 'outbox delivery');
-  if (record.version !== 1 || (record.kind !== 'ack' && record.kind !== 'events')) {
-    return invalid('Delivery de outbox inválido.');
-  }
+  if (record.version !== 1 || (record.kind !== 'ack' && record.kind !== 'events')) invalid('Delivery de outbox inválido.');
   const expected = buildDelivery(record.kind, record.request);
   const deliveryId = ref(record.delivery_id, 'delivery_id', 160);
   const fingerprint = sha256(record.fingerprint, 'fingerprint');
   if (deliveryId !== expected.delivery_id || fingerprint !== expected.fingerprint) {
-    return invalid('Delivery de outbox no coincide con su identidad estable.');
+    invalid('Delivery de outbox no coincide con su identidad estable.');
   }
   return expected;
 }
-
 function parseRecord(input: unknown, lineNumber: number): OutboxRecord {
   const record = asRecord(input, `outbox line ${lineNumber}`);
   if (record.op === 'enqueue') {
@@ -145,7 +95,6 @@ function parseRecord(input: unknown, lineNumber: number): OutboxRecord {
   }
   return invalid(`Operación de outbox inválida en línea ${lineNumber}.`);
 }
-
 function readRecords(path: string): OutboxRecord[] {
   if (!existsSync(path)) return [];
   let raw: Buffer;
@@ -158,7 +107,6 @@ function readRecords(path: string): OutboxRecord[] {
   }
   if (raw.length === 0) return [];
   if (raw[raw.length - 1] !== 0x0a) invalid('Outbox truncado: falta newline final.');
-
   return raw.toString('utf8').slice(0, -1).split('\n').map((line, index) => {
     const lineNumber = index + 1;
     if (line.length === 0 || Buffer.byteLength(line, 'utf8') > MAX_RECORD_BYTES) {
@@ -172,29 +120,21 @@ function readRecords(path: string): OutboxRecord[] {
     }
   });
 }
-
 function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
   const deliveries = new Map<string, OutboxDelivery>();
   const deliveredIds = new Set<string>();
-
   for (const record of records) {
     if (record.op === 'enqueue') {
       const existing = deliveries.get(record.delivery.delivery_id);
-      if (existing && stableSha256(existing) !== stableSha256(record.delivery)) {
-        invalid('Outbox contiene un delivery_id conflictivo.');
-      }
+      if (existing && stableSha256(existing) !== stableSha256(record.delivery)) invalid('Outbox contiene un delivery_id conflictivo.');
       if (!existing) deliveries.set(record.delivery.delivery_id, record.delivery);
       continue;
     }
-
     const delivery = deliveries.get(record.delivery_id);
     if (!delivery) invalid('Outbox marca como entregado un delivery desconocido.');
-    if (delivery.fingerprint !== record.fingerprint) {
-      invalid('Outbox contiene estado de entrega conflictivo.');
-    }
+    if (delivery.fingerprint !== record.fingerprint) invalid('Outbox contiene estado de entrega conflictivo.');
     deliveredIds.add(record.delivery_id);
   }
-
   const pending: OutboxDelivery[] = [];
   const delivered: OutboxDelivery[] = [];
   for (const delivery of deliveries.values()) {
@@ -202,7 +142,6 @@ function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
   }
   return { pending, delivered };
 }
-
 function appendRecord(path: string, record: OutboxRecord): void {
   const encoded = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
   if (encoded.length > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
@@ -220,50 +159,34 @@ function appendRecord(path: string, record: OutboxRecord): void {
 
 export class DurableOutbox {
   readonly #path: string;
-
   constructor(path: string) {
-    if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) {
-      throw new TypeError('Ruta de outbox inválida.');
-    }
+    if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) throw new TypeError('Ruta de outbox inválida.');
     this.#path = path;
   }
-
   recover(): RecoveredOutbox {
     return recoverRecords(readRecords(this.#path));
   }
-
   enqueueAck(input: unknown): OutboxDelivery {
     return this.#enqueue(buildDelivery('ack', input));
   }
-
   enqueueEvents(input: unknown): OutboxDelivery {
     return this.#enqueue(buildDelivery('events', input));
   }
-
   markDelivered(deliveryIdInput: string): OutboxDelivery {
     const deliveryId = ref(deliveryIdInput, 'delivery_id', 160);
     const recovered = this.recover();
-    const alreadyDelivered = recovered.delivered.find((delivery) => delivery.delivery_id === deliveryId);
-    if (alreadyDelivered) return alreadyDelivered;
-    const pending = recovered.pending.find((delivery) => delivery.delivery_id === deliveryId);
+    const delivered = recovered.delivered.find((item) => item.delivery_id === deliveryId);
+    if (delivered) return delivered;
+    const pending = recovered.pending.find((item) => item.delivery_id === deliveryId);
     if (!pending) invalid('No se puede entregar un delivery desconocido.');
-    appendRecord(this.#path, {
-      version: 1,
-      op: 'delivered',
-      delivery_id: pending.delivery_id,
-      fingerprint: pending.fingerprint,
-    });
+    appendRecord(this.#path, { version: 1, op: 'delivered', delivery_id: pending.delivery_id, fingerprint: pending.fingerprint });
     return pending;
   }
-
   #enqueue(delivery: OutboxDelivery): OutboxDelivery {
     const recovered = this.recover();
-    const existing = [...recovered.pending, ...recovered.delivered]
-      .find((candidate) => candidate.delivery_id === delivery.delivery_id);
+    const existing = [...recovered.pending, ...recovered.delivered].find((item) => item.delivery_id === delivery.delivery_id);
     if (existing) {
-      if (stableSha256(existing) !== stableSha256(delivery)) {
-        invalid('Reuso conflictivo de delivery_id.');
-      }
+      if (stableSha256(existing) !== stableSha256(delivery)) invalid('Reuso conflictivo de delivery_id.');
       return existing;
     }
     appendRecord(this.#path, { version: 1, op: 'enqueue', delivery });
