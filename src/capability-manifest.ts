@@ -1,6 +1,6 @@
 import { parseRunnerIdentity } from './runner.ts';
 import type { RunnerIdentity } from './runner.ts';
-import { slug, stableSha256 } from './validation.ts';
+import { capability, slug, stableSha256 } from './validation.ts';
 
 export type CapabilityAdapterSource = {
   readonly id: string;
@@ -54,7 +54,7 @@ function normalizeAdapters(
       throw new TypeError('Adapter sin capabilities.');
     }
 
-    const capabilities = adapter.capabilities.map((value: unknown) => slug(value, 'capability'));
+    const capabilities = adapter.capabilities.map((value: unknown) => capability(value, 'capability'));
     if (new Set(capabilities).size !== capabilities.length) {
       throw new TypeError('Adapter contiene capabilities duplicadas.');
     }
