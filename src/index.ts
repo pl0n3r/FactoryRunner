@@ -37,6 +37,9 @@ export type { RuntimeSupervisorDependencies, RuntimeTickResult } from './runtime
 export { resultEnvelope, capacitySnapshot } from './result.ts';
 export type { ExecutionResultEnvelope, ObservedQueueState, CapacitySnapshot } from './result.ts';
 
+export { resourceSnapshot } from './resource-snapshot.ts';
+export type { ResourceSnapshot } from './resource-snapshot.ts';
+
 export {
   AdapterRegistry,
   ExecFileCommandRunner,
