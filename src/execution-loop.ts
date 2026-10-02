@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import type { BrowserExecutionResult } from './adapters/browser.ts';
+import { BrowserExecutionAdapter } from './adapters/browser.ts';
 import type { ProgrammaticAdapterResult } from './adapters/programmatic.ts';
 import { AdapterRegistry } from './adapters/programmatic.ts';
+import { browserLoopRequest, type BrowserLoopRequest } from './browser-loop-request.ts';
+import type { BrowserPlanBatch } from './browser-plan-batch.ts';
+import type { BrowserPlanStep } from './browser-plan.ts';
 import type { ExecutionEvent, ExecutionState } from './event.ts';
 import type { ExecutionPlan } from './execution-plan.ts';
 import type { DurableJournal } from './journal.ts';
 import type { ExecutionOrder } from './order.ts';
 import { assertIdempotentOrder, assertOrderExecutable, orderFingerprint, parseExecutionOrder } from './order.ts';
 import type { RunnerIdentity } from './runner.ts';
-import { asRecord, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
+import { asRecord, capability, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
 
 const TERMINAL_STATES = new Set<ExecutionState>(['failed', 'completed', 'cancelled']);
 const PLAN_KEYS = [
@@ -35,7 +40,7 @@ function validatedExecutionPlan(input: unknown, order: ExecutionOrder): Executio
     uuid(plan.runner_id, 'plan.runner_id') !== order.runner_id
     || uuid(plan.order_id, 'plan.order_id') !== order.order_id
     || ref(plan.work_item_id, 'plan.work_item_id', 160) !== order.work_item_id
-    || slug(plan.capability, 'plan.capability') !== order.capability
+    || capability(plan.capability, 'plan.capability') !== order.capability
     || plan.order_fingerprint !== orderFingerprint(order)
   ) {
     throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
@@ -44,14 +49,60 @@ function validatedExecutionPlan(input: unknown, order: ExecutionOrder): Executio
   return { ...(plan as unknown as ExecutionPlan), adapter_id: adapterId, fingerprint };
 }
 
-type AdapterOutcome =
-  | { kind: 'completed'; result: ProgrammaticAdapterResult }
+function validatedBrowserLoopRequest(
+  orderInput: unknown,
+  planInput: unknown,
+  input: unknown,
+): BrowserLoopRequest {
+  const request = asRecord(input, 'BrowserLoopRequest');
+  exactKeys(request, [
+    'version',
+    'authority',
+    'order_id',
+    'runner_id',
+    'work_item_id',
+    'plan_fingerprint',
+    'adapter_id',
+    'capability',
+    'browser_kind',
+    'browser_fingerprint',
+    'browser',
+    'fingerprint',
+  ], 'BrowserLoopRequest');
+
+  const canonical = browserLoopRequest(orderInput, planInput, {
+    version: request.version,
+    browser_kind: request.browser_kind,
+    browser: request.browser,
+  });
+
+  if (
+    request.authority !== canonical.authority
+    || request.order_id !== canonical.order_id
+    || request.runner_id !== canonical.runner_id
+    || request.work_item_id !== canonical.work_item_id
+    || request.plan_fingerprint !== canonical.plan_fingerprint
+    || request.adapter_id !== canonical.adapter_id
+    || request.capability !== canonical.capability
+    || request.browser_kind !== canonical.browser_kind
+    || request.browser_fingerprint !== canonical.browser_fingerprint
+    || request.fingerprint !== canonical.fingerprint
+    || stableSha256(request.browser) !== stableSha256(canonical.browser)
+  ) {
+    throw new TypeError('BrowserLoopRequest no corresponde al binding canónico.');
+  }
+
+  return canonical;
+}
+
+type AdapterOutcome<T> =
+  | { kind: 'completed'; result: T }
   | { kind: 'failed' | 'timeout' | 'cancelled' };
 
-export type ExecutionLoopResult = {
+export type ExecutionLoopResult<TAdapterResult = ProgrammaticAdapterResult> = {
   order: ExecutionOrder;
   event: ExecutionEvent;
-  adapter_result: ProgrammaticAdapterResult | null;
+  adapter_result: TAdapterResult | null;
   reused: boolean;
 };
 
@@ -63,6 +114,7 @@ export type ExecutionLoopOptions = {
 export type ExecutionLoopDependencies = {
   journal: DurableJournal;
   registry: AdapterRegistry;
+  browser_adapter?: BrowserExecutionAdapter;
   identity: RunnerIdentity;
   now?: () => number;
   event_id?: () => string;
@@ -71,6 +123,7 @@ export type ExecutionLoopDependencies = {
 export class ExecutionLoop {
   readonly #journal: DurableJournal;
   readonly #registry: AdapterRegistry;
+  readonly #browserAdapter: BrowserExecutionAdapter | null;
   readonly #identity: RunnerIdentity;
   readonly #now: () => number;
   readonly #eventId: () => string;
@@ -78,6 +131,7 @@ export class ExecutionLoop {
   constructor(dependencies: ExecutionLoopDependencies) {
     this.#journal = dependencies.journal;
     this.#registry = dependencies.registry;
+    this.#browserAdapter = dependencies.browser_adapter ?? null;
     this.#identity = dependencies.identity;
     this.#now = dependencies.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#eventId = dependencies.event_id ?? randomUUID;
@@ -85,7 +139,12 @@ export class ExecutionLoop {
 
   async execute(input: unknown, options: ExecutionLoopOptions = {}): Promise<ExecutionLoopResult> {
     const incoming = parseExecutionOrder(input);
-    return this.#executeParsed(incoming, options, null);
+    return this.#executeParsed(
+      incoming,
+      options,
+      (timeoutMs, signal) => this.#runAdapter(incoming.capability, timeoutMs, signal, null),
+      (result) => result.evidence,
+    );
   }
 
   async executePlan(
@@ -95,14 +154,58 @@ export class ExecutionLoop {
   ): Promise<ExecutionLoopResult> {
     const incoming = parseExecutionOrder(input);
     const plan = validatedExecutionPlan(planInput, incoming);
-    return this.#executeParsed(incoming, options, plan.adapter_id);
+    return this.#executeParsed(
+      incoming,
+      options,
+      (timeoutMs, signal) => this.#runAdapter(incoming.capability, timeoutMs, signal, plan.adapter_id),
+      (result) => result.evidence,
+    );
   }
 
-  async #executeParsed(
+  async executeBrowserRequest(
+    input: unknown,
+    planInput: unknown,
+    requestInput: unknown,
+    options: ExecutionLoopOptions = {},
+  ): Promise<ExecutionLoopResult<readonly BrowserExecutionResult[]>> {
+    const incoming = parseExecutionOrder(input);
+    const plan = validatedExecutionPlan(planInput, incoming);
+    const request = validatedBrowserLoopRequest(incoming, plan, requestInput);
+    const adapter = this.#browserAdapter;
+
+    if (adapter === null) {
+      throw new TypeError('BrowserExecutionAdapter no configurado.');
+    }
+    if (
+      adapter.id !== request.adapter_id
+      || plan.adapter_id !== request.adapter_id
+      || plan.fingerprint !== request.plan_fingerprint
+      || plan.capability !== request.capability
+    ) {
+      throw new TypeError('BrowserLoopRequest no corresponde al adapter o ExecutionPlan.');
+    }
+
+    return this.#executeParsed(
+      incoming,
+      options,
+      (timeoutMs, signal) => this.#runBrowserRequest(incoming, plan, request, timeoutMs, signal),
+      (results) => ({
+        code: 'browser-completed',
+        summary: `Browser plan-bound execution completed with ${results.length} step(s)`,
+        ref: null,
+      }),
+    );
+  }
+
+  async #executeParsed<TAdapterResult>(
     incoming: ExecutionOrder,
     options: ExecutionLoopOptions,
-    adapterId: string | null,
-  ): Promise<ExecutionLoopResult> {
+    dispatch: (
+      timeoutMs: number,
+      signal: AbortSignal | undefined,
+    ) => Promise<AdapterOutcome<TAdapterResult>>,
+    completedEvidence: (result: TAdapterResult) => ExecutionEvent['evidence'],
+  ): Promise<ExecutionLoopResult<TAdapterResult>> {
     const recoveredBefore = this.#journal.recover();
     const existing = recoveredBefore.orders.find((order) => order.order_id === incoming.order_id);
 
@@ -181,10 +284,10 @@ export class ExecutionLoop {
       summary: 'Adapter dispatch started',
       ref: null,
     });
-    const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal, adapterId);
+    const outcome = await dispatch(timeoutMs, options.signal);
 
     if (outcome.kind === 'completed') {
-      const completed = this.#append(order, started.sequence + 1, 'completed', outcome.result.evidence);
+      const completed = this.#append(order, started.sequence + 1, 'completed', completedEvidence(outcome.result));
       return { order, event: completed, adapter_result: outcome.result, reused: false };
     }
 
@@ -224,16 +327,74 @@ export class ExecutionLoop {
     });
   }
 
+  #runBrowserRequest(
+    order: ExecutionOrder,
+    plan: ExecutionPlan,
+    request: BrowserLoopRequest,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+  ): Promise<AdapterOutcome<readonly BrowserExecutionResult[]>> {
+    const adapter = this.#browserAdapter;
+    if (adapter === null) {
+      throw new TypeError('BrowserExecutionAdapter no configurado.');
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      let halted = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (outcome: AdapterOutcome<readonly BrowserExecutionResult[]>) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== undefined) clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        resolve(outcome);
+      };
+      const onAbort = () => {
+        halted = true;
+        finish({ kind: 'cancelled' });
+      };
+
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+
+      timer = setTimeout(() => {
+        halted = true;
+        finish({ kind: 'timeout' });
+      }, timeoutMs);
+
+      const execution = (async (): Promise<readonly BrowserExecutionResult[]> => {
+        const steps: readonly BrowserPlanStep[] = request.browser_kind === 'step'
+          ? [request.browser as BrowserPlanStep]
+          : (request.browser as BrowserPlanBatch).steps.map((item) => item.step);
+        const results: BrowserExecutionResult[] = [];
+        for (const step of steps) {
+          if (halted) throw new TypeError('Browser execution halted.');
+          results.push(await adapter.executePlanStep(order, plan, step));
+        }
+        return Object.freeze(results);
+      })();
+
+      execution.then(
+        (result) => finish({ kind: 'completed', result }),
+        () => finish({ kind: 'failed' }),
+      );
+    });
+  }
+
   #runAdapter(
     capability: string,
     timeoutMs: number,
     signal: AbortSignal | undefined,
     adapterId: string | null,
-  ): Promise<AdapterOutcome> {
+  ): Promise<AdapterOutcome<ProgrammaticAdapterResult>> {
     return new Promise((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (outcome: AdapterOutcome) => {
+      const finish = (outcome: AdapterOutcome<ProgrammaticAdapterResult>) => {
         if (settled) return;
         settled = true;
         if (timer !== undefined) clearTimeout(timer);
