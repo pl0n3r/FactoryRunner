@@ -62,7 +62,7 @@ async function duplicateRequest() {
 
     completed = subprocess.run(
         ("node", "--experimental-strip-types", "--input-type=module", "-e", script),
-        cwd=ROOT,
+        cwd=_ROOT,
         text=True,
         capture_output=True,
         check=True,
