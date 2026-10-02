@@ -104,6 +104,8 @@ export class ExecFileCommandRunner implements CommandRunner {
 
 export class AdapterRegistry {
   readonly #byCapability = new Map<string, ProgrammaticAdapter>();
+  readonly #byId = new Map<string, ProgrammaticAdapter>();
+  readonly #capabilitiesById = new Map<string, ReadonlySet<string>>();
 
   constructor(adapters: readonly ProgrammaticAdapter[]) {
     if (!Array.isArray(adapters) || adapters.length === 0) {
@@ -120,13 +122,17 @@ export class AdapterRegistry {
         throw new TypeError('Adapter sin capabilities.');
       }
 
+      const adapterCapabilities = new Set<string>();
       for (const rawCapability of adapter.capabilities) {
         const capability = slug(rawCapability, 'capability');
         if (this.#byCapability.has(capability)) {
           throw new TypeError('Capability registrada por más de un adapter.');
         }
+        adapterCapabilities.add(capability);
         this.#byCapability.set(capability, adapter);
       }
+      this.#byId.set(adapterId, adapter);
+      this.#capabilitiesById.set(adapterId, adapterCapabilities);
     }
   }
 
@@ -138,7 +144,29 @@ export class AdapterRegistry {
     const capability = slug(capabilityInput, 'capability');
     const adapter = this.#byCapability.get(capability);
     if (!adapter) throw new TypeError('Capability sin adapter programático.');
+    return this.#executeWithAdapter(adapter, capability);
+  }
 
+  async executeAdapter(
+    adapterIdInput: string,
+    capabilityInput: string,
+  ): Promise<ProgrammaticAdapterResult> {
+    const adapterId = slug(adapterIdInput, 'adapter_id');
+    const capability = slug(capabilityInput, 'capability');
+    const adapter = this.#byId.get(adapterId);
+    if (!adapter) throw new TypeError('Adapter programático desconocido.');
+
+    if (!this.#capabilitiesById.get(adapterId)?.has(capability)) {
+      throw new TypeError('Adapter no declara capability solicitada.');
+    }
+
+    return this.#executeWithAdapter(adapter, capability);
+  }
+
+  async #executeWithAdapter(
+    adapter: ProgrammaticAdapter,
+    capability: string,
+  ): Promise<ProgrammaticAdapterResult> {
     const result = await adapter.execute(capability);
     if (result.capability !== capability) {
       throw new TypeError('Adapter devolvió capability inconsistente.');
