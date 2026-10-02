@@ -89,10 +89,14 @@ function admittedDecision(
   const resourceHash = sha256(record.resource_fingerprint, 'admission.resource_fingerprint');
   const fingerprint = sha256(record.fingerprint, 'admission.fingerprint');
 
-  if (!Array.isArray(record.reasons) || record.reasons.length === 0 || record.reasons.length > 16) {
-    throw new TypeError('ExecutionAdmissionDecision reasons inválidas.');
+  if (
+    !Array.isArray(record.reasons)
+    || record.reasons.length !== 1
+    || record.reasons[0] !== 'admission_evidence_coherent'
+  ) {
+    throw new TypeError('ExecutionAdmissionDecision ALLOW no es canónica.');
   }
-  for (const reason of record.reasons) ref(reason, 'admission.reason', 64);
+  ref(record.reasons[0], 'admission.reason', 64);
 
   const { fingerprint: _ignored, ...core } = record;
   if (stableSha256(core) !== fingerprint) {

@@ -114,6 +114,7 @@ class FactoryRunnerExecutionPlanTests(unittest.TestCase):
           manifest_fingerprint: ambiguousAdapter.fingerprint,
         });
         const authorityDrift = rehashAdmission({ authority: 'expanded' });
+        const reasonDrift = rehashAdmission({ reasons: ['capacity_unavailable'] });
         const manifestDrift = rehashAdmission({
           manifest_fingerprint: 'f'.repeat(64),
         });
@@ -140,6 +141,11 @@ class FactoryRunnerExecutionPlanTests(unittest.TestCase):
             authorityDrift: rejected(() => executionPlan(
               { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
               authorityDrift,
+              canonicalManifest,
+            )),
+            reasonDrift: rejected(() => executionPlan(
+              { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
+              reasonDrift,
               canonicalManifest,
             )),
             manifestDrift: rejected(() => executionPlan(
@@ -196,6 +202,7 @@ class FactoryRunnerExecutionPlanTests(unittest.TestCase):
                 "missingAdapter": True,
                 "ambiguousAdapter": True,
                 "authorityDrift": True,
+                "reasonDrift": True,
                 "manifestDrift": True,
             },
         )
