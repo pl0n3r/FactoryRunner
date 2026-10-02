@@ -49,6 +49,30 @@ const step = browserPlanStep(order, plan, {
   payload: { url: 'https://example.com/path?q=1' },
 });
 
+const acceptedCapabilities = [
+  ['browser.navigate', { url: 'https://example.com/' }],
+  ['browser.click_ref', { ref: 'node:123' }],
+  ['browser.type_ref', { ref: 'node:456', text: 'safe synthetic text' }],
+  ['browser.close', {}],
+].map(([capability, payload]) => {
+  const candidateOrder = { ...order, capability };
+  const candidatePlanCore = {
+    ...planCore,
+    capability,
+    order_fingerprint: orderFingerprint(candidateOrder),
+  };
+  const candidatePlan = {
+    ...candidatePlanCore,
+    fingerprint: stableSha256(candidatePlanCore),
+  };
+  return browserPlanStep(candidateOrder, candidatePlan, {
+    version: 1,
+    adapter_id: 'browser-adapter',
+    capability,
+    payload,
+  }).capability;
+});
+
 const rejected = (action) => {
   try {
     action();
@@ -100,6 +124,7 @@ console.log(JSON.stringify({
   frozen: Object.isFrozen(step),
   payloadFrozen: Object.isFrozen(step.payload),
   planFingerprint: plan.fingerprint,
+  acceptedCapabilities,
   adapterMismatchRejected,
   capabilityMismatchRejected,
   extraFieldRejected,
@@ -132,6 +157,10 @@ class FactoryRunnerBrowserPlanTests(unittest.TestCase):
         self.assertEqual(step["capability"], "browser.navigate")
         self.assertEqual(step["payload"], {"url": "https://example.com/path?q=1"})
         self.assertRegex(step["fingerprint"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            self.observed["acceptedCapabilities"],
+            ["browser.navigate", "browser.click_ref", "browser.type_ref", "browser.close"],
+        )
         self.assertTrue(self.observed["frozen"])
         self.assertTrue(self.observed["payloadFrozen"])
 
