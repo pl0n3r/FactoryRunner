@@ -4,6 +4,7 @@ import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import { browserPlacementGuard } from './browser-placement-guard.ts';
 import { browserRemoteDispatchBinding } from './browser-remote-dispatch-binding.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
+import { browserRemoteOriginPolicy } from './browser-remote-origin-policy.ts';
 import { resolvePinnedBrowserRemoteAdapter } from './browser-remote-resolver.ts';
 import type { ControlBotClient } from './controlbot/client.ts';
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
@@ -68,9 +69,7 @@ export function createBrowserRemoteSupervisor(
   if (!(dependencies.directory instanceof BrowserRemoteDirectory)) {
     throw new TypeError('BrowserRemoteDirectory requerido.');
   }
-  if (!Array.isArray(dependencies.allowed_origins)) {
-    throw new TypeError('allowed_origins debe ser un arreglo.');
-  }
+  const allowedOrigins = browserRemoteOriginPolicy(dependencies.allowed_origins);
 
   const identity = parseRunnerIdentity(dependencies.identity);
   const location = browserLocation(identity.location);
@@ -92,7 +91,7 @@ export function createBrowserRemoteSupervisor(
       try {
         return resolvePinnedBrowserRemoteAdapter({
           directory,
-          allowed_origins: dependencies.allowed_origins,
+          allowed_origins: allowedOrigins,
           context: {
             runner_id: request.runner_id,
             order_id: request.order_id,
