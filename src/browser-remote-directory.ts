@@ -48,15 +48,31 @@ function canonicalProfile(value: unknown): BrowserRemoteProfile {
   return canonical;
 }
 
-function canonicalTransport(value: unknown): BrowserRemoteTransport {
-  if (
-    value === null
-    || typeof value !== 'object'
-    || typeof (value as BrowserRemoteTransport).execute !== 'function'
-  ) {
+function sealedTransport(value: unknown): BrowserRemoteTransport {
+  if (value === null || typeof value !== 'object') {
     throw new TypeError('BrowserRemoteTransport requerido.');
   }
-  return value as BrowserRemoteTransport;
+
+  const transport = value as BrowserRemoteTransport;
+  const execute = transport.execute;
+  if (typeof execute !== 'function') {
+    throw new TypeError('BrowserRemoteTransport requerido.');
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(transport, 'execute');
+  const enumerable = descriptor?.enumerable ?? false;
+  try {
+    Object.defineProperty(transport, 'execute', {
+      value: execute,
+      writable: false,
+      configurable: false,
+      enumerable,
+    });
+  } catch {
+    throw new TypeError('BrowserRemoteTransport no puede sellarse.');
+  }
+
+  return transport;
 }
 
 function opaqueAlias(value: unknown): string {
@@ -79,7 +95,7 @@ export class BrowserRemoteDirectory {
     );
 
     const profile = canonicalProfile(record.profile);
-    const transport = canonicalTransport(record.transport);
+    const transport = sealedTransport(record.transport);
 
     if (this.#byAlias.has(profile.remote_alias)) {
       throw new TypeError('remote_alias browser remoto duplicado.');
