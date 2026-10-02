@@ -45,12 +45,16 @@ export {
 export type {
   ProgrammaticAdapter,
   ProgrammaticAdapterResult,
+  ProgrammaticAdapterRegistration,
   CommandRunner,
   CommandSpec,
   CommandResult,
 } from './adapters/programmatic.ts';
 
 export { GitReadAdapter } from './adapters/git-read.ts';
+
+export { capabilityManifest } from './capability-manifest.ts';
+export type { CapabilityManifest, CapabilityManifestAdapter } from './capability-manifest.ts';
 
 export { BrowserExecutionAdapter, BrowserExecutionError } from './adapters/browser.ts';
 export type {
