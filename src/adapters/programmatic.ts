@@ -104,6 +104,7 @@ export class ExecFileCommandRunner implements CommandRunner {
 
 export class AdapterRegistry {
   readonly #byCapability = new Map<string, ProgrammaticAdapter>();
+  readonly #byId = new Map<string, ProgrammaticAdapter>();
 
   constructor(adapters: readonly ProgrammaticAdapter[]) {
     if (!Array.isArray(adapters) || adapters.length === 0) {
@@ -115,6 +116,7 @@ export class AdapterRegistry {
       const adapterId = slug(adapter.id, 'adapter.id');
       if (adapterIds.has(adapterId)) throw new TypeError('Adapter id duplicado.');
       adapterIds.add(adapterId);
+      this.#byId.set(adapterId, adapter);
 
       if (!Array.isArray(adapter.capabilities) || adapter.capabilities.length === 0) {
         throw new TypeError('Adapter sin capabilities.');
@@ -138,7 +140,30 @@ export class AdapterRegistry {
     const capability = slug(capabilityInput, 'capability');
     const adapter = this.#byCapability.get(capability);
     if (!adapter) throw new TypeError('Capability sin adapter programático.');
+    return this.#executeWithAdapter(adapter, capability);
+  }
 
+  async executeAdapter(
+    adapterIdInput: string,
+    capabilityInput: string,
+  ): Promise<ProgrammaticAdapterResult> {
+    const adapterId = slug(adapterIdInput, 'adapter_id');
+    const capability = slug(capabilityInput, 'capability');
+    const adapter = this.#byId.get(adapterId);
+    if (!adapter) throw new TypeError('Adapter programático desconocido.');
+
+    const capabilities = adapter.capabilities.map((value) => slug(value, 'adapter.capability'));
+    if (!capabilities.includes(capability)) {
+      throw new TypeError('Adapter no declara capability solicitada.');
+    }
+
+    return this.#executeWithAdapter(adapter, capability);
+  }
+
+  async #executeWithAdapter(
+    adapter: ProgrammaticAdapter,
+    capability: string,
+  ): Promise<ProgrammaticAdapterResult> {
     const result = await adapter.execute(capability);
     if (result.capability !== capability) {
       throw new TypeError('Adapter devolvió capability inconsistente.');
