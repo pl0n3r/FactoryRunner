@@ -9,7 +9,15 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 
 export type OutboxDelivery =
   | { version: 1; kind: 'ack'; delivery_id: string; fingerprint: string; request: ControlBotAckRequest }
-  | { version: 1; kind: 'events'; delivery_id: string; fingerprint: string; request: ControlBotEventsRequest };
+  | { version: 1; kind: 'events'; delivery_id: string; fingerprint: string; request: ControlBotEventsRequest }
+  | {
+      version: 1;
+      kind: 'plan-events';
+      delivery_id: string;
+      fingerprint: string;
+      plan_fingerprint: string;
+      request: ControlBotEventsRequest;
+    };
 export type RecoveredOutbox = { pending: readonly OutboxDelivery[]; delivered: readonly OutboxDelivery[] };
 type OutboxRecord =
   | { version: 1; op: 'enqueue'; delivery: OutboxDelivery }
@@ -54,21 +62,50 @@ function parseEventsRequest(input: unknown): ControlBotEventsRequest {
   if (events.some((event) => event.runner_id !== runnerId)) throw new TypeError('Evento pertenece a otro runner.');
   return { version: 1, runner_id: runnerId, events };
 }
-function buildDelivery(kind: 'ack' | 'events', input: unknown): OutboxDelivery {
+function buildDelivery(
+  kind: 'ack' | 'events' | 'plan-events',
+  input: unknown,
+  planFingerprintInput?: unknown,
+): OutboxDelivery {
   if (kind === 'ack') {
     const request = parseAckRequest(input);
     const fingerprint = stableSha256({ kind, request });
     return { version: 1, kind, delivery_id: `outbox:${kind}:${fingerprint}`, fingerprint, request };
   }
   const request = parseEventsRequest(input);
+  if (kind === 'plan-events') {
+    const planFingerprint = sha256(planFingerprintInput, 'plan_fingerprint');
+    const fingerprint = stableSha256({ kind, plan_fingerprint: planFingerprint, request });
+    return {
+      version: 1,
+      kind,
+      delivery_id: `outbox:${kind}:${fingerprint}`,
+      fingerprint,
+      plan_fingerprint: planFingerprint,
+      request,
+    };
+  }
   const fingerprint = stableSha256({ kind, request });
   return { version: 1, kind, delivery_id: `outbox:${kind}:${fingerprint}`, fingerprint, request };
 }
 function parseDelivery(input: unknown): OutboxDelivery {
   const record = asRecord(input, 'outbox delivery');
-  exactKeys(record, ['version', 'kind', 'delivery_id', 'fingerprint', 'request'], 'outbox delivery');
-  if (record.version !== 1 || (record.kind !== 'ack' && record.kind !== 'events')) invalid('Delivery de outbox inválido.');
-  const expected = buildDelivery(record.kind, record.request);
+  if (record.kind === 'plan-events') {
+    exactKeys(
+      record,
+      ['version', 'kind', 'delivery_id', 'fingerprint', 'plan_fingerprint', 'request'],
+      'outbox delivery',
+    );
+  } else {
+    exactKeys(record, ['version', 'kind', 'delivery_id', 'fingerprint', 'request'], 'outbox delivery');
+  }
+  if (
+    record.version !== 1
+    || (record.kind !== 'ack' && record.kind !== 'events' && record.kind !== 'plan-events')
+  ) invalid('Delivery de outbox inválido.');
+  const expected = record.kind === 'plan-events'
+    ? buildDelivery(record.kind, record.request, record.plan_fingerprint)
+    : buildDelivery(record.kind, record.request);
   const deliveryId = ref(record.delivery_id, 'delivery_id', 160);
   const fingerprint = sha256(record.fingerprint, 'fingerprint');
   if (deliveryId !== expected.delivery_id || fingerprint !== expected.fingerprint) {
@@ -174,6 +211,9 @@ export class DurableOutbox {
   enqueueEvents(input: unknown): OutboxDelivery {
     return this.#enqueue(buildDelivery('events', input));
   }
+  enqueuePlanEvents(input: unknown, planFingerprintInput: unknown): OutboxDelivery {
+    return this.#enqueue(buildDelivery('plan-events', input, planFingerprintInput));
+  }
   markDelivered(deliveryIdInput: string): OutboxDelivery {
     const deliveryId = ref(deliveryIdInput, 'delivery_id', 160);
     const recovered = this.recover();
@@ -186,11 +226,28 @@ export class DurableOutbox {
   }
   #enqueue(delivery: OutboxDelivery): OutboxDelivery {
     const recovered = this.recover();
-    const existing = [...recovered.pending, ...recovered.delivered].find((item) => item.delivery_id === delivery.delivery_id);
+    const all = [...recovered.pending, ...recovered.delivered];
+    const existing = all.find((item) => item.delivery_id === delivery.delivery_id);
     if (existing) {
       if (stableSha256(existing) !== stableSha256(delivery)) invalid('Reuso conflictivo de delivery_id.');
       return existing;
     }
+
+    if (delivery.kind === 'plan-events') {
+      const orderIds = new Set(delivery.request.events.map((event) => event.order_id));
+      for (const prior of all) {
+        if (prior.kind !== 'plan-events') continue;
+        const overlaps = prior.request.events.some((event) => orderIds.has(event.order_id));
+        if (!overlaps) continue;
+        if (
+          prior.plan_fingerprint !== delivery.plan_fingerprint
+          || stableSha256(prior.request) !== stableSha256(delivery.request)
+        ) {
+          invalid('Replay de resultado con ExecutionPlan conflictivo.');
+        }
+      }
+    }
+
     persistRecord(this.#path, { version: 1, op: 'enqueue', delivery });
     return delivery;
   }
