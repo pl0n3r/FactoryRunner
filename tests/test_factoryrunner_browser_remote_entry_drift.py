@@ -55,20 +55,28 @@ class FactoryRunnerBrowserRemoteEntryDriftTests(unittest.TestCase):
 
     def test_terminal_recovery_revalidates_entry_handle_without_ack_or_transport_replay(self):
         recovery = self.observed["recovery"]
-        self.assertEqual(recovery["firstResult"], {"processed": 1, "cursor": None})
-        self.assertEqual(recovery["firstCounts"]["placement"], 1)
-        self.assertEqual(recovery["firstCounts"]["request"], 1)
-        self.assertEqual(recovery["firstCounts"]["ack"], 1)
-        self.assertEqual(recovery["firstTransportCalls"], 1)
-
-        self.assertEqual(recovery["restartResult"], {"processed": 1, "cursor": None})
-        self.assertEqual(recovery["restartCounts"]["placement"], 1)
-        self.assertEqual(recovery["restartCounts"]["request"], 1)
-        self.assertEqual(recovery["restartCounts"]["ack"], 0)
-        self.assertEqual(recovery["restartCounts"]["publish"], 0)
-        self.assertEqual(recovery["restartTransportCalls"], 0)
-        self.assertEqual(recovery["events"], ["accepted", "started", "completed"])
-
-
-if __name__ == "__main__":
-    unittest.main()
+        actual = {
+            "first": (recovery["firstResult"], recovery["firstCounts"], recovery["firstTransportCalls"]),
+            "restart": (
+                recovery["restartResult"],
+                recovery["restartCounts"],
+                recovery["restartTransportCalls"],
+            ),
+            "events": recovery["events"],
+        }
+        self.assertEqual(
+            actual,
+            {
+                "first": (
+                    {"processed": 1, "cursor": None},
+                    {"ack": 1, "publish": 1, "placement": 1, "request": 1},
+                    1,
+                ),
+                "restart": (
+                    {"processed": 1, "cursor": None},
+                    {"ack": 0, "publish": 0, "placement": 1, "request": 1},
+                    0,
+                ),
+                "events": ["accepted", "started", "completed"],
+            },
+        )
