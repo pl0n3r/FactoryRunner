@@ -11,6 +11,7 @@ import {
 import { parseRunnerIdentity, type RunnerIdentity } from './runner.ts';
 import {
   asRecord,
+  capability,
   exactKeys,
   integer,
   slug,
@@ -161,7 +162,7 @@ function parseManifest(
     return {
       id: slug(adapter.adapter_id, 'manifest.adapter_id'),
       capabilities: adapter.capabilities.map((value) =>
-        slug(value, 'manifest.capability'),
+        capability(value, 'manifest.capability'),
       ),
     };
   });
