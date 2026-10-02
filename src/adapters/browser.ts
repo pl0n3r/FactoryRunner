@@ -1,3 +1,5 @@
+import { browserPlanStep } from '../browser-plan.ts';
+import type { BrowserPlanStep } from '../browser-plan.ts';
 import {
   asRecord,
   exactKeys,
@@ -192,6 +194,47 @@ function parseCapability(value: string): BrowserCapability {
   return parsed as BrowserCapability;
 }
 
+
+function canonicalPlanStep(
+  orderInput: unknown,
+  planInput: unknown,
+  stepInput: unknown,
+): BrowserPlanStep {
+  const step = asRecord(stepInput, 'BrowserPlanStep');
+  exactKeys(step, [
+    'version',
+    'authority',
+    'order_id',
+    'runner_id',
+    'plan_fingerprint',
+    'adapter_id',
+    'capability',
+    'payload',
+    'fingerprint',
+  ], 'BrowserPlanStep');
+
+  const canonical = browserPlanStep(orderInput, planInput, {
+    version: step.version,
+    adapter_id: step.adapter_id,
+    capability: step.capability,
+    payload: step.payload,
+  });
+
+  if (
+    step.authority !== canonical.authority
+    || step.order_id !== canonical.order_id
+    || step.runner_id !== canonical.runner_id
+    || step.plan_fingerprint !== canonical.plan_fingerprint
+    || step.adapter_id !== canonical.adapter_id
+    || step.capability !== canonical.capability
+    || step.fingerprint !== canonical.fingerprint
+  ) {
+    throw new TypeError('BrowserPlanStep no corresponde al ExecutionPlan validado.');
+  }
+
+  return canonical;
+}
+
 export class BrowserExecutionAdapter {
   readonly id = 'browser-execution';
   readonly capabilities = Object.freeze([
@@ -224,6 +267,24 @@ export class BrowserExecutionAdapter {
     this.#driver = driver;
     this.#allowedOrigins = new Set(parsedOrigins);
     this.#context = parseContext(context);
+  }
+
+
+  async executePlanStep(
+    orderInput: unknown,
+    planInput: unknown,
+    stepInput: unknown,
+  ): Promise<BrowserExecutionResult> {
+    const step = canonicalPlanStep(orderInput, planInput, stepInput);
+    if (
+      step.adapter_id !== this.id
+      || step.runner_id !== this.#context.runner_id
+      || step.order_id !== this.#context.order_id
+    ) {
+      throw new TypeError('BrowserPlanStep no pertenece a este adapter/contexto.');
+    }
+
+    return this.execute(step.capability, step.payload);
   }
 
   async execute(capabilityInput: string, input: unknown): Promise<BrowserExecutionResult> {
