@@ -126,7 +126,7 @@ export class AdapterRegistry {
         throw new TypeError('Adapter sin capabilities.');
       }
 
-      const capabilities = adapter.capabilities.map((value) => slug(value, 'capability'));
+      const capabilities = adapter.capabilities.map((value: unknown) => slug(value, 'capability'));
       if (new Set(capabilities).size !== capabilities.length) {
         throw new TypeError('Adapter contiene capabilities duplicadas.');
       }
@@ -142,7 +142,8 @@ export class AdapterRegistry {
       this.#registrations.push({ adapter_id: adapterId, capabilities });
     }
 
-    this.#registrations.sort((a, b) => a.adapter_id.localeCompare(b.adapter_id, 'en'));
+    this.#registrations.sort((a: ProgrammaticAdapterRegistration, b: ProgrammaticAdapterRegistration) =>
+      a.adapter_id.localeCompare(b.adapter_id, 'en'));
   }
 
   registrations(): ProgrammaticAdapterRegistration[] {
