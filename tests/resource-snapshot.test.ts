@@ -111,4 +111,9 @@ test('ResourceSnapshot fails closed on stale future or incoherent observation', 
     () => resourceSnapshot(identity(), heartbeat(), queue(), 1_215, 0),
     /stale_after_seconds inválido/,
   );
+
+  assert.throws(
+    () => resourceSnapshot(identity(), heartbeat(), queue(), 1_215, 91),
+    /stale_after_seconds inválido/,
+  );
 });

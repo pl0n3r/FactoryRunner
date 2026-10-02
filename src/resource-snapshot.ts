@@ -19,7 +19,7 @@ export function resourceSnapshot(
     staleAfterSecondsInput,
     'stale_after_seconds',
     1,
-    86_400,
+    90,
   );
   const observed = capacitySnapshot(
     identityInput,
