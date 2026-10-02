@@ -10,6 +10,7 @@ import {
   parseExecutionOrder,
   parseRunnerIdentity,
 } from '../src/index.ts';
+import { capability, slug } from '../src/validation.ts';
 
 const runnerId = '11111111-1111-7111-8111-111111111111';
 const orderId = '22222222-2222-7222-8222-222222222222';
@@ -74,6 +75,30 @@ test('ExecutionOrder is exact, bounded and ControlBot-scoped', () => {
     () => parseExecutionOrder(order({ instruction_ref: 'controlbot:token:supersecretvalue' })),
     /sensible/,
   );
+});
+
+test('capability grammar is bounded and distinct from slug', () => {
+  for (const value of ['git', 'git.head', 'openai-api', 'browser.click_ref', 'browser.type_ref']) {
+    assert.equal(capability(value, 'capability'), value);
+  }
+
+  for (const value of [
+    'Git',
+    'browser click_ref',
+    'browser..click',
+    'browser._ref',
+    'browser.click_',
+    '_browser',
+    'browser/close',
+    'a'.repeat(65),
+  ]) {
+    assert.throws(() => capability(value, 'capability'), /capability inválido/);
+  }
+
+  assert.equal(slug('git.head', 'slug'), 'git.head');
+  assert.throws(() => slug('browser.click_ref', 'slug'), /slug inválido/);
+  assert.equal(parseExecutionOrder(order({ capability: 'browser.click_ref' })).capability, 'browser.click_ref');
+  assert.equal(parseExecutionOrder(order({ capability: 'browser.type_ref' })).capability, 'browser.type_ref');
 });
 
 test('order execution is bound to runner capability and time window', () => {
