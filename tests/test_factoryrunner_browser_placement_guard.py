@@ -149,6 +149,7 @@ async function scenario(kind) {
     journal, outbox, registry: registry(), identity, directory,
     allowed_origins: ['https://example.com'],
     admission: () => a, plan: () => p,
+    placement_profile: () => profile,
     browser_request: () => {
       const guarded = browserPlacementGuard(profile, directory, order, p, req);
       guardEvidence = guarded.evidence;
