@@ -123,7 +123,7 @@ export function createBrowserRemoteSupervisor(
     registry: dependencies.registry,
     identity,
     browser_adapter_resolver: (request) => {
-      const pinned = pinnedBindings.take(request.fingerprint);
+      const pinned = pinnedBindings.peek(request.fingerprint);
       if (pendingRequestFingerprint === request.fingerprint) {
         pendingRequestFingerprint = null;
       }
