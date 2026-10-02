@@ -97,9 +97,7 @@ export class ControlBotClient {
         const order = parseExecutionOrder(rawOrder);
         assertOrderExecutable(order, this.#identity, now);
         const prior = this.#validatedOrders.get(order.order_id);
-        if (prior) {
-          assertIdempotentOrder(prior.order, order);
-        }
+        if (prior) assertIdempotentOrder(prior.order, order);
         const existing = batch.get(order.order_id);
         if (existing) {
           assertIdempotentOrder(existing, order);
@@ -118,44 +116,38 @@ export class ControlBotClient {
           expires_at: order.expires_at,
           fingerprint,
         });
-        staged.set(order.order_id, {
-          fingerprint,
-          order,
-        });
+        staged.set(order.order_id, { fingerprint, order });
       }
       const nextCursor = parseCursor(response.cursor);
-      for (const [orderId, validated] of staged) {
-        this.#validatedOrders.set(orderId, validated);
-      }
-      return {
-        cursor: nextCursor,
-        orders,
-      };
+      for (const [orderId, validated] of staged) this.#validatedOrders.set(orderId, validated);
+      return { cursor: nextCursor, orders };
     } catch {
       throw new ControlBotClientError('controlbot_protocol_invalid');
     }
   }
 
+  validatedOrder(orderIdInput: string): ExecutionOrder {
+    const orderId = uuid(orderIdInput, 'order_id');
+    const known = this.#validatedOrders.get(orderId);
+    if (!known) throw new ControlBotClientError('controlbot_protocol_invalid');
+    return known.order;
+  }
+
   async ack(orderIdInput: string): Promise<{ acknowledged: true; order_id: string; fingerprint: string }> {
     const orderId = uuid(orderIdInput, 'order_id');
     const known = this.#validatedOrders.get(orderId);
-    if (!known) {
-      throw new ControlBotClientError('controlbot_protocol_invalid');
-    }
-
+    if (!known) throw new ControlBotClientError('controlbot_protocol_invalid');
     const request: ControlBotAckRequest = {
       version: 1,
       order_id: orderId,
       runner_id: this.#identity.runner_id,
       fingerprint: known.fingerprint,
     };
-
     try {
       await this.#transport.ack(request);
     } catch {
       throw new ControlBotClientError('controlbot_transport_failed');
     }
-
     return { acknowledged: true, order_id: orderId, fingerprint: known.fingerprint };
   }
 
@@ -163,37 +155,25 @@ export class ControlBotClient {
     if (!Array.isArray(eventsInput) || eventsInput.length === 0 || eventsInput.length > 128) {
       throw new TypeError('Batch de eventos inválido.');
     }
-
     const events = eventsInput.map((event) => parseExecutionEvent(event));
     const lastSequence = new Map<string, number>();
     for (const event of events) {
       if (event.runner_id !== this.#identity.runner_id || !this.#validatedOrders.has(event.order_id)) {
         throw new ControlBotClientError('controlbot_protocol_invalid');
       }
-      const previous =
-        lastSequence.get(event.order_id) ?? this.#lastPublishedSequence.get(event.order_id);
+      const previous = lastSequence.get(event.order_id) ?? this.#lastPublishedSequence.get(event.order_id);
       if (previous !== undefined && event.sequence <= previous) {
         throw new ControlBotClientError('controlbot_protocol_invalid');
       }
       lastSequence.set(event.order_id, event.sequence);
     }
-
-    const request: ControlBotEventsRequest = {
-      version: 1,
-      runner_id: this.#identity.runner_id,
-      events,
-    };
-
+    const request: ControlBotEventsRequest = { version: 1, runner_id: this.#identity.runner_id, events };
     try {
       await this.#transport.publishEvents(request);
     } catch {
       throw new ControlBotClientError('controlbot_transport_failed');
     }
-
-    for (const [orderId, sequence] of lastSequence) {
-      this.#lastPublishedSequence.set(orderId, sequence);
-    }
-
+    for (const [orderId, sequence] of lastSequence) this.#lastPublishedSequence.set(orderId, sequence);
     return { published: events.length };
   }
 
@@ -204,13 +184,11 @@ export class ControlBotClient {
     } catch {
       throw new ControlBotClientError('controlbot_protocol_invalid');
     }
-
     const request: ControlBotHeartbeatRequest = {
       version: 1,
       runner_id: this.#identity.runner_id,
       heartbeat,
     };
-
     try {
       await this.#transport.publishHeartbeat(request);
     } catch {
