@@ -1,9 +1,9 @@
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
-import type { ExecutionEvent } from './event.ts';
+import type { ExecutionEvent, ExecutionState } from './event.ts';
 import { assertEventTransition, assertInitialEventMatchesOrder, parseExecutionEvent } from './event.ts';
 import type { ExecutionOrder } from './order.ts';
 import { assertIdempotentOrder, parseExecutionOrder } from './order.ts';
-import { asRecord, exactKeys, stableSha256 } from './validation.ts';
+import { asRecord, exactKeys, stableSha256, uuid } from './validation.ts';
 
 const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
 const MAX_RECORD_BYTES = 32 * 1024;
@@ -16,6 +16,19 @@ export type RecoveredJournal = {
   orders: readonly ExecutionOrder[];
   events: readonly ExecutionEvent[];
 };
+
+export type RecoveredExecution = {
+  order: ExecutionOrder;
+  events: readonly ExecutionEvent[];
+  last_event: ExecutionEvent | null;
+  recovery: 'accepted' | 'interrupted' | 'terminal';
+};
+
+const TERMINAL_EXECUTION_STATES = new Set<ExecutionState>([
+  'failed',
+  'completed',
+  'cancelled',
+]);
 
 export class DurableJournalError extends Error {
   readonly code: 'journal_invalid' | 'journal_io';
@@ -150,6 +163,30 @@ export class DurableJournal {
 
   recover(): RecoveredJournal {
     return recoverRecords(readRecords(this.#path));
+  }
+
+  recoverExecution(orderIdInput: unknown): RecoveredExecution | null {
+    const orderId = uuid(orderIdInput, 'order_id');
+    const recovered = this.recover();
+    const order = recovered.orders.find((candidate) => candidate.order_id === orderId);
+    if (!order) return null;
+
+    const events = Object.freeze(
+      recovered.events.filter((event) => event.order_id === orderId),
+    );
+    const lastEvent = events.at(-1) ?? null;
+    const recovery = lastEvent === null || lastEvent.state === 'accepted'
+      ? 'accepted'
+      : TERMINAL_EXECUTION_STATES.has(lastEvent.state)
+        ? 'terminal'
+        : 'interrupted';
+
+    return Object.freeze({
+      order,
+      events,
+      last_event: lastEvent,
+      recovery,
+    });
   }
 
   appendOrder(input: unknown): ExecutionOrder {
