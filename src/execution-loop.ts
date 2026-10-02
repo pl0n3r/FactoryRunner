@@ -11,73 +11,62 @@ import { asRecord, exactKeys, integer, ref, slug, stableSha256, uuid } from './v
 
 const TERMINAL_STATES = new Set<ExecutionState>(['failed', 'completed', 'cancelled']);
 const PLAN_KEYS = [
-  'version',
-  'authority',
-  'runner_id',
-  'order_id',
-  'work_item_id',
-  'capability',
-  'order_fingerprint',
-  'admission_fingerprint',
-  'adapter_id',
-  'manifest_fingerprint',
-  'resource_fingerprint',
-  'fingerprint',
+  'version', 'authority', 'runner_id', 'order_id', 'work_item_id', 'capability',
+  'order_fingerprint', 'admission_fingerprint', 'adapter_id',
+  'manifest_fingerprint', 'resource_fingerprint', 'fingerprint',
+] as const;
+const PLAN_HASH_KEYS = [
+  'order_fingerprint', 'admission_fingerprint', 'manifest_fingerprint',
+  'resource_fingerprint', 'fingerprint',
 ] as const;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
-function sha256(value: unknown, field: string): string {
-  const parsed = ref(value, field, 64).toLowerCase();
-  if (!SHA256_RE.test(parsed)) throw new TypeError(field + ' inválido.');
-  return parsed;
-}
-
 function validatedExecutionPlan(input: unknown, order: ExecutionOrder): ExecutionPlan {
-  const record = asRecord(input, 'ExecutionPlan');
-  exactKeys(record, PLAN_KEYS, 'ExecutionPlan');
-  if (record.version !== 1 || record.authority !== 'unchanged') {
+  const plan = asRecord(input, 'ExecutionPlan');
+  exactKeys(plan, PLAN_KEYS, 'ExecutionPlan');
+  if (plan.version !== 1 || plan.authority !== 'unchanged') {
     throw new TypeError('ExecutionPlan no conserva autoridad.');
   }
 
-  const runnerId = uuid(record.runner_id, 'plan.runner_id');
-  const orderId = uuid(record.order_id, 'plan.order_id');
-  const workItemId = ref(record.work_item_id, 'plan.work_item_id', 160);
-  const capability = slug(record.capability, 'plan.capability');
-  const orderHash = sha256(record.order_fingerprint, 'plan.order_fingerprint');
-  const admissionHash = sha256(record.admission_fingerprint, 'plan.admission_fingerprint');
-  const adapterId = slug(record.adapter_id, 'plan.adapter_id');
-  const manifestHash = sha256(record.manifest_fingerprint, 'plan.manifest_fingerprint');
-  const resourceHash = sha256(record.resource_fingerprint, 'plan.resource_fingerprint');
-  const fingerprint = sha256(record.fingerprint, 'plan.fingerprint');
+  const normalized = {
+    runner_id: uuid(plan.runner_id, 'plan.runner_id'),
+    order_id: uuid(plan.order_id, 'plan.order_id'),
+    work_item_id: ref(plan.work_item_id, 'plan.work_item_id', 160),
+    capability: slug(plan.capability, 'plan.capability'),
+    adapter_id: slug(plan.adapter_id, 'plan.adapter_id'),
+  };
+  const hashes = Object.fromEntries(PLAN_HASH_KEYS.map((field) => {
+    const value = plan[field];
+    if (typeof value !== 'string' || !SHA256_RE.test(value)) {
+      throw new TypeError(`plan.${field} inválido.`);
+    }
+    return [field, value];
+  })) as Record<(typeof PLAN_HASH_KEYS)[number], string>;
 
-  if (
-    runnerId !== order.runner_id
-    || orderId !== order.order_id
-    || workItemId !== order.work_item_id
-    || capability !== order.capability
-    || orderHash !== orderFingerprint(order)
-  ) {
+  if (![
+    normalized.runner_id === order.runner_id,
+    normalized.order_id === order.order_id,
+    normalized.work_item_id === order.work_item_id,
+    normalized.capability === order.capability,
+    hashes.order_fingerprint === orderFingerprint(order),
+  ].every(Boolean)) {
     throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
   }
 
-  const { fingerprint: _ignored, ...core } = record;
-  if (stableSha256(core) !== fingerprint) {
+  const { fingerprint: _ignored, ...unsigned } = plan;
+  if (stableSha256(unsigned) !== hashes.fingerprint) {
     throw new TypeError('ExecutionPlan fingerprint incoherente.');
   }
 
   return {
     version: 1,
     authority: 'unchanged',
-    runner_id: runnerId,
-    order_id: orderId,
-    work_item_id: workItemId,
-    capability,
-    order_fingerprint: orderHash,
-    admission_fingerprint: admissionHash,
-    adapter_id: adapterId,
-    manifest_fingerprint: manifestHash,
-    resource_fingerprint: resourceHash,
-    fingerprint,
+    ...normalized,
+    order_fingerprint: hashes.order_fingerprint,
+    admission_fingerprint: hashes.admission_fingerprint,
+    manifest_fingerprint: hashes.manifest_fingerprint,
+    resource_fingerprint: hashes.resource_fingerprint,
+    fingerprint: hashes.fingerprint,
   };
 }
 
