@@ -7,6 +7,7 @@ import {
 } from './order.ts';
 import {
   asRecord,
+  capability,
   exactKeys,
   integer,
   ref,
@@ -144,7 +145,7 @@ function resolvedAdapter(
   if (!Array.isArray(record.capabilities) || record.capabilities.length === 0 || record.capabilities.length > 256) {
     throw new TypeError('CapabilityManifest capabilities inválidas.');
   }
-  const capabilities = record.capabilities.map((value) => slug(value, 'manifest.capability'));
+  const capabilities = record.capabilities.map((value) => capability(value, 'manifest.capability'));
   if (new Set(capabilities).size !== capabilities.length || !capabilities.includes(order.capability)) {
     throw new TypeError('CapabilityManifest no declara la capability de la orden.');
   }
@@ -166,7 +167,7 @@ function resolvedAdapter(
       throw new TypeError('CapabilityManifest adapter capabilities inválidas.');
     }
     const adapterCapabilities = adapter.capabilities.map((value) =>
-      slug(value, 'manifest.adapter.capability'),
+      capability(value, 'manifest.adapter.capability'),
     );
     if (new Set(adapterCapabilities).size !== adapterCapabilities.length) {
       throw new TypeError('CapabilityManifest adapter contiene capabilities duplicadas.');
