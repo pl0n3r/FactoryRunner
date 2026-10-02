@@ -92,7 +92,7 @@ function admittedDecision(
   if (!Array.isArray(record.reasons) || record.reasons.length === 0 || record.reasons.length > 16) {
     throw new TypeError('ExecutionAdmissionDecision reasons inválidas.');
   }
-  for (const reason of record.reasons) slug(reason, 'admission.reason');
+  for (const reason of record.reasons) ref(reason, 'admission.reason', 64);
 
   const { fingerprint: _ignored, ...core } = record;
   if (stableSha256(core) !== fingerprint) {
