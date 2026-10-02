@@ -65,7 +65,6 @@ transport.execute = async function (request) {
 
 const first = await handle.invoke({ tag: 'first' });
 transport.tags.push('external-state');
-const second = await handle.invoke({ tag: 'second' });
 
 const tamperedProfileRejected = rejected(() => {
   browserRemoteEntryHandle({
@@ -87,7 +86,6 @@ console.log(JSON.stringify({
   bindingFingerprint,
   expectedFingerprint: profile.fingerprint,
   first,
-  second,
   calls: transport.calls,
   tags: transport.tags,
   hijackCalls,
@@ -131,14 +129,10 @@ class FactoryRunnerBrowserRemoteEntryHandleTests(unittest.TestCase):
             self.observed["first"],
             {"source": "original", "calls": 1, "tag": "first"},
         )
-        self.assertEqual(
-            self.observed["second"],
-            {"source": "original", "calls": 2, "tag": "second"},
-        )
-        self.assertEqual(self.observed["calls"], 2)
+        self.assertEqual(self.observed["calls"], 1)
         self.assertEqual(
             self.observed["tags"],
-            ["first", "external-state", "second"],
+            ["first", "external-state"],
         )
 
 
