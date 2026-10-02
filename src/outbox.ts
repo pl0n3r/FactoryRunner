@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs';
 import { parseExecutionEvent, type ExecutionEvent } from './event.ts';
 import type { ControlBotAckRequest, ControlBotEventsRequest } from './controlbot/transport.ts';
 import { asRecord, exactKeys, ref, stableSha256, uuid } from './validation.ts';
@@ -95,19 +95,12 @@ function parseRecord(input: unknown, lineNumber: number): OutboxRecord {
   }
   return invalid(`Operación de outbox inválida en línea ${lineNumber}.`);
 }
-function readRecords(path: string): OutboxRecord[] {
-  if (!existsSync(path)) return [];
-  let raw: Buffer;
-  try {
-    if (statSync(path).size > MAX_OUTBOX_BYTES) invalid('Outbox excede el límite permitido.');
-    raw = readFileSync(path);
-  } catch (error) {
-    if (error instanceof DurableOutboxError) throw error;
-    throw new DurableOutboxError('outbox_io', 'No fue posible leer el outbox.', { cause: error });
-  }
+function decodeOutbox(raw: string): OutboxRecord[] {
   if (raw.length === 0) return [];
-  if (raw[raw.length - 1] !== 0x0a) invalid('Outbox truncado: falta newline final.');
-  return raw.toString('utf8').slice(0, -1).split('\n').map((line, index) => {
+  if (Buffer.byteLength(raw, 'utf8') > MAX_OUTBOX_BYTES) invalid('Outbox excede el límite permitido.');
+  if (!raw.endsWith('\n')) invalid('Outbox truncado: falta newline final.');
+  const lines = raw.slice(0, -1).split('\n');
+  return lines.map((line, index) => {
     const lineNumber = index + 1;
     if (line.length === 0 || Buffer.byteLength(line, 'utf8') > MAX_RECORD_BYTES) {
       return invalid(`Registro de outbox inválido en línea ${lineNumber}.`);
@@ -119,6 +112,15 @@ function readRecords(path: string): OutboxRecord[] {
       return invalid(`Registro corrupto en línea ${lineNumber}.`, error);
     }
   });
+}
+function loadOutbox(path: string): OutboxRecord[] {
+  if (!existsSync(path)) return [];
+  try {
+    return decodeOutbox(readFileSync(path, 'utf8'));
+  } catch (error) {
+    if (error instanceof DurableOutboxError) throw error;
+    throw new DurableOutboxError('outbox_io', 'No fue posible leer el outbox.', { cause: error });
+  }
 }
 function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
   const deliveries = new Map<string, OutboxDelivery>();
@@ -142,13 +144,13 @@ function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
   }
   return { pending, delivered };
 }
-function appendRecord(path: string, record: OutboxRecord): void {
-  const encoded = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
-  if (encoded.length > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
+function persistRecord(path: string, record: OutboxRecord): void {
+  const serialized = `${JSON.stringify(record)}\n`;
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, 'a', 0o600);
-    writeSync(descriptor, encoded, 0, encoded.length, null);
+    appendFileSync(descriptor, serialized, { encoding: 'utf8' });
     fsyncSync(descriptor);
   } catch (error) {
     throw new DurableOutboxError('outbox_io', 'No fue posible persistir el outbox.', { cause: error });
@@ -164,7 +166,7 @@ export class DurableOutbox {
     this.#path = path;
   }
   recover(): RecoveredOutbox {
-    return recoverRecords(readRecords(this.#path));
+    return recoverRecords(loadOutbox(this.#path));
   }
   enqueueAck(input: unknown): OutboxDelivery {
     return this.#enqueue(buildDelivery('ack', input));
@@ -179,7 +181,7 @@ export class DurableOutbox {
     if (delivered) return delivered;
     const pending = recovered.pending.find((item) => item.delivery_id === deliveryId);
     if (!pending) invalid('No se puede entregar un delivery desconocido.');
-    appendRecord(this.#path, { version: 1, op: 'delivered', delivery_id: pending.delivery_id, fingerprint: pending.fingerprint });
+    persistRecord(this.#path, { version: 1, op: 'delivered', delivery_id: pending.delivery_id, fingerprint: pending.fingerprint });
     return pending;
   }
   #enqueue(delivery: OutboxDelivery): OutboxDelivery {
@@ -189,7 +191,7 @@ export class DurableOutbox {
       if (stableSha256(existing) !== stableSha256(delivery)) invalid('Reuso conflictivo de delivery_id.');
       return existing;
     }
-    appendRecord(this.#path, { version: 1, op: 'enqueue', delivery });
+    persistRecord(this.#path, { version: 1, op: 'enqueue', delivery });
     return delivery;
   }
 }
