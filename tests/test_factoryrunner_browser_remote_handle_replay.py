@@ -1,24 +1,19 @@
 """Aceptación del guard de replay del handle remoto en supervisor (#224)."""
-import json
-import subprocess
-import unittest
-from pathlib import Path
+import json, subprocess, unittest
+from pathlib import Path as _Path
 
-ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "tests" / "test_factoryrunner_browser_remote_ack_drift.py"
-
-
-def _script_fixture() -> str:
-    source = BASE.read_text(encoding="utf-8")
-    start = '    script = r"""\n'
-    end = '"""\n    raw = subprocess.check_output('
-    if source.count(start) != 1 or source.count(end) != 1:
-        raise AssertionError("fixture #204 cambió")
-    return source.split(start, 1)[1].split(end, 1)[0]
+_ROOT = _Path(__file__).resolve().parents[1]
+_FIXTURE_TEXT = (_Path(__file__).with_name(
+    "test_factoryrunner_browser_remote_ack_drift.py"
+)).read_text(encoding="utf-8")
 
 
 def observe() -> dict[str, object]:
-    script = _script_fixture()
+    opener, closer = '    script = r"""\n', '"""\n    raw = subprocess.check_output('
+    before, found, tail = _FIXTURE_TEXT.partition(opener)
+    script, closed, _after = tail.partition(closer)
+    if before == _FIXTURE_TEXT or not found or not closed:
+        raise AssertionError("fixture #204 cambió")
     script = script.replace(
         "function configuredSupervisor(root, directory, counts, onAck, seed) {",
         "function configuredSupervisor(root, directory, counts, onAck, seed, duplicate = false) {",
