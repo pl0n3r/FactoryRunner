@@ -86,7 +86,7 @@ export function browserPlanStep(
   if (step.version !== 1) throw new TypeError('BrowserPlanStepInput version inválida.');
 
   const adapterId = slug(step.adapter_id, 'step.adapter_id');
-  const capability = slug(step.capability, 'step.capability');
+  const capability = stringValue(step.capability, 'step.capability', 64);
   if (!ALLOWED_CAPABILITIES.has(capability)) {
     throw new TypeError('Capability browser no permitida.');
   }
