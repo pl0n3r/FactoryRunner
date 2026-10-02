@@ -5,6 +5,7 @@ import type { ExecutionEvent } from './event.ts';
 import type { ExecutionLoop } from './execution-loop.ts';
 import type { ExecutionPlan } from './execution-plan.ts';
 import type { ExecutionOrder } from './order.ts';
+import { planEventBatch } from './plan-event-batch.ts';
 import type { DurableJournal } from './journal.ts';
 import type { DurableOutbox, OutboxDelivery } from './outbox.ts';
 import { parseRunnerIdentity, type RunnerHeartbeat } from './runner.ts';
@@ -244,8 +245,23 @@ export class RuntimeSupervisor {
       await this.#loop.executePlan(order, plan);
     }
     events = this.#events(order.order_id);
-    const outbound = this.#outbox.enqueueEvents({ version: 1, runner_id: order.runner_id, events });
-    await this.#deliver(outbound, () => this.#client.publishEvents(events));
+    if (plan === null) {
+      const outbound = this.#outbox.enqueueEvents({ version: 1, runner_id: order.runner_id, events });
+      await this.#deliver(outbound, () => this.#client.publishEvents(events));
+      return;
+    }
+
+    const terminal = events.at(-1);
+    if (terminal === undefined) {
+      throw new TypeError('ExecutionPlan no produjo resultado terminal.');
+    }
+    const batch = planEventBatch(order, [terminal], plan);
+    const terminalEvents = [...batch.events];
+    const outbound = this.#outbox.enqueuePlanEvents(
+      { version: 1, runner_id: batch.runner_id, events: terminalEvents },
+      batch.plan_fingerprint,
+    );
+    await this.#deliver(outbound, () => this.#client.publishEvents(batch.events));
   }
 
   #events(orderId: string): ExecutionEvent[] {
