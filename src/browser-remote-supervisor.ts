@@ -4,11 +4,9 @@ import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import { browserPlacementGuard } from './browser-placement-guard.ts';
 import { browserRemoteDispatchBinding } from './browser-remote-dispatch-binding.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
-import {
-  browserRemoteEntryHandle,
-  type BrowserRemoteEntryHandle,
-} from './browser-remote-entry-handle.ts';
+import { browserRemoteEntryHandle } from './browser-remote-entry-handle.ts';
 import { browserRemoteOriginPolicy } from './browser-remote-origin-policy.ts';
+import { BrowserRemotePinRegistry } from './browser-remote-pin-registry.ts';
 import { resolveBrowserRemoteHandleAdapter } from './browser-remote-resolver.ts';
 import type { ControlBotClient } from './controlbot/client.ts';
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
@@ -78,22 +76,62 @@ export function createBrowserRemoteSupervisor(
   const identity = parseRunnerIdentity(dependencies.identity);
   const location = browserLocation(identity.location);
   const directory = dependencies.directory;
-  const pinnedBindings = new Map<string, {
-    binding_fingerprint: string;
-    handle: BrowserRemoteEntryHandle;
-    directory_entries: BrowserRemoteDirectory['entries'];
-  }>();
+  const pinnedBindings = new BrowserRemotePinRegistry();
+  let pendingRequestFingerprint: string | null = null;
+
+  const dropPendingPin = (): void => {
+    if (pendingRequestFingerprint === null) return;
+    pinnedBindings.drop(pendingRequestFingerprint);
+    pendingRequestFingerprint = null;
+  };
+
+  const journal = new Proxy(dependencies.journal, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        try {
+          return value.apply(target, args);
+        } catch (error) {
+          dropPendingPin();
+          throw error;
+        }
+      };
+    },
+  }) as DurableJournal;
+
+  const client = new Proxy(dependencies.client, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== 'function') return value;
+      if (property === 'ack') {
+        return async (...args: Parameters<ControlBotClient['ack']>) => {
+          try {
+            return await target.ack(...args);
+          } catch (error) {
+            dropPendingPin();
+            throw error;
+          }
+        };
+      }
+      return value.bind(target);
+    },
+  }) as ControlBotClient;
+
   const loop = new ExecutionLoop({
-    journal: dependencies.journal,
+    journal,
     registry: dependencies.registry,
     identity,
     browser_adapter_resolver: (request) => {
+      const pinned = pinnedBindings.peek(request.fingerprint);
+      if (pendingRequestFingerprint === request.fingerprint) {
+        pendingRequestFingerprint = null;
+      }
+      if (pinned === null) {
+        throw new TypeError('Binding browser remoto pinneado no disponible.');
+      }
       if (request.runner_id !== identity.runner_id) {
         throw new TypeError('BrowserLoopRequest pertenece a otro runner.');
-      }
-      const pinned = pinnedBindings.get(request.fingerprint);
-      if (pinned === undefined) {
-        throw new TypeError('Binding browser remoto pinneado no disponible.');
       }
 
       if (directory.entries !== pinned.directory_entries) {
@@ -137,8 +175,8 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
-    const existing = pinnedBindings.get(guarded.request.fingerprint);
-    if (existing !== undefined) {
+    const existing = pinnedBindings.peek(guarded.request.fingerprint);
+    if (existing !== null) {
       const profile = existing.handle.profile;
       if (
         existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
@@ -164,7 +202,7 @@ export function createBrowserRemoteSupervisor(
     }
     const handle = browserRemoteEntryHandle(matches[0]);
 
-    pinnedBindings.set(
+    pinnedBindings.pin(
       guarded.request.fingerprint,
       {
         binding_fingerprint: dispatchBinding.binding_fingerprint,
@@ -172,12 +210,13 @@ export function createBrowserRemoteSupervisor(
         directory_entries: directory.entries,
       },
     );
+    pendingRequestFingerprint = guarded.request.fingerprint;
     return guarded.request;
   };
 
   return new RuntimeSupervisor({
-    client: dependencies.client,
-    journal: dependencies.journal,
+    client,
+    journal,
     outbox: dependencies.outbox,
     loop,
     admission: dependencies.admission,
