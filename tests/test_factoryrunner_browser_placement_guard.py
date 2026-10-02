@@ -69,7 +69,7 @@ function admission() {
     runner_id: RUNNER, order_id: ORDER, work_item_id: order.work_item_id,
     observed_at: NOW, order_fingerprint: orderHash,
     manifest_fingerprint: manifest.fingerprint,
-    resource_fingerprint: resource.fingerprint,
+    resource_fingerprint: stableSha256(resource),
     reasons: ['admission_evidence_coherent'],
   };
   return { ...core, fingerprint: stableSha256(core) };
