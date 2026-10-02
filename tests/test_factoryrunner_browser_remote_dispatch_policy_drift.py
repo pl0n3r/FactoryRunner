@@ -264,7 +264,13 @@ async function originMutation() {
     1,
   );
 
-  const result = await runtime.tick(1);
+  const originalPrototypeExecute = Transport.prototype.execute;
+  let result;
+  try {
+    result = await runtime.tick(1);
+  } finally {
+    Transport.prototype.execute = originalPrototypeExecute;
+  }
   const events = new DurableJournal(join(root, 'journal.ndjson')).recover().events;
   const observed = {
     result,
