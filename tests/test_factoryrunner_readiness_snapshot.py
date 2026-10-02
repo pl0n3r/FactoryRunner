@@ -11,27 +11,30 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run_node(script: str) -> dict[str, object]:
-    result = subprocess.run(
-        [
-            "node",
-            "--experimental-strip-types",
-            "--input-type=module",
-            "-e",
-            textwrap.dedent(script),
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        timeout=20,
-        check=False,
+    command = (
+        "node",
+        "--experimental-strip-types",
+        "--input-type=module",
+        "-e",
+        textwrap.dedent(script),
     )
-    output = result.stdout + result.stderr
-    if result.returncode != 0:
-        raise AssertionError(output)
     try:
-        return json.loads(result.stdout)
+        output = subprocess.check_output(
+            command,
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.STDOUT,
+            timeout=20,
+        )
+        parsed = json.loads(output)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        detail = getattr(exc, "output", None) or str(exc)
+        raise AssertionError(detail) from exc
     except json.JSONDecodeError as exc:
         raise AssertionError(output) from exc
+    if not isinstance(parsed, dict):
+        raise AssertionError(f"Expected JSON object, got {type(parsed).__name__}")
+    return parsed
 
 
 FIXTURES = r"""
