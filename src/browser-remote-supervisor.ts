@@ -96,24 +96,20 @@ export function createBrowserRemoteSupervisor(
         throw new TypeError('Binding browser remoto pinneado no disponible.');
       }
 
-      try {
-        if (directory.entries !== pinned.directory_entries) {
-          throw new TypeError('BrowserRemoteDirectory cambió después del pin.');
-        }
-        return resolveBrowserRemoteHandleAdapter({
-          handle: pinned.handle,
-          allowed_origins: allowedOrigins,
-          context: {
-            runner_id: request.runner_id,
-            order_id: request.order_id,
-            location,
-          },
-          capability: browserCapability(request),
-          binding_fingerprint: pinned.binding_fingerprint,
-        });
-      } finally {
-        pinnedBindings.delete(request.fingerprint);
+      if (directory.entries !== pinned.directory_entries) {
+        throw new TypeError('BrowserRemoteDirectory cambió después del pin.');
       }
+      return resolveBrowserRemoteHandleAdapter({
+        handle: pinned.handle,
+        allowed_origins: allowedOrigins,
+        context: {
+          runner_id: request.runner_id,
+          order_id: request.order_id,
+          location,
+        },
+        capability: browserCapability(request),
+        binding_fingerprint: pinned.binding_fingerprint,
+      });
     },
     now: dependencies.now,
     event_id: dependencies.event_id,
@@ -141,6 +137,22 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
+    const existing = pinnedBindings.get(guarded.request.fingerprint);
+    if (existing !== undefined) {
+      const profile = existing.handle.profile;
+      if (
+        existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
+        || profile.fingerprint !== dispatchBinding.binding_fingerprint
+        || profile.runner_id !== guarded.request.runner_id
+        || profile.location !== location
+        || profile.capability !== guarded.request.capability
+        || existing.directory_entries !== directory.entries
+      ) {
+        throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
+      }
+      return guarded.request;
+    }
+
     const matches = directory.entries().filter(({ profile }) => (
       profile.fingerprint === dispatchBinding.binding_fingerprint
       && profile.runner_id === guarded.request.runner_id
@@ -152,17 +164,6 @@ export function createBrowserRemoteSupervisor(
     }
     const handle = browserRemoteEntryHandle(matches[0]);
 
-    const existing = pinnedBindings.get(guarded.request.fingerprint);
-    if (
-      existing !== undefined
-      && (
-        existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
-        || existing.handle.profile !== handle.profile
-        || existing.handle.execute !== handle.execute
-      )
-    ) {
-      throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
-    }
     pinnedBindings.set(
       guarded.request.fingerprint,
       {
