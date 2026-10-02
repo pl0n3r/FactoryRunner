@@ -85,6 +85,22 @@ function profile() {
     capability: 'browser.navigate', remote_alias: 'browser-primary',
   });
 }
+function placementProfile() {
+  const core = {
+    version: 1,
+    authority: 'unchanged',
+    runner_id: RUNNER,
+    observed_at: NOW,
+    host_local_proven: false,
+    remote_capable_proven: true,
+    status: 'KNOWN',
+    identity_fingerprint: stableSha256(identity),
+    resource_fingerprint: 'c'.repeat(64),
+    manifest_fingerprint: 'b'.repeat(64),
+    evidence_fingerprint: 'd'.repeat(64),
+  };
+  return { ...core, fingerprint: stableSha256(core) };
+}
 class Transport {
   constructor(mode = 'ok') { this.mode = mode; this.calls = 0; }
   async execute(req) {
@@ -119,7 +135,9 @@ function supervisor(root, transport, counts, seed) {
     client: client(counts), journal: new DurableJournal(join(root, 'journal.ndjson')),
     outbox: new DurableOutbox(join(root, 'outbox.ndjson')), registry: registry(),
     identity, directory, allowed_origins: ['https://example.com'],
-    admission: () => a, plan: () => p, browser_request: () => request(p),
+    admission: () => a, plan: () => p,
+    placement_profile: () => placementProfile(),
+    browser_request: () => request(p),
     now: () => NOW, event_id: ids(seed),
   });
 }
