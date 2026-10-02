@@ -71,7 +71,12 @@ function parseAckRequest(input: unknown): ControlBotAckRequest {
 function parseEventsRequest(input: unknown): ControlBotEventsRequest {
   const record = asRecord(input, 'ControlBotEventsRequest');
   exactKeys(record, ['version', 'runner_id', 'events'], 'ControlBotEventsRequest');
-  if (record.version !== 1 || !Array.isArray(record.events) || record.events.length === 0 || record.events.length > 128) {
+  if (
+    record.version !== 1
+    || !Array.isArray(record.events)
+    || record.events.length === 0
+    || record.events.length > 128
+  ) {
     throw new TypeError('Batch de eventos inválido.');
   }
   const runnerId = uuid(record.runner_id, 'runner_id');
@@ -82,16 +87,28 @@ function parseEventsRequest(input: unknown): ControlBotEventsRequest {
   return { version: 1, runner_id: runnerId, events };
 }
 
-function buildDelivery(kind: 'ack', input: unknown): OutboxDelivery;
-function buildDelivery(kind: 'events', input: unknown): OutboxDelivery;
 function buildDelivery(kind: 'ack' | 'events', input: unknown): OutboxDelivery {
-  const request = kind === 'ack' ? parseAckRequest(input) : parseEventsRequest(input);
-  const fingerprint = stableSha256({ kind, request });
-  const deliveryId = `outbox:${kind}:${fingerprint}`;
   if (kind === 'ack') {
-    return { version: 1, kind, delivery_id: deliveryId, fingerprint, request };
+    const request = parseAckRequest(input);
+    const fingerprint = stableSha256({ kind, request });
+    return {
+      version: 1,
+      kind,
+      delivery_id: `outbox:${kind}:${fingerprint}`,
+      fingerprint,
+      request,
+    };
   }
-  return { version: 1, kind, delivery_id: deliveryId, fingerprint, request };
+
+  const request = parseEventsRequest(input);
+  const fingerprint = stableSha256({ kind, request });
+  return {
+    version: 1,
+    kind,
+    delivery_id: `outbox:${kind}:${fingerprint}`,
+    fingerprint,
+    request,
+  };
 }
 
 function parseDelivery(input: unknown): OutboxDelivery {
