@@ -137,6 +137,22 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
+    const existing = pinnedBindings.get(guarded.request.fingerprint);
+    if (existing !== undefined) {
+      const profile = existing.handle.profile;
+      if (
+        existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
+        || profile.fingerprint !== dispatchBinding.binding_fingerprint
+        || profile.runner_id !== guarded.request.runner_id
+        || profile.location !== location
+        || profile.capability !== guarded.request.capability
+        || existing.directory_entries !== directory.entries
+      ) {
+        throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
+      }
+      return guarded.request;
+    }
+
     const matches = directory.entries().filter(({ profile }) => (
       profile.fingerprint === dispatchBinding.binding_fingerprint
       && profile.runner_id === guarded.request.runner_id
@@ -147,19 +163,6 @@ export function createBrowserRemoteSupervisor(
       throw new TypeError('Entry browser remoto exacto no disponible para pin.');
     }
     const handle = browserRemoteEntryHandle(matches[0]);
-
-    const existing = pinnedBindings.get(guarded.request.fingerprint);
-    if (existing !== undefined) {
-      if (
-        existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
-        || existing.handle.profile !== handle.profile
-        || existing.handle.execute !== handle.execute
-        || existing.directory_entries !== directory.entries
-      ) {
-        throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
-      }
-      return guarded.request;
-    }
 
     pinnedBindings.set(
       guarded.request.fingerprint,
