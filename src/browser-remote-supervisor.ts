@@ -4,8 +4,12 @@ import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import { browserPlacementGuard } from './browser-placement-guard.ts';
 import { browserRemoteDispatchBinding } from './browser-remote-dispatch-binding.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
+import {
+  browserRemoteEntryHandle,
+  type BrowserRemoteEntryHandle,
+} from './browser-remote-entry-handle.ts';
 import { browserRemoteOriginPolicy } from './browser-remote-origin-policy.ts';
-import { resolvePinnedBrowserRemoteAdapter } from './browser-remote-resolver.ts';
+import { resolveBrowserRemoteHandleAdapter } from './browser-remote-resolver.ts';
 import type { ControlBotClient } from './controlbot/client.ts';
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
 import { ExecutionLoop } from './execution-loop.ts';
@@ -74,7 +78,11 @@ export function createBrowserRemoteSupervisor(
   const identity = parseRunnerIdentity(dependencies.identity);
   const location = browserLocation(identity.location);
   const directory = dependencies.directory;
-  const pinnedBindings = new Map<string, string>();
+  const pinnedBindings = new Map<string, {
+    binding_fingerprint: string;
+    handle: BrowserRemoteEntryHandle;
+    directory_entries: BrowserRemoteDirectory['entries'];
+  }>();
   const loop = new ExecutionLoop({
     journal: dependencies.journal,
     registry: dependencies.registry,
@@ -83,14 +91,17 @@ export function createBrowserRemoteSupervisor(
       if (request.runner_id !== identity.runner_id) {
         throw new TypeError('BrowserLoopRequest pertenece a otro runner.');
       }
-      const bindingFingerprint = pinnedBindings.get(request.fingerprint);
-      if (bindingFingerprint === undefined) {
+      const pinned = pinnedBindings.get(request.fingerprint);
+      if (pinned === undefined) {
         throw new TypeError('Binding browser remoto pinneado no disponible.');
       }
 
       try {
-        return resolvePinnedBrowserRemoteAdapter({
-          directory,
+        if (directory.entries !== pinned.directory_entries) {
+          throw new TypeError('BrowserRemoteDirectory cambió después del pin.');
+        }
+        return resolveBrowserRemoteHandleAdapter({
+          handle: pinned.handle,
           allowed_origins: allowedOrigins,
           context: {
             runner_id: request.runner_id,
@@ -98,7 +109,7 @@ export function createBrowserRemoteSupervisor(
             location,
           },
           capability: browserCapability(request),
-          binding_fingerprint: bindingFingerprint,
+          binding_fingerprint: pinned.binding_fingerprint,
         });
       } finally {
         pinnedBindings.delete(request.fingerprint);
@@ -130,16 +141,35 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
+    const matches = directory.entries().filter(({ profile }) => (
+      profile.fingerprint === dispatchBinding.binding_fingerprint
+      && profile.runner_id === guarded.request.runner_id
+      && profile.location === location
+      && profile.capability === guarded.request.capability
+    ));
+    if (matches.length !== 1) {
+      throw new TypeError('Entry browser remoto exacto no disponible para pin.');
+    }
+    const handle = browserRemoteEntryHandle(matches[0]);
+
     const existing = pinnedBindings.get(guarded.request.fingerprint);
     if (
       existing !== undefined
-      && existing !== dispatchBinding.binding_fingerprint
+      && (
+        existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
+        || existing.handle.profile !== handle.profile
+        || existing.handle.execute !== handle.execute
+      )
     ) {
-      throw new TypeError('BrowserLoopRequest cambió de binding pinneado.');
+      throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
     }
     pinnedBindings.set(
       guarded.request.fingerprint,
-      dispatchBinding.binding_fingerprint,
+      {
+        binding_fingerprint: dispatchBinding.binding_fingerprint,
+        handle,
+        directory_entries: directory.entries,
+      },
     );
     return guarded.request;
   };
