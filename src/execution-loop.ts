@@ -2,13 +2,84 @@ import { randomUUID } from 'node:crypto';
 import type { ProgrammaticAdapterResult } from './adapters/programmatic.ts';
 import { AdapterRegistry } from './adapters/programmatic.ts';
 import type { ExecutionEvent, ExecutionState } from './event.ts';
+import type { ExecutionPlan } from './execution-plan.ts';
 import type { DurableJournal } from './journal.ts';
 import type { ExecutionOrder } from './order.ts';
-import { assertIdempotentOrder, assertOrderExecutable, parseExecutionOrder } from './order.ts';
+import { assertIdempotentOrder, assertOrderExecutable, orderFingerprint, parseExecutionOrder } from './order.ts';
 import type { RunnerIdentity } from './runner.ts';
-import { integer } from './validation.ts';
+import { asRecord, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
 
 const TERMINAL_STATES = new Set<ExecutionState>(['failed', 'completed', 'cancelled']);
+const PLAN_KEYS = [
+  'version',
+  'authority',
+  'runner_id',
+  'order_id',
+  'work_item_id',
+  'capability',
+  'order_fingerprint',
+  'admission_fingerprint',
+  'adapter_id',
+  'manifest_fingerprint',
+  'resource_fingerprint',
+  'fingerprint',
+] as const;
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function sha256(value: unknown, field: string): string {
+  const parsed = ref(value, field, 64).toLowerCase();
+  if (!SHA256_RE.test(parsed)) throw new TypeError(field + ' inválido.');
+  return parsed;
+}
+
+function validatedExecutionPlan(input: unknown, order: ExecutionOrder): ExecutionPlan {
+  const record = asRecord(input, 'ExecutionPlan');
+  exactKeys(record, PLAN_KEYS, 'ExecutionPlan');
+  if (record.version !== 1 || record.authority !== 'unchanged') {
+    throw new TypeError('ExecutionPlan no conserva autoridad.');
+  }
+
+  const runnerId = uuid(record.runner_id, 'plan.runner_id');
+  const orderId = uuid(record.order_id, 'plan.order_id');
+  const workItemId = ref(record.work_item_id, 'plan.work_item_id', 160);
+  const capability = slug(record.capability, 'plan.capability');
+  const orderHash = sha256(record.order_fingerprint, 'plan.order_fingerprint');
+  const admissionHash = sha256(record.admission_fingerprint, 'plan.admission_fingerprint');
+  const adapterId = slug(record.adapter_id, 'plan.adapter_id');
+  const manifestHash = sha256(record.manifest_fingerprint, 'plan.manifest_fingerprint');
+  const resourceHash = sha256(record.resource_fingerprint, 'plan.resource_fingerprint');
+  const fingerprint = sha256(record.fingerprint, 'plan.fingerprint');
+
+  if (
+    runnerId !== order.runner_id
+    || orderId !== order.order_id
+    || workItemId !== order.work_item_id
+    || capability !== order.capability
+    || orderHash !== orderFingerprint(order)
+  ) {
+    throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
+  }
+
+  const { fingerprint: _ignored, ...core } = record;
+  if (stableSha256(core) !== fingerprint) {
+    throw new TypeError('ExecutionPlan fingerprint incoherente.');
+  }
+
+  return {
+    version: 1,
+    authority: 'unchanged',
+    runner_id: runnerId,
+    order_id: orderId,
+    work_item_id: workItemId,
+    capability,
+    order_fingerprint: orderHash,
+    admission_fingerprint: admissionHash,
+    adapter_id: adapterId,
+    manifest_fingerprint: manifestHash,
+    resource_fingerprint: resourceHash,
+    fingerprint,
+  };
+}
 
 type AdapterOutcome =
   | { kind: 'completed'; result: ProgrammaticAdapterResult }
@@ -51,6 +122,24 @@ export class ExecutionLoop {
 
   async execute(input: unknown, options: ExecutionLoopOptions = {}): Promise<ExecutionLoopResult> {
     const incoming = parseExecutionOrder(input);
+    return this.#executeParsed(incoming, options, null);
+  }
+
+  async executePlan(
+    input: unknown,
+    planInput: unknown,
+    options: ExecutionLoopOptions = {},
+  ): Promise<ExecutionLoopResult> {
+    const incoming = parseExecutionOrder(input);
+    const plan = validatedExecutionPlan(planInput, incoming);
+    return this.#executeParsed(incoming, options, plan.adapter_id);
+  }
+
+  async #executeParsed(
+    incoming: ExecutionOrder,
+    options: ExecutionLoopOptions,
+    adapterId: string | null,
+  ): Promise<ExecutionLoopResult> {
     const recoveredBefore = this.#journal.recover();
     const existing = recoveredBefore.orders.find((order) => order.order_id === incoming.order_id);
 
@@ -129,7 +218,7 @@ export class ExecutionLoop {
       summary: 'Adapter dispatch started',
       ref: null,
     });
-    const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal);
+    const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal, adapterId);
 
     if (outcome.kind === 'completed') {
       const completed = this.#append(order, started.sequence + 1, 'completed', outcome.result.evidence);
@@ -172,7 +261,12 @@ export class ExecutionLoop {
     });
   }
 
-  #runAdapter(capability: string, timeoutMs: number, signal?: AbortSignal): Promise<AdapterOutcome> {
+  #runAdapter(
+    capability: string,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+    adapterId: string | null,
+  ): Promise<AdapterOutcome> {
     return new Promise((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -192,7 +286,10 @@ export class ExecutionLoop {
       }
 
       timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs);
-      this.#registry.execute(capability).then(
+      const execution = adapterId === null
+        ? this.#registry.execute(capability)
+        : this.#registry.executeAdapter(adapterId, capability);
+      execution.then(
         (result) => finish({ kind: 'completed', result }),
         () => finish({ kind: 'failed' }),
       );
