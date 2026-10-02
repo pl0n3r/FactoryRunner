@@ -3,6 +3,7 @@ import type { ControlBotClient, ControlBotPolledOrder } from './controlbot/clien
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
 import type { ExecutionEvent } from './event.ts';
 import type { ExecutionLoop } from './execution-loop.ts';
+import type { ExecutionPlan } from './execution-plan.ts';
 import type { ExecutionOrder } from './order.ts';
 import type { DurableJournal } from './journal.ts';
 import type { DurableOutbox, OutboxDelivery } from './outbox.ts';
@@ -14,12 +15,19 @@ export type RuntimeAdmissionGate = (
   now: number,
 ) => ExecutionAdmissionDecision;
 
+export type RuntimeExecutionPlanGate = (
+  order: ExecutionOrder,
+  admission: ExecutionAdmissionDecision,
+  now: number,
+) => ExecutionPlan;
+
 export type RuntimeSupervisorDependencies = {
   client: ControlBotClient;
   journal: DurableJournal;
   outbox: DurableOutbox;
   loop: ExecutionLoop;
   admission?: RuntimeAdmissionGate;
+  plan?: RuntimeExecutionPlanGate;
   now?: () => number;
   event_id?: () => string;
 };
@@ -35,6 +43,7 @@ export class RuntimeSupervisor {
   readonly #outbox: DurableOutbox;
   readonly #loop: ExecutionLoop;
   readonly #admission: RuntimeAdmissionGate | null;
+  readonly #plan: RuntimeExecutionPlanGate | null;
   readonly #now: () => number;
   readonly #eventId: () => string;
   readonly #activeOrderIds = new Set<string>();
@@ -47,6 +56,7 @@ export class RuntimeSupervisor {
     this.#outbox = dependencies.outbox;
     this.#loop = dependencies.loop;
     this.#admission = dependencies.admission ?? null;
+    this.#plan = dependencies.plan ?? null;
     this.#now = dependencies.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#eventId = dependencies.event_id ?? randomUUID;
   }
@@ -90,7 +100,11 @@ export class RuntimeSupervisor {
     for (const order of result.orders) {
       if (this.#draining) break;
       const validated = this.#client.validatedOrder(order.order_id);
-      if (!this.#admitted(validated, now)) continue;
+      const admission = this.#admission === null
+        ? null
+        : this.#admissionDecision(validated, now);
+      if (this.#admission !== null && admission === null) continue;
+      if (!this.#planStillValid(validated, admission, now)) continue;
       this.#activeOrderIds.add(order.order_id);
       try {
         await this.#process(order);
@@ -103,24 +117,90 @@ export class RuntimeSupervisor {
     return { processed, cursor: this.#cursor };
   }
 
-  #admitted(order: ExecutionOrder, now: number): boolean {
-    if (this.#admission === null) return true;
+  #admissionDecision(
+    order: ExecutionOrder,
+    now: number,
+  ): ExecutionAdmissionDecision | null {
+    if (this.#admission === null) return null;
 
     let decision: ExecutionAdmissionDecision;
     try {
       decision = this.#admission(order, now);
     } catch {
-      return false;
+      return null;
     }
 
     const { fingerprint, ...core } = decision;
-    if (stableSha256(core) !== fingerprint) return false;
-    return decision.version === 1
-      && decision.decision === 'ALLOW'
-      && decision.authority === 'unchanged'
-      && decision.runner_id === order.runner_id
-      && decision.order_id === order.order_id
-      && decision.work_item_id === order.work_item_id;
+    if (stableSha256(core) !== fingerprint) return null;
+    if (
+      decision.version !== 1
+      || decision.decision !== 'ALLOW'
+      || decision.authority !== 'unchanged'
+      || decision.runner_id !== order.runner_id
+      || decision.order_id !== order.order_id
+      || decision.work_item_id !== order.work_item_id
+    ) {
+      return null;
+    }
+    return decision;
+  }
+
+  #executionPlan(
+    order: ExecutionOrder,
+    admission: ExecutionAdmissionDecision,
+    now: number,
+  ): ExecutionPlan | null {
+    if (this.#plan === null) return null;
+
+    let plan: ExecutionPlan;
+    try {
+      plan = this.#plan(order, admission, now);
+    } catch {
+      return null;
+    }
+
+    const { fingerprint, ...core } = plan;
+    if (stableSha256(core) !== fingerprint) return null;
+    if (
+      plan.version !== 1
+      || plan.authority !== 'unchanged'
+      || plan.runner_id !== order.runner_id
+      || plan.order_id !== order.order_id
+      || plan.work_item_id !== order.work_item_id
+      || plan.capability !== order.capability
+      || plan.order_fingerprint !== admission.order_fingerprint
+      || plan.admission_fingerprint !== admission.fingerprint
+      || plan.manifest_fingerprint !== admission.manifest_fingerprint
+      || plan.resource_fingerprint !== admission.resource_fingerprint
+      || typeof plan.adapter_id !== 'string'
+      || plan.adapter_id.length === 0
+    ) {
+      return null;
+    }
+    return plan;
+  }
+
+  #planStillValid(
+    order: ExecutionOrder,
+    admission: ExecutionAdmissionDecision | null,
+    now: number,
+  ): boolean {
+    if (this.#plan === null) return true;
+    if (admission === null || this.#admission === null) return false;
+
+    const initial = this.#executionPlan(order, admission, now);
+    if (initial === null) return false;
+
+    const currentAdmission = this.#admissionDecision(order, now);
+    if (
+      currentAdmission === null
+      || currentAdmission.fingerprint !== admission.fingerprint
+    ) {
+      return false;
+    }
+
+    const current = this.#executionPlan(order, currentAdmission, now);
+    return current !== null && current.fingerprint === initial.fingerprint;
   }
 
   async #process(polled: ControlBotPolledOrder): Promise<void> {
