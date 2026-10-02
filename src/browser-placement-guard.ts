@@ -4,7 +4,7 @@ import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
 import { resolveBrowserRuntimeRequest } from './browser-runtime-request.ts';
 import { orderFingerprint, parseExecutionOrder } from './order.ts';
 import type { ExecutionPlan } from './execution-plan.ts';
-import { stableSha256 } from './validation.ts';
+import { asRecord, stableSha256 } from './validation.ts';
 
 export type BrowserPlacementGuardEvidence = Readonly<{
   version: 1;
@@ -37,6 +37,15 @@ export function browserPlacementGuard(
   const request = resolveBrowserRuntimeRequest(order, planInput, requestInput);
   const bindings = directory.entries().map((entry) => entry.profile);
   const placement = browserPlacementPolicy(placementProfileInput, bindings);
+  const profile = asRecord(placementProfileInput, 'BrowserPlacementProfile');
+
+  if (
+    profile.runner_id !== planInput.runner_id
+    || profile.manifest_fingerprint !== planInput.manifest_fingerprint
+    || profile.resource_fingerprint !== planInput.resource_fingerprint
+  ) {
+    throw new TypeError('BrowserPlacementProfile no corresponde al ExecutionPlan.');
+  }
 
   if (
     placement.placement !== 'REMOTE_BINDING'
