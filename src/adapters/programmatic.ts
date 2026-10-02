@@ -105,6 +105,8 @@ export class ExecFileCommandRunner implements CommandRunner {
 export class AdapterRegistry {
   readonly #byCapability = new Map<string, ProgrammaticAdapter>();
   readonly #byId = new Map<string, ProgrammaticAdapter>();
+  readonly #capabilitiesById = new Map<string, ReadonlySet<string>>();
+  readonly #byId = new Map<string, ProgrammaticAdapter>();
 
   constructor(adapters: readonly ProgrammaticAdapter[]) {
     if (!Array.isArray(adapters) || adapters.length === 0) {
@@ -122,13 +124,17 @@ export class AdapterRegistry {
         throw new TypeError('Adapter sin capabilities.');
       }
 
+      const adapterCapabilities = new Set<string>();
       for (const rawCapability of adapter.capabilities) {
         const capability = slug(rawCapability, 'capability');
         if (this.#byCapability.has(capability)) {
           throw new TypeError('Capability registrada por más de un adapter.');
         }
+        adapterCapabilities.add(capability);
         this.#byCapability.set(capability, adapter);
       }
+      this.#byId.set(adapterId, adapter);
+      this.#capabilitiesById.set(adapterId, adapterCapabilities);
     }
   }
 
