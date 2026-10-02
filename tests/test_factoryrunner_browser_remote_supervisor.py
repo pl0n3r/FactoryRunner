@@ -54,6 +54,23 @@ const order = {
 };
 const orderHash = orderFingerprint(order);
 
+function placementProfile() {
+  const core = {
+    version: 1,
+    authority: 'unchanged',
+    runner_id: RUNNER_ID,
+    observed_at: NOW,
+    host_local_proven: false,
+    remote_capable_proven: true,
+    status: 'KNOWN',
+    identity_fingerprint: stableSha256(identity),
+    resource_fingerprint: 'c'.repeat(64),
+    manifest_fingerprint: 'b'.repeat(64),
+    evidence_fingerprint: 'd'.repeat(64),
+  };
+  return { ...core, fingerprint: stableSha256(core) };
+}
+
 function signedAdmission() {
   const core = {
     version: 1,
@@ -190,6 +207,7 @@ async function scenario(kind) {
       }
       return canonicalPlan;
     },
+    placement_profile: () => placementProfile(),
     browser_request: () => {
       counts.request += 1;
       if (kind === 'request') {
