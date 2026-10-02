@@ -237,4 +237,19 @@ test('TelemetryEnvelope fails closed on secret-like or oversized payload', () =>
     ),
     /no declarada/,
   );
+
+
+  assert.throws(
+    () => telemetryEnvelope(
+      identity(),
+      adapters(),
+      order({ expires_at: 1_215 }),
+      heartbeat(),
+      queue(),
+      1_215,
+      30,
+      {},
+    ),
+    /ventana ejecutable/,
+  );
 });
