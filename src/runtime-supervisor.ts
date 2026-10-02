@@ -4,6 +4,7 @@ import type { ExecutionEvent } from './event.ts';
 import type { ExecutionLoop } from './execution-loop.ts';
 import type { DurableJournal } from './journal.ts';
 import type { DurableOutbox, OutboxDelivery } from './outbox.ts';
+import { parseRunnerIdentity, type RunnerHeartbeat } from './runner.ts';
 import { integer } from './validation.ts';
 
 export type RuntimeSupervisorDependencies = {
@@ -27,7 +28,9 @@ export class RuntimeSupervisor {
   readonly #loop: ExecutionLoop;
   readonly #now: () => number;
   readonly #eventId: () => string;
+  readonly #activeOrderIds = new Set<string>();
   #cursor: string | null = null;
+  #draining = false;
 
   constructor(dependencies: RuntimeSupervisorDependencies) {
     this.#client = dependencies.client;
@@ -38,12 +41,54 @@ export class RuntimeSupervisor {
     this.#eventId = dependencies.event_id ?? randomUUID;
   }
 
+  beginDrain(): void {
+    this.#draining = true;
+  }
+
+  isDrained(): boolean {
+    return this.#draining && this.#activeOrderIds.size === 0;
+  }
+
+  heartbeat(identityInput: unknown, sequenceInput: unknown): RunnerHeartbeat {
+    const identity = parseRunnerIdentity(identityInput);
+    const activeSessions = [...this.#activeOrderIds].sort((a, b) => a.localeCompare(b, 'en'));
+    if (activeSessions.length > identity.max_parallel) {
+      throw new TypeError('Estado runtime excede max_parallel.');
+    }
+    return {
+      version: 1,
+      runner_id: identity.runner_id,
+      sequence: integer(sequenceInput, 'sequence'),
+      observed_at: integer(this.#now(), 'now'),
+      status: this.#draining ? 'draining' : activeSessions.length > 0 ? 'busy' : 'ready',
+      capacity: { max: identity.max_parallel, active: activeSessions.length },
+      active_sessions: activeSessions,
+    };
+  }
+
+  async publishHeartbeat(identityInput: unknown, sequenceInput: unknown): Promise<RunnerHeartbeat> {
+    const heartbeat = this.heartbeat(identityInput, sequenceInput);
+    await this.#client.publishHeartbeat(heartbeat);
+    return heartbeat;
+  }
+
   async tick(limit = 16): Promise<RuntimeTickResult> {
+    if (this.#draining) return { processed: 0, cursor: this.#cursor };
     const now = integer(this.#now(), 'now');
     const result = await this.#client.poll(this.#cursor, integer(limit, 'limit', 1, 64), now);
-    for (const order of result.orders) await this.#process(order);
-    this.#cursor = result.cursor;
-    return { processed: result.orders.length, cursor: this.#cursor };
+    let processed = 0;
+    for (const order of result.orders) {
+      if (this.#draining) break;
+      this.#activeOrderIds.add(order.order_id);
+      try {
+        await this.#process(order);
+        processed += 1;
+      } finally {
+        this.#activeOrderIds.delete(order.order_id);
+      }
+    }
+    if (processed === result.orders.length) this.#cursor = result.cursor;
+    return { processed, cursor: this.#cursor };
   }
 
   async #process(polled: ControlBotPolledOrder): Promise<void> {
