@@ -96,24 +96,20 @@ export function createBrowserRemoteSupervisor(
         throw new TypeError('Binding browser remoto pinneado no disponible.');
       }
 
-      try {
-        if (directory.entries !== pinned.directory_entries) {
-          throw new TypeError('BrowserRemoteDirectory cambió después del pin.');
-        }
-        return resolveBrowserRemoteHandleAdapter({
-          handle: pinned.handle,
-          allowed_origins: allowedOrigins,
-          context: {
-            runner_id: request.runner_id,
-            order_id: request.order_id,
-            location,
-          },
-          capability: browserCapability(request),
-          binding_fingerprint: pinned.binding_fingerprint,
-        });
-      } finally {
-        pinnedBindings.delete(request.fingerprint);
+      if (directory.entries !== pinned.directory_entries) {
+        throw new TypeError('BrowserRemoteDirectory cambió después del pin.');
       }
+      return resolveBrowserRemoteHandleAdapter({
+        handle: pinned.handle,
+        allowed_origins: allowedOrigins,
+        context: {
+          runner_id: request.runner_id,
+          order_id: request.order_id,
+          location,
+        },
+        capability: browserCapability(request),
+        binding_fingerprint: pinned.binding_fingerprint,
+      });
     },
     now: dependencies.now,
     event_id: dependencies.event_id,
@@ -153,16 +149,18 @@ export function createBrowserRemoteSupervisor(
     const handle = browserRemoteEntryHandle(matches[0]);
 
     const existing = pinnedBindings.get(guarded.request.fingerprint);
-    if (
-      existing !== undefined
-      && (
+    if (existing !== undefined) {
+      if (
         existing.binding_fingerprint !== dispatchBinding.binding_fingerprint
         || existing.handle.profile !== handle.profile
         || existing.handle.execute !== handle.execute
-      )
-    ) {
-      throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
+        || existing.directory_entries !== directory.entries
+      ) {
+        throw new TypeError('BrowserLoopRequest cambió de entry pinneado.');
+      }
+      return guarded.request;
     }
+
     pinnedBindings.set(
       guarded.request.fingerprint,
       {
