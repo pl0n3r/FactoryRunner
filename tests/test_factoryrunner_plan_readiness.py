@@ -58,7 +58,7 @@ function terminal(occurredAt = 1190) {
     evidence: {
       code: 'done',
       summary: 'contains raw execution detail that readiness must not copy',
-      ref: 'local:synthetic',
+      ref: null,
     },
   };
 }
