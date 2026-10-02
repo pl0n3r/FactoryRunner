@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  AdapterRegistry,
-  capabilityManifest,
-} from '../src/index.ts';
-import type {
-  ProgrammaticAdapter,
-  ProgrammaticAdapterResult,
-} from '../src/index.ts';
+import { capabilityManifest } from '../src/index.ts';
+import type { CapabilityAdapterSource } from '../src/index.ts';
 
 const runnerId = '11111111-1111-7111-8111-111111111111';
 
-class FakeAdapter implements ProgrammaticAdapter {
+class FakeAdapter implements CapabilityAdapterSource {
   readonly id: string;
   readonly capabilities: readonly string[];
 
   constructor(id: string, capabilities: readonly string[]) {
     this.id = id;
     this.capabilities = capabilities;
-  }
-
-  async execute(capability: string): Promise<ProgrammaticAdapterResult> {
-    return {
-      capability,
-      data: { ok: true },
-      evidence: { code: 'fake-ok', summary: 'Fake adapter executed', ref: null },
-    };
   }
 }
 
@@ -45,25 +31,25 @@ function identity(capabilities: string[]) {
 
 test('CapabilityManifest is derived from identity and registered adapters', () => {
   const first = capabilityManifest(
-    identity(['git.status', 'git.head']),
-    new AdapterRegistry([
-      new FakeAdapter('status-reader', ['git.status']),
-      new FakeAdapter('head-reader', ['git.head']),
-    ]),
+    identity(['browser.navigate', 'git.head', 'git.status']),
+    [
+      new FakeAdapter('git-read', ['git.status', 'git.head']),
+      new FakeAdapter('browser-execution', ['browser.navigate']),
+    ],
   );
   const second = capabilityManifest(
-    identity(['git.head', 'git.status']),
-    new AdapterRegistry([
-      new FakeAdapter('head-reader', ['git.head']),
-      new FakeAdapter('status-reader', ['git.status']),
-    ]),
+    identity(['git.status', 'browser.navigate', 'git.head']),
+    [
+      new FakeAdapter('browser-execution', ['browser.navigate']),
+      new FakeAdapter('git-read', ['git.head', 'git.status']),
+    ],
   );
 
   assert.deepEqual(first, second);
-  assert.deepEqual(first.capabilities, ['git.head', 'git.status']);
+  assert.deepEqual(first.capabilities, ['browser.navigate', 'git.head', 'git.status']);
   assert.deepEqual(first.adapters, [
-    { adapter_id: 'head-reader', capabilities: ['git.head'] },
-    { adapter_id: 'status-reader', capabilities: ['git.status'] },
+    { adapter_id: 'browser-execution', capabilities: ['browser.navigate'] },
+    { adapter_id: 'git-read', capabilities: ['git.head', 'git.status'] },
   ]);
   assert.match(first.fingerprint, /^[0-9a-f]{64}$/);
   assert.equal(first.runner_id, runnerId);
@@ -71,29 +57,34 @@ test('CapabilityManifest is derived from identity and registered adapters', () =
 });
 
 test('CapabilityManifest fails closed on capability drift or duplicate adapter mapping', () => {
-  const registry = new AdapterRegistry([
-    new FakeAdapter('git-reader', ['git.head']),
-  ]);
+  const adapters = [new FakeAdapter('git-read', ['git.head'])];
 
   assert.throws(
-    () => capabilityManifest(identity(['git.head', 'git.status']), registry),
+    () => capabilityManifest(identity(['git.head', 'git.status']), adapters),
     /Capability drift/,
   );
   assert.throws(
-    () => capabilityManifest(identity(['git.status']), registry),
+    () => capabilityManifest(identity(['git.status']), adapters),
     /Capability drift/,
   );
   assert.throws(
-    () => new AdapterRegistry([
+    () => capabilityManifest(identity(['git.head']), [
       new FakeAdapter('git-a', ['git.head']),
       new FakeAdapter('git-b', ['git.head']),
     ]),
     /más de un adapter/,
   );
   assert.throws(
-    () => new AdapterRegistry([
+    () => capabilityManifest(identity(['git.head']), [
       new FakeAdapter('git-a', ['git.head', 'git.head']),
     ]),
     /capabilities duplicadas/,
+  );
+  assert.throws(
+    () => capabilityManifest(identity(['git.head', 'git.status']), [
+      new FakeAdapter('git-a', ['git.head']),
+      new FakeAdapter('git-a', ['git.status']),
+    ]),
+    /Adapter id duplicado/,
   );
 });

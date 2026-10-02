@@ -22,11 +22,6 @@ export interface ProgrammaticAdapter {
   execute(capability: string): Promise<ProgrammaticAdapterResult>;
 }
 
-export type ProgrammaticAdapterRegistration = {
-  adapter_id: string;
-  capabilities: string[];
-};
-
 export type CommandSpec = {
   executable: string;
   args: readonly string[];
@@ -109,7 +104,6 @@ export class ExecFileCommandRunner implements CommandRunner {
 
 export class AdapterRegistry {
   readonly #byCapability = new Map<string, ProgrammaticAdapter>();
-  readonly #registrations: ProgrammaticAdapterRegistration[] = [];
 
   constructor(adapters: readonly ProgrammaticAdapter[]) {
     if (!Array.isArray(adapters) || adapters.length === 0) {
@@ -126,31 +120,14 @@ export class AdapterRegistry {
         throw new TypeError('Adapter sin capabilities.');
       }
 
-      const capabilities = adapter.capabilities.map((value: unknown) => slug(value, 'capability'));
-      if (new Set(capabilities).size !== capabilities.length) {
-        throw new TypeError('Adapter contiene capabilities duplicadas.');
-      }
-
-      for (const capability of capabilities) {
+      for (const rawCapability of adapter.capabilities) {
+        const capability = slug(rawCapability, 'capability');
         if (this.#byCapability.has(capability)) {
           throw new TypeError('Capability registrada por más de un adapter.');
         }
         this.#byCapability.set(capability, adapter);
       }
-
-      capabilities.sort((a: string, b: string) => a.localeCompare(b, 'en'));
-      this.#registrations.push({ adapter_id: adapterId, capabilities });
     }
-
-    this.#registrations.sort((a: ProgrammaticAdapterRegistration, b: ProgrammaticAdapterRegistration) =>
-      a.adapter_id.localeCompare(b.adapter_id, 'en'));
-  }
-
-  registrations(): ProgrammaticAdapterRegistration[] {
-    return this.#registrations.map((registration) => ({
-      adapter_id: registration.adapter_id,
-      capabilities: [...registration.capabilities],
-    }));
   }
 
   capabilities(): string[] {
