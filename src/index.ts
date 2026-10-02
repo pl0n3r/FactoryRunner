@@ -31,6 +31,9 @@ export type { OutboxDelivery, RecoveredOutbox } from './outbox.ts';
 export { ExecutionLoop } from './execution-loop.ts';
 export type { ExecutionLoopDependencies, ExecutionLoopOptions, ExecutionLoopResult } from './execution-loop.ts';
 
+export { RuntimeSupervisor } from './runtime-supervisor.ts';
+export type { RuntimeSupervisorDependencies, RuntimeTickResult } from './runtime-supervisor.ts';
+
 export { resultEnvelope, capacitySnapshot } from './result.ts';
 export type { ExecutionResultEnvelope, ObservedQueueState, CapacitySnapshot } from './result.ts';
 
