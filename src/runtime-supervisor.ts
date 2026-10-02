@@ -1,17 +1,25 @@
 import { randomUUID } from 'node:crypto';
 import type { ControlBotClient, ControlBotPolledOrder } from './controlbot/client.ts';
+import type { ExecutionAdmissionDecision } from './execution-admission.ts';
 import type { ExecutionEvent } from './event.ts';
 import type { ExecutionLoop } from './execution-loop.ts';
+import type { ExecutionOrder } from './order.ts';
 import type { DurableJournal } from './journal.ts';
 import type { DurableOutbox, OutboxDelivery } from './outbox.ts';
 import { parseRunnerIdentity, type RunnerHeartbeat } from './runner.ts';
-import { integer } from './validation.ts';
+import { integer, stableSha256 } from './validation.ts';
+
+export type RuntimeAdmissionGate = (
+  order: ExecutionOrder,
+  now: number,
+) => ExecutionAdmissionDecision;
 
 export type RuntimeSupervisorDependencies = {
   client: ControlBotClient;
   journal: DurableJournal;
   outbox: DurableOutbox;
   loop: ExecutionLoop;
+  admission?: RuntimeAdmissionGate;
   now?: () => number;
   event_id?: () => string;
 };
@@ -26,6 +34,7 @@ export class RuntimeSupervisor {
   readonly #journal: DurableJournal;
   readonly #outbox: DurableOutbox;
   readonly #loop: ExecutionLoop;
+  readonly #admission: RuntimeAdmissionGate | null;
   readonly #now: () => number;
   readonly #eventId: () => string;
   readonly #activeOrderIds = new Set<string>();
@@ -37,6 +46,7 @@ export class RuntimeSupervisor {
     this.#journal = dependencies.journal;
     this.#outbox = dependencies.outbox;
     this.#loop = dependencies.loop;
+    this.#admission = dependencies.admission ?? null;
     this.#now = dependencies.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#eventId = dependencies.event_id ?? randomUUID;
   }
@@ -79,6 +89,8 @@ export class RuntimeSupervisor {
     let processed = 0;
     for (const order of result.orders) {
       if (this.#draining) break;
+      const validated = this.#client.validatedOrder(order.order_id);
+      if (!this.#admitted(validated, now)) continue;
       this.#activeOrderIds.add(order.order_id);
       try {
         await this.#process(order);
@@ -89,6 +101,26 @@ export class RuntimeSupervisor {
     }
     if (processed === result.orders.length) this.#cursor = result.cursor;
     return { processed, cursor: this.#cursor };
+  }
+
+  #admitted(order: ExecutionOrder, now: number): boolean {
+    if (this.#admission === null) return true;
+
+    let decision: ExecutionAdmissionDecision;
+    try {
+      decision = this.#admission(order, now);
+    } catch {
+      return false;
+    }
+
+    const { fingerprint, ...core } = decision;
+    if (stableSha256(core) !== fingerprint) return false;
+    return decision.version === 1
+      && decision.decision === 'ALLOW'
+      && decision.authority === 'unchanged'
+      && decision.runner_id === order.runner_id
+      && decision.order_id === order.order_id
+      && decision.work_item_id === order.work_item_id;
   }
 
   async #process(polled: ControlBotPolledOrder): Promise<void> {
