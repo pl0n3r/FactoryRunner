@@ -61,11 +61,9 @@ function sealedTransport(value: unknown): BrowserRemoteTransport {
 
   const descriptor = Object.getOwnPropertyDescriptor(transport, 'execute');
   const enumerable = descriptor?.enumerable ?? false;
-  const sealedExecute = execute.bind(transport);
-
   try {
     Object.defineProperty(transport, 'execute', {
-      value: sealedExecute,
+      value: execute,
       writable: false,
       configurable: false,
       enumerable,
