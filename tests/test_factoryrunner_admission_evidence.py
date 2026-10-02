@@ -147,7 +147,7 @@ assert.throws(
   /campos inválidos/,
 );
 assert.throws(
-  () => admissionEvidence({ ...decision, work_item_id: 'token=supersecretvalue' }),
+  () => admissionEvidence({ ...decision, work_item_id: 'token:supersecretvalue' }),
   /sensible/,
 );
 assert.throws(
