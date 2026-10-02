@@ -118,6 +118,25 @@ function parseSnapshot(input: unknown): ParsedSnapshot {
   if (stableSha256(core) !== fingerprint) {
     throw new TypeError('ReadinessSnapshot fingerprint incoherente.');
   }
+
+  if (snapshot.status === 'READY') {
+    const identityObserved = snapshot.runner_id !== null && snapshot.observed_at !== null;
+    const runtimeDispatchable = snapshot.runtime_status === 'ready' || snapshot.runtime_status === 'busy';
+    const evidenceComplete = [
+      snapshot.protocol_fingerprint,
+      snapshot.manifest_fingerprint,
+      snapshot.resource_fingerprint,
+      snapshot.telemetry_fingerprint,
+    ].every((value) => value !== null);
+    const reasonsCoherent =
+      snapshot.reasons.length === 1
+      && snapshot.reasons[0] === 'readiness_evidence_coherent';
+
+    if (!identityObserved || !runtimeDispatchable || !evidenceComplete || !reasonsCoherent) {
+      throw new TypeError('ReadinessSnapshot READY contradictorio.');
+    }
+  }
+
   return snapshot;
 }
 
