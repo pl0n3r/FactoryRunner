@@ -110,10 +110,15 @@ export type ExecutionLoopOptions = {
   signal?: AbortSignal;
 };
 
+export type BrowserAdapterResolver = (
+  request: BrowserLoopRequest,
+) => BrowserExecutionAdapter;
+
 export type ExecutionLoopDependencies = {
   journal: DurableJournal;
   registry: AdapterRegistry;
   browser_adapter?: BrowserExecutionAdapter;
+  browser_adapter_resolver?: BrowserAdapterResolver;
   identity: RunnerIdentity;
   now?: () => number;
   event_id?: () => string;
@@ -123,6 +128,7 @@ export class ExecutionLoop {
   readonly #journal: DurableJournal;
   readonly #registry: AdapterRegistry;
   readonly #browserAdapter: BrowserExecutionAdapter | null;
+  readonly #browserAdapterResolver: BrowserAdapterResolver | null;
   readonly #identity: RunnerIdentity;
   readonly #now: () => number;
   readonly #eventId: () => string;
@@ -131,6 +137,7 @@ export class ExecutionLoop {
     this.#journal = dependencies.journal;
     this.#registry = dependencies.registry;
     this.#browserAdapter = dependencies.browser_adapter ?? null;
+    this.#browserAdapterResolver = dependencies.browser_adapter_resolver ?? null;
     this.#identity = dependencies.identity;
     this.#now = dependencies.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#eventId = dependencies.event_id ?? randomUUID;
@@ -170,9 +177,11 @@ export class ExecutionLoop {
     const incoming = parseExecutionOrder(input);
     const plan = validatedExecutionPlan(planInput, incoming);
     const request = validatedBrowserLoopRequest(incoming, plan, requestInput);
-    const adapter = this.#browserAdapter;
+    const adapter = this.#browserAdapterResolver === null
+      ? this.#browserAdapter
+      : this.#browserAdapterResolver(request);
 
-    if (adapter === null) {
+    if (!(adapter instanceof BrowserExecutionAdapter)) {
       throw new TypeError('BrowserExecutionAdapter no configurado.');
     }
     if (
@@ -187,7 +196,7 @@ export class ExecutionLoop {
     return this.#executeParsed(
       incoming,
       options,
-      (timeoutMs, signal) => this.#runBrowserRequest(incoming, plan, request, timeoutMs, signal),
+      (timeoutMs, signal) => this.#runBrowserRequest(adapter, incoming, plan, request, timeoutMs, signal),
       (results) => ({
         code: 'browser-completed',
         summary: `Browser plan-bound execution completed with ${results.length} step(s)`,
@@ -327,17 +336,13 @@ export class ExecutionLoop {
   }
 
   #runBrowserRequest(
+    adapter: BrowserExecutionAdapter,
     order: ExecutionOrder,
     plan: ExecutionPlan,
     request: BrowserLoopRequest,
     timeoutMs: number,
     signal: AbortSignal | undefined,
   ): Promise<AdapterOutcome<readonly BrowserExecutionResult[]>> {
-    const adapter = this.#browserAdapter;
-    if (adapter === null) {
-      throw new TypeError('BrowserExecutionAdapter no configurado.');
-    }
-
     return new Promise((resolve) => {
       let settled = false;
       let halted = false;
