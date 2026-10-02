@@ -77,11 +77,20 @@ export function createBrowserRemoteSupervisor(
   const location = browserLocation(identity.location);
   const directory = dependencies.directory;
   const pinnedBindings = new BrowserRemotePinRegistry();
+  const tickRequestFingerprints = new Set<string>();
   let pendingRequestFingerprint: string | null = null;
 
   const dropPendingPin = (): void => {
     if (pendingRequestFingerprint === null) return;
     pinnedBindings.drop(pendingRequestFingerprint);
+    pendingRequestFingerprint = null;
+  };
+
+  const dropTickPins = (): void => {
+    for (const requestFingerprint of tickRequestFingerprints) {
+      pinnedBindings.drop(requestFingerprint);
+    }
+    tickRequestFingerprints.clear();
     pendingRequestFingerprint = null;
   };
 
@@ -175,6 +184,7 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
+    tickRequestFingerprints.add(guarded.request.fingerprint);
     const existing = pinnedBindings.peek(guarded.request.fingerprint);
     if (existing !== null) {
       const profile = existing.handle.profile;
@@ -214,7 +224,7 @@ export function createBrowserRemoteSupervisor(
     return guarded.request;
   };
 
-  return new RuntimeSupervisor({
+  const runtime = new RuntimeSupervisor({
     client,
     journal,
     outbox: dependencies.outbox,
@@ -225,4 +235,20 @@ export function createBrowserRemoteSupervisor(
     now: dependencies.now,
     event_id: dependencies.event_id,
   });
+
+  return new Proxy(runtime, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === 'tick') {
+        return async (...args: Parameters<RuntimeSupervisor['tick']>) => {
+          try {
+            return await target.tick(...args);
+          } finally {
+            dropTickPins();
+          }
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as RuntimeSupervisor;
 }
