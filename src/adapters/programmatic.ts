@@ -138,7 +138,7 @@ export class AdapterRegistry {
         this.#byCapability.set(capability, adapter);
       }
 
-      capabilities.sort((a, b) => a.localeCompare(b, 'en'));
+      capabilities.sort((a: string, b: string) => a.localeCompare(b, 'en'));
       this.#registrations.push({ adapter_id: adapterId, capabilities });
     }
 
