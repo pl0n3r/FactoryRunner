@@ -2,13 +2,47 @@ import { randomUUID } from 'node:crypto';
 import type { ProgrammaticAdapterResult } from './adapters/programmatic.ts';
 import { AdapterRegistry } from './adapters/programmatic.ts';
 import type { ExecutionEvent, ExecutionState } from './event.ts';
+import type { ExecutionPlan } from './execution-plan.ts';
 import type { DurableJournal } from './journal.ts';
 import type { ExecutionOrder } from './order.ts';
-import { assertIdempotentOrder, assertOrderExecutable, parseExecutionOrder } from './order.ts';
+import { assertIdempotentOrder, assertOrderExecutable, orderFingerprint, parseExecutionOrder } from './order.ts';
 import type { RunnerIdentity } from './runner.ts';
-import { integer } from './validation.ts';
+import { asRecord, exactKeys, integer, ref, slug, stableSha256, uuid } from './validation.ts';
 
 const TERMINAL_STATES = new Set<ExecutionState>(['failed', 'completed', 'cancelled']);
+const PLAN_KEYS = [
+  'version', 'authority', 'runner_id', 'order_id', 'work_item_id', 'capability',
+  'order_fingerprint', 'admission_fingerprint', 'adapter_id',
+  'manifest_fingerprint', 'resource_fingerprint', 'fingerprint',
+] as const;
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function validatedExecutionPlan(input: unknown, order: ExecutionOrder): ExecutionPlan {
+  const plan = asRecord(input, 'ExecutionPlan');
+  exactKeys(plan, PLAN_KEYS, 'ExecutionPlan');
+  if (plan.version !== 1 || plan.authority !== 'unchanged') {
+    throw new TypeError('ExecutionPlan no conserva autoridad.');
+  }
+
+  const fingerprint = ref(plan.fingerprint, 'plan.fingerprint', 64);
+  const { fingerprint: _ignored, ...unsigned } = plan;
+  if (!SHA256_RE.test(fingerprint) || stableSha256(unsigned) !== fingerprint) {
+    throw new TypeError('ExecutionPlan fingerprint incoherente.');
+  }
+
+  const adapterId = slug(plan.adapter_id, 'plan.adapter_id');
+  if (
+    uuid(plan.runner_id, 'plan.runner_id') !== order.runner_id
+    || uuid(plan.order_id, 'plan.order_id') !== order.order_id
+    || ref(plan.work_item_id, 'plan.work_item_id', 160) !== order.work_item_id
+    || slug(plan.capability, 'plan.capability') !== order.capability
+    || plan.order_fingerprint !== orderFingerprint(order)
+  ) {
+    throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
+  }
+
+  return { ...(plan as unknown as ExecutionPlan), adapter_id: adapterId, fingerprint };
+}
 
 type AdapterOutcome =
   | { kind: 'completed'; result: ProgrammaticAdapterResult }
@@ -51,6 +85,24 @@ export class ExecutionLoop {
 
   async execute(input: unknown, options: ExecutionLoopOptions = {}): Promise<ExecutionLoopResult> {
     const incoming = parseExecutionOrder(input);
+    return this.#executeParsed(incoming, options, null);
+  }
+
+  async executePlan(
+    input: unknown,
+    planInput: unknown,
+    options: ExecutionLoopOptions = {},
+  ): Promise<ExecutionLoopResult> {
+    const incoming = parseExecutionOrder(input);
+    const plan = validatedExecutionPlan(planInput, incoming);
+    return this.#executeParsed(incoming, options, plan.adapter_id);
+  }
+
+  async #executeParsed(
+    incoming: ExecutionOrder,
+    options: ExecutionLoopOptions,
+    adapterId: string | null,
+  ): Promise<ExecutionLoopResult> {
     const recoveredBefore = this.#journal.recover();
     const existing = recoveredBefore.orders.find((order) => order.order_id === incoming.order_id);
 
@@ -129,7 +181,7 @@ export class ExecutionLoop {
       summary: 'Adapter dispatch started',
       ref: null,
     });
-    const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal);
+    const outcome = await this.#runAdapter(order.capability, timeoutMs, options.signal, adapterId);
 
     if (outcome.kind === 'completed') {
       const completed = this.#append(order, started.sequence + 1, 'completed', outcome.result.evidence);
@@ -172,7 +224,12 @@ export class ExecutionLoop {
     });
   }
 
-  #runAdapter(capability: string, timeoutMs: number, signal?: AbortSignal): Promise<AdapterOutcome> {
+  #runAdapter(
+    capability: string,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+    adapterId: string | null,
+  ): Promise<AdapterOutcome> {
     return new Promise((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -192,7 +249,10 @@ export class ExecutionLoop {
       }
 
       timer = setTimeout(() => finish({ kind: 'timeout' }), timeoutMs);
-      this.#registry.execute(capability).then(
+      const execution = adapterId === null
+        ? this.#registry.execute(capability)
+        : this.#registry.executeAdapter(adapterId, capability);
+      execution.then(
         (result) => finish({ kind: 'completed', result }),
         () => finish({ kind: 'failed' }),
       );
