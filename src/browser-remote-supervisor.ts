@@ -2,8 +2,9 @@ import type { BrowserCapability, BrowserLocation } from './adapters/browser.ts';
 import type { AdapterRegistry } from './adapters/programmatic.ts';
 import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import { browserPlacementGuard } from './browser-placement-guard.ts';
+import { browserRemoteDispatchBinding } from './browser-remote-dispatch-binding.ts';
 import { BrowserRemoteDirectory } from './browser-remote-directory.ts';
-import { resolveBrowserRemoteAdapter } from './browser-remote-resolver.ts';
+import { resolvePinnedBrowserRemoteAdapter } from './browser-remote-resolver.ts';
 import type { ControlBotClient } from './controlbot/client.ts';
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
 import { ExecutionLoop } from './execution-loop.ts';
@@ -73,6 +74,8 @@ export function createBrowserRemoteSupervisor(
 
   const identity = parseRunnerIdentity(dependencies.identity);
   const location = browserLocation(identity.location);
+  const directory = dependencies.directory;
+  const pinnedBindings = new Map<string, string>();
   const loop = new ExecutionLoop({
     journal: dependencies.journal,
     registry: dependencies.registry,
@@ -81,16 +84,26 @@ export function createBrowserRemoteSupervisor(
       if (request.runner_id !== identity.runner_id) {
         throw new TypeError('BrowserLoopRequest pertenece a otro runner.');
       }
-      return resolveBrowserRemoteAdapter({
-        directory: dependencies.directory,
-        allowed_origins: dependencies.allowed_origins,
-        context: {
-          runner_id: request.runner_id,
-          order_id: request.order_id,
-          location,
-        },
-        capability: browserCapability(request),
-      });
+      const bindingFingerprint = pinnedBindings.get(request.fingerprint);
+      if (bindingFingerprint === undefined) {
+        throw new TypeError('Binding browser remoto pinneado no disponible.');
+      }
+
+      try {
+        return resolvePinnedBrowserRemoteAdapter({
+          directory,
+          allowed_origins: dependencies.allowed_origins,
+          context: {
+            runner_id: request.runner_id,
+            order_id: request.order_id,
+            location,
+          },
+          capability: browserCapability(request),
+          binding_fingerprint: bindingFingerprint,
+        });
+      } finally {
+        pinnedBindings.delete(request.fingerprint);
+      }
     },
     now: dependencies.now,
     event_id: dependencies.event_id,
@@ -106,13 +119,30 @@ export function createBrowserRemoteSupervisor(
       throw new TypeError('Browser placement/request no disponible.');
     }
 
-    return browserPlacementGuard(
+    const guarded = browserPlacementGuard(
       placementProfile,
-      dependencies.directory,
+      directory,
       order,
       plan,
       rawRequest,
-    ).request;
+    );
+    const dispatchBinding = browserRemoteDispatchBinding(
+      plan,
+      guarded.request,
+      guarded.evidence,
+    );
+    const existing = pinnedBindings.get(guarded.request.fingerprint);
+    if (
+      existing !== undefined
+      && existing !== dispatchBinding.binding_fingerprint
+    ) {
+      throw new TypeError('BrowserLoopRequest cambió de binding pinneado.');
+    }
+    pinnedBindings.set(
+      guarded.request.fingerprint,
+      dispatchBinding.binding_fingerprint,
+    );
+    return guarded.request;
   };
 
   return new RuntimeSupervisor({
