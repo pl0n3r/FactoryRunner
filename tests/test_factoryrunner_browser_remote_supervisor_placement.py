@@ -311,7 +311,7 @@ class FactoryRunnerBrowserRemoteSupervisorPlacementTests(unittest.TestCase):
 
         missing = self.observed["missing"]
         self.assertIsNotNone(missing["error"])
-        self.assertIn("placement/request", missing["error"])
+        self.assertEqual(missing["error"], "Browser runtime request no disponible.")
         self.assertEqual(missing["counts"]["request"], 0)
         self.assertEqual(missing["counts"]["ack"], 0)
         self.assertEqual(missing["transportCalls"], 0)
