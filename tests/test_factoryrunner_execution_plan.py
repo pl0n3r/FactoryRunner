@@ -101,16 +101,23 @@ class FactoryRunnerExecutionPlanTests(unittest.TestCase):
         const missingAdapter = rehashManifest({
           adapters: [{ adapter_id: 'other-adapter', capabilities: ['other.cap'] }],
         });
+        const missingAdapterAdmission = rehashAdmission({
+          manifest_fingerprint: missingAdapter.fingerprint,
+        });
         const ambiguousAdapter = rehashManifest({
           adapters: [
             { adapter_id: 'git-adapter', capabilities: ['git.head'] },
             { adapter_id: 'git-adapter-secondary', capabilities: ['git.head'] },
           ],
         });
+        const ambiguousAdapterAdmission = rehashAdmission({
+          manifest_fingerprint: ambiguousAdapter.fingerprint,
+        });
         const authorityDrift = rehashAdmission({ authority: 'expanded' });
         const manifestDrift = rehashAdmission({
           manifest_fingerprint: 'f'.repeat(64),
         });
+        const canonicalManifest = rehashManifest({});
 
         order.instruction_ref = 'controlbot:instruction:mutated-after-plan';
         manifest.adapters[0].adapter_id = 'mutated-after-plan';
@@ -122,23 +129,23 @@ class FactoryRunnerExecutionPlanTests(unittest.TestCase):
           rejects: {
             missingAdapter: rejected(() => executionPlan(
               { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
-              admission,
+              missingAdapterAdmission,
               missingAdapter,
             )),
             ambiguousAdapter: rejected(() => executionPlan(
               { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
-              admission,
+              ambiguousAdapterAdmission,
               ambiguousAdapter,
             )),
             authorityDrift: rejected(() => executionPlan(
               { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
               authorityDrift,
-              rehashManifest({}),
+              canonicalManifest,
             )),
             manifestDrift: rejected(() => executionPlan(
               { ...order, instruction_ref: 'controlbot:instruction:factoryrunner-103' },
               manifestDrift,
-              rehashManifest({}),
+              canonicalManifest,
             )),
           },
         }));
