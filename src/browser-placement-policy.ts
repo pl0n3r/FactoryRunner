@@ -81,7 +81,8 @@ function canonicalProfile(input: unknown): BrowserPlacementProfile {
   const hostLocal = booleanValue(record.host_local_proven, 'host_local_proven');
   const remoteCapable = booleanValue(record.remote_capable_proven, 'remote_capable_proven');
   const status = stringValue(record.status, 'status', 16);
-  const expectedStatus: BrowserPlacementProfile['status'] =\n    hostLocal || remoteCapable ? 'KNOWN' : 'UNKNOWN';
+  const expectedStatus: BrowserPlacementProfile['status'] =
+    hostLocal || remoteCapable ? 'KNOWN' : 'UNKNOWN';
   if (status !== expectedStatus) {
     throw new TypeError('BrowserPlacementProfile status incoherente.');
   }
