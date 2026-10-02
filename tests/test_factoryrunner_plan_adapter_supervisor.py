@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DurableJournal } from './src/journal.ts';
 import { DurableOutbox } from './src/outbox.ts';
+import { orderFingerprint } from './src/order.ts';
 import { RuntimeSupervisor } from './src/runtime-supervisor.ts';
 import { stableSha256 } from './src/validation.ts';
 
@@ -32,6 +33,7 @@ const order = {
   expires_at: 1300,
   instruction_ref: 'controlbot:instruction:factoryrunner-112',
 };
+const orderHash = orderFingerprint(order);
 const admissionCore = {
   version: 1,
   decision: 'ALLOW',
@@ -39,9 +41,11 @@ const admissionCore = {
   runner_id: runner,
   order_id: orderId,
   work_item_id: order.work_item_id,
-  order_fingerprint: 'a'.repeat(64),
+  observed_at: 1200,
+  order_fingerprint: orderHash,
   manifest_fingerprint: 'b'.repeat(64),
   resource_fingerprint: 'c'.repeat(64),
+  reasons: ['admission_evidence_coherent'],
 };
 const admission = { ...admissionCore, fingerprint: stableSha256(admissionCore) };
 
