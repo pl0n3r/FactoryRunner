@@ -38,7 +38,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
     with:
       mode: validate
