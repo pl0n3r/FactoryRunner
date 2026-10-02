@@ -1,4 +1,4 @@
-import { asRecord, exactKeys, integer, ref, semver, slug, uuid } from './validation.ts';
+import { asRecord, capability, exactKeys, integer, ref, semver, slug, uuid } from './validation.ts';
 
 export type RunnerIdentity = {
   version: 1;
@@ -33,7 +33,7 @@ export function parseRunnerIdentity(input: unknown): RunnerIdentity {
   if (!Array.isArray(record.capabilities) || record.capabilities.length === 0 || record.capabilities.length > 64) {
     throw new TypeError('Capabilities inválidas.');
   }
-  const capabilities = record.capabilities.map((value) => slug(value, 'Capability'));
+  const capabilities = record.capabilities.map((value) => capability(value, 'Capability'));
   if (new Set(capabilities).size !== capabilities.length) throw new TypeError('Capabilities duplicadas.');
   capabilities.sort((a, b) => a.localeCompare(b, 'en'));
   return {
