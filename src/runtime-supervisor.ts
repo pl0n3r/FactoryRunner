@@ -104,10 +104,11 @@ export class RuntimeSupervisor {
         ? null
         : this.#admissionDecision(validated, now);
       if (this.#admission !== null && admission === null) continue;
-      if (!this.#planStillValid(validated, admission, now)) continue;
+      const plan = this.#revalidatedPlan(validated, admission, now);
+      if (this.#plan !== null && plan === null) continue;
       this.#activeOrderIds.add(order.order_id);
       try {
-        await this.#process(order);
+        await this.#process(order, plan);
         processed += 1;
       } finally {
         this.#activeOrderIds.delete(order.order_id);
@@ -180,30 +181,35 @@ export class RuntimeSupervisor {
     return plan;
   }
 
-  #planStillValid(
+  #revalidatedPlan(
     order: ExecutionOrder,
     admission: ExecutionAdmissionDecision | null,
     now: number,
-  ): boolean {
-    if (this.#plan === null) return true;
-    if (admission === null || this.#admission === null) return false;
+  ): ExecutionPlan | null {
+    if (this.#plan === null) return null;
+    if (admission === null || this.#admission === null) return null;
 
     const initial = this.#executionPlan(order, admission, now);
-    if (initial === null) return false;
+    if (initial === null) return null;
 
     const currentAdmission = this.#admissionDecision(order, now);
     if (
       currentAdmission === null
       || currentAdmission.fingerprint !== admission.fingerprint
     ) {
-      return false;
+      return null;
     }
 
     const current = this.#executionPlan(order, currentAdmission, now);
-    return current !== null && current.fingerprint === initial.fingerprint;
+    return current !== null && current.fingerprint === initial.fingerprint
+      ? current
+      : null;
   }
 
-  async #process(polled: ControlBotPolledOrder): Promise<void> {
+  async #process(
+    polled: ControlBotPolledOrder,
+    plan: ExecutionPlan | null,
+  ): Promise<void> {
     const order = this.#client.validatedOrder(polled.order_id);
     const recovered = this.#journal.recover();
     if (!recovered.orders.some((item) => item.order_id === order.order_id)) {
@@ -232,7 +238,11 @@ export class RuntimeSupervisor {
     });
     await this.#deliver(ack, () => this.#client.ack(order.order_id));
 
-    await this.#loop.execute(order);
+    if (plan === null) {
+      await this.#loop.execute(order);
+    } else {
+      await this.#loop.executePlan(order, plan);
+    }
     events = this.#events(order.order_id);
     const outbound = this.#outbox.enqueueEvents({ version: 1, runner_id: order.runner_id, events });
     await this.#deliver(outbound, () => this.#client.publishEvents(events));
