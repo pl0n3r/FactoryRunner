@@ -127,9 +127,9 @@ export function telemetryEnvelope(
   heartbeatInput: unknown,
   queueInput: unknown,
   nowInput: unknown,
-  staleAfterSecondsInput: unknown,
-  metricsInput: unknown,
+  ...telemetryInputs: [staleAfterSecondsInput: unknown, metricsInput: unknown]
 ): TelemetryEnvelope {
+  const [staleAfterSecondsInput, metricsInput] = telemetryInputs;
   const identity = parseRunnerIdentity(identityInput);
   const order = parseExecutionOrder(orderInput);
   const now = integer(nowInput, 'now');
