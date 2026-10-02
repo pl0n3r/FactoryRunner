@@ -15,10 +15,6 @@ const PLAN_KEYS = [
   'order_fingerprint', 'admission_fingerprint', 'adapter_id',
   'manifest_fingerprint', 'resource_fingerprint', 'fingerprint',
 ] as const;
-const PLAN_HASH_KEYS = [
-  'order_fingerprint', 'admission_fingerprint', 'manifest_fingerprint',
-  'resource_fingerprint', 'fingerprint',
-] as const;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
 function validatedExecutionPlan(input: unknown, order: ExecutionOrder): ExecutionPlan {
@@ -28,46 +24,24 @@ function validatedExecutionPlan(input: unknown, order: ExecutionOrder): Executio
     throw new TypeError('ExecutionPlan no conserva autoridad.');
   }
 
-  const normalized = {
-    runner_id: uuid(plan.runner_id, 'plan.runner_id'),
-    order_id: uuid(plan.order_id, 'plan.order_id'),
-    work_item_id: ref(plan.work_item_id, 'plan.work_item_id', 160),
-    capability: slug(plan.capability, 'plan.capability'),
-    adapter_id: slug(plan.adapter_id, 'plan.adapter_id'),
-  };
-  const hashes = Object.fromEntries(PLAN_HASH_KEYS.map((field) => {
-    const value = plan[field];
-    if (typeof value !== 'string' || !SHA256_RE.test(value)) {
-      throw new TypeError(`plan.${field} inválido.`);
-    }
-    return [field, value];
-  })) as Record<(typeof PLAN_HASH_KEYS)[number], string>;
-
-  if (![
-    normalized.runner_id === order.runner_id,
-    normalized.order_id === order.order_id,
-    normalized.work_item_id === order.work_item_id,
-    normalized.capability === order.capability,
-    hashes.order_fingerprint === orderFingerprint(order),
-  ].every(Boolean)) {
-    throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
-  }
-
+  const fingerprint = ref(plan.fingerprint, 'plan.fingerprint', 64);
   const { fingerprint: _ignored, ...unsigned } = plan;
-  if (stableSha256(unsigned) !== hashes.fingerprint) {
+  if (!SHA256_RE.test(fingerprint) || stableSha256(unsigned) !== fingerprint) {
     throw new TypeError('ExecutionPlan fingerprint incoherente.');
   }
 
-  return {
-    version: 1,
-    authority: 'unchanged',
-    ...normalized,
-    order_fingerprint: hashes.order_fingerprint,
-    admission_fingerprint: hashes.admission_fingerprint,
-    manifest_fingerprint: hashes.manifest_fingerprint,
-    resource_fingerprint: hashes.resource_fingerprint,
-    fingerprint: hashes.fingerprint,
-  };
+  const adapterId = slug(plan.adapter_id, 'plan.adapter_id');
+  if (
+    uuid(plan.runner_id, 'plan.runner_id') !== order.runner_id
+    || uuid(plan.order_id, 'plan.order_id') !== order.order_id
+    || ref(plan.work_item_id, 'plan.work_item_id', 160) !== order.work_item_id
+    || slug(plan.capability, 'plan.capability') !== order.capability
+    || plan.order_fingerprint !== orderFingerprint(order)
+  ) {
+    throw new TypeError('ExecutionPlan no corresponde a la orden actual.');
+  }
+
+  return { ...(plan as unknown as ExecutionPlan), adapter_id: adapterId, fingerprint };
 }
 
 type AdapterOutcome =
