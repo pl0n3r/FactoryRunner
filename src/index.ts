@@ -40,6 +40,9 @@ export type { ExecutionResultEnvelope, ObservedQueueState, CapacitySnapshot } fr
 export { resourceSnapshot } from './resource-snapshot.ts';
 export type { ResourceSnapshot } from './resource-snapshot.ts';
 
+export { telemetryEnvelope } from './telemetry.ts';
+export type { TelemetryEnvelope, TelemetryMetricValue, TelemetryMetrics } from './telemetry.ts';
+
 export {
   AdapterRegistry,
   ExecFileCommandRunner,
