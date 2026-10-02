@@ -1,4 +1,3 @@
-import type { ExecutionPlan } from './execution-plan.ts';
 import { orderFingerprint, parseExecutionOrder } from './order.ts';
 import {
   asRecord,
