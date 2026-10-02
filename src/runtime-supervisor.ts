@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { resolveBrowserRuntimeRequest } from './browser-runtime-request.ts';
+import type { BrowserLoopRequest } from './browser-loop-request.ts';
 import type { ControlBotClient, ControlBotPolledOrder } from './controlbot/client.ts';
 import type { ExecutionAdmissionDecision } from './execution-admission.ts';
 import type { ExecutionEvent } from './event.ts';
@@ -22,6 +24,11 @@ export type RuntimeExecutionPlanGate = (
   now: number,
 ) => ExecutionPlan;
 
+export type RuntimeBrowserRequestResolver = (
+  order: ExecutionOrder,
+  plan: ExecutionPlan,
+) => unknown;
+
 export type RuntimeSupervisorDependencies = {
   client: ControlBotClient;
   journal: DurableJournal;
@@ -29,6 +36,7 @@ export type RuntimeSupervisorDependencies = {
   loop: ExecutionLoop;
   admission?: RuntimeAdmissionGate;
   plan?: RuntimeExecutionPlanGate;
+  browser_request?: RuntimeBrowserRequestResolver;
   now?: () => number;
   event_id?: () => string;
 };
@@ -45,6 +53,7 @@ export class RuntimeSupervisor {
   readonly #loop: ExecutionLoop;
   readonly #admission: RuntimeAdmissionGate | null;
   readonly #plan: RuntimeExecutionPlanGate | null;
+  readonly #browserRequest: RuntimeBrowserRequestResolver | null;
   readonly #now: () => number;
   readonly #eventId: () => string;
   readonly #activeOrderIds = new Set<string>();
@@ -58,6 +67,7 @@ export class RuntimeSupervisor {
     this.#loop = dependencies.loop;
     this.#admission = dependencies.admission ?? null;
     this.#plan = dependencies.plan ?? null;
+    this.#browserRequest = dependencies.browser_request ?? null;
     this.#now = dependencies.now ?? (() => Math.floor(Date.now() / 1_000));
     this.#eventId = dependencies.event_id ?? randomUUID;
   }
@@ -212,6 +222,9 @@ export class RuntimeSupervisor {
     plan: ExecutionPlan | null,
   ): Promise<void> {
     const order = this.#client.validatedOrder(polled.order_id);
+    const browserRequest = plan?.adapter_id === 'browser-execution'
+      ? this.#resolvedBrowserRequest(order, plan)
+      : null;
     const recovered = this.#journal.recover();
     if (!recovered.orders.some((item) => item.order_id === order.order_id)) {
       this.#journal.appendOrder(order);
@@ -241,6 +254,8 @@ export class RuntimeSupervisor {
 
     if (plan === null) {
       await this.#loop.execute(order);
+    } else if (browserRequest !== null) {
+      await this.#loop.executeBrowserRequest(order, plan, browserRequest);
     } else {
       await this.#loop.executePlan(order, plan);
     }
@@ -262,6 +277,23 @@ export class RuntimeSupervisor {
       batch.plan_fingerprint,
     );
     await this.#deliver(outbound, () => this.#client.publishEvents(batch.events));
+  }
+
+  #resolvedBrowserRequest(
+    order: ExecutionOrder,
+    plan: ExecutionPlan,
+  ): BrowserLoopRequest {
+    if (this.#browserRequest === null) {
+      throw new TypeError('Browser runtime request resolver no configurado.');
+    }
+
+    let provided: unknown;
+    try {
+      provided = this.#browserRequest(order, plan);
+    } catch {
+      throw new TypeError('Browser runtime request no disponible.');
+    }
+    return resolveBrowserRuntimeRequest(order, plan, provided);
   }
 
   #events(orderId: string): ExecutionEvent[] {
