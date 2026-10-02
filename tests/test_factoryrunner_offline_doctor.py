@@ -49,16 +49,41 @@ class FactoryRunnerOfflineDoctorTests(unittest.TestCase):
         };
         const secretBearing = { ...secretCore, fingerprint: stableSha256(secretCore) };
 
+        const missingRunnerCore = { ...readyCore, runner_id: null };
+        const missingRunner = {
+          ...missingRunnerCore,
+          fingerprint: stableSha256(missingRunnerCore),
+        };
+        const missingObservedAtCore = { ...readyCore, observed_at: null };
+        const missingObservedAt = {
+          ...missingObservedAtCore,
+          fingerprint: stableSha256(missingObservedAtCore),
+        };
+        const blockingReasonCore = {
+          ...readyCore,
+          reasons: ['runtime_not_fresh'],
+        };
+        const blockingReason = {
+          ...blockingReasonCore,
+          fingerprint: stableSha256(blockingReasonCore),
+        };
+
         const passOne = offlineDoctor(ready);
         const passTwo = offlineDoctor(ready);
         const blockedReport = offlineDoctor(blocked);
         const secretReport = offlineDoctor(secretBearing);
+        const missingRunnerReport = offlineDoctor(missingRunner);
+        const missingObservedAtReport = offlineDoctor(missingObservedAt);
+        const blockingReasonReport = offlineDoctor(blockingReason);
 
         console.log(JSON.stringify({
           passOne,
           passTwo,
           blockedReport,
           secretReport,
+          missingRunnerReport,
+          missingObservedAtReport,
+          blockingReasonReport,
         }));
         """
         output = subprocess.check_output(
@@ -95,6 +120,26 @@ class FactoryRunnerOfflineDoctorTests(unittest.TestCase):
         self.assertNotIn("supersecretvalue", json.dumps(secret))
         self.assertEqual(secret["status"], "BLOCKED")
         self.assertEqual(secret["source"]["readiness_status"], "UNKNOWN")
+
+    def test_ready_snapshot_missing_identity_or_observation_fails_closed(self):
+        for key in ("missingRunnerReport", "missingObservedAtReport"):
+            report = self.observed[key]
+            self.assertEqual(report["status"], "BLOCKED")
+            self.assertEqual(report["source"]["readiness_status"], "UNKNOWN")
+            self.assertIsNone(report["source"]["runner_id"])
+            self.assertIsNone(report["source"]["observed_at"])
+            self.assertTrue(
+                all(item["status"] == "BLOCKED" for item in report["diagnostics"])
+            )
+
+    def test_ready_snapshot_with_blocking_reason_fails_closed(self):
+        report = self.observed["blockingReasonReport"]
+        self.assertEqual(report["status"], "BLOCKED")
+        self.assertEqual(report["source"]["readiness_status"], "UNKNOWN")
+        self.assertEqual(report["source"]["runtime_status"], "unknown")
+        self.assertTrue(
+            all(item["status"] == "BLOCKED" for item in report["diagnostics"])
+        )
 
     def test_doctor_performs_no_network_provider_or_external_mutation(self):
         report = self.observed["blockedReport"]
