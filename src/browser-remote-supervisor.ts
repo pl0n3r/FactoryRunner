@@ -77,21 +77,26 @@ export function createBrowserRemoteSupervisor(
   const location = browserLocation(identity.location);
   const directory = dependencies.directory;
   const pinnedBindings = new BrowserRemotePinRegistry();
-  const tickRequestFingerprints = new Set<string>();
-  let pendingRequestFingerprint: string | null = null;
+  type TickPinOwner = {
+    readonly request_fingerprints: Set<string>;
+    pending_request_fingerprint: string | null;
+  };
+  let activeTickPinOwner: TickPinOwner | null = null;
 
   const dropPendingPin = (): void => {
-    if (pendingRequestFingerprint === null) return;
-    pinnedBindings.drop(pendingRequestFingerprint);
-    pendingRequestFingerprint = null;
+    const owner = activeTickPinOwner;
+    const requestFingerprint = owner?.pending_request_fingerprint ?? null;
+    if (owner === null || requestFingerprint === null) return;
+    pinnedBindings.drop(requestFingerprint);
+    owner.pending_request_fingerprint = null;
   };
 
-  const dropTickPins = (): void => {
-    for (const requestFingerprint of tickRequestFingerprints) {
+  const dropTickPins = (owner: TickPinOwner): void => {
+    for (const requestFingerprint of owner.request_fingerprints) {
       pinnedBindings.drop(requestFingerprint);
     }
-    tickRequestFingerprints.clear();
-    pendingRequestFingerprint = null;
+    owner.request_fingerprints.clear();
+    owner.pending_request_fingerprint = null;
   };
 
   const journal = new Proxy(dependencies.journal, {
@@ -133,8 +138,9 @@ export function createBrowserRemoteSupervisor(
     identity,
     browser_adapter_resolver: (request) => {
       const pinned = pinnedBindings.peek(request.fingerprint);
-      if (pendingRequestFingerprint === request.fingerprint) {
-        pendingRequestFingerprint = null;
+      const owner = activeTickPinOwner;
+      if (owner?.pending_request_fingerprint === request.fingerprint) {
+        owner.pending_request_fingerprint = null;
       }
       if (pinned === null) {
         throw new TypeError('Binding browser remoto pinneado no disponible.');
@@ -184,7 +190,11 @@ export function createBrowserRemoteSupervisor(
       guarded.request,
       guarded.evidence,
     );
-    tickRequestFingerprints.add(guarded.request.fingerprint);
+    const owner = activeTickPinOwner;
+    if (owner === null) {
+      throw new TypeError('Tick browser remoto sin ownership activo.');
+    }
+    owner.request_fingerprints.add(guarded.request.fingerprint);
     const existing = pinnedBindings.peek(guarded.request.fingerprint);
     if (existing !== null) {
       const profile = existing.handle.profile;
@@ -220,7 +230,7 @@ export function createBrowserRemoteSupervisor(
         directory_entries: directory.entries,
       },
     );
-    pendingRequestFingerprint = guarded.request.fingerprint;
+    owner.pending_request_fingerprint = guarded.request.fingerprint;
     return guarded.request;
   };
 
@@ -241,10 +251,20 @@ export function createBrowserRemoteSupervisor(
       const value = Reflect.get(target, property, target);
       if (property === 'tick') {
         return async (...args: Parameters<RuntimeSupervisor['tick']>) => {
+          const owner: TickPinOwner = {
+            request_fingerprints: new Set<string>(),
+            pending_request_fingerprint: null,
+          };
+          if (activeTickPinOwner === null) {
+            activeTickPinOwner = owner;
+          }
           try {
             return await target.tick(...args);
           } finally {
-            dropTickPins();
+            if (activeTickPinOwner === owner) {
+              dropTickPins(owner);
+              activeTickPinOwner = null;
+            }
           }
         };
       }
