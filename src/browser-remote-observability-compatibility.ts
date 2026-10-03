@@ -12,13 +12,13 @@ import {
 } from './validation.ts';
 
 export type BrowserRemoteObservabilityRequirement = Readonly<{
-  export_name: BrowserRemoteObservabilityExportName;
-  contract_version: 1;
+  export_name: string;
+  contract_version: number;
 }>;
 
 export type BrowserRemoteObservabilityConsumer = Readonly<{
   version: 1;
-  manifest_version: 1;
+  manifest_version: number;
   required_exports: readonly BrowserRemoteObservabilityRequirement[];
 }>;
 
@@ -137,13 +137,13 @@ function consumer(input: unknown): BrowserRemoteObservabilityConsumer {
         item.export_name,
         `consumer.required_exports[${index}].export_name`,
         80,
-      ) as BrowserRemoteObservabilityExportName,
+      ),
       contract_version: integer(
         item.contract_version,
         `consumer.required_exports[${index}].contract_version`,
         1,
         Number.MAX_SAFE_INTEGER,
-      ) as 1,
+      ),
     });
   });
 
@@ -157,7 +157,7 @@ function consumer(input: unknown): BrowserRemoteObservabilityConsumer {
 
   return Object.freeze({
     version: 1,
-    manifest_version: manifestVersion as 1,
+    manifest_version: manifestVersion,
     required_exports: Object.freeze(requirements),
   });
 }
