@@ -106,6 +106,26 @@ export class BrowserRemoteDirectory {
     return entry;
   }
 
+  get size(): number {
+    return this.#byAlias.size;
+  }
+
+  remove(remoteAlias: unknown, expectedFingerprint: unknown): boolean {
+    const alias = opaqueAlias(remoteAlias);
+    const fingerprint = stringValue(expectedFingerprint, 'expected_fingerprint', 64);
+    if (!/^[0-9a-f]{64}$/.test(fingerprint)) {
+      throw new TypeError('expected_fingerprint browser remoto inválido.');
+    }
+
+    const entry = this.#byAlias.get(alias);
+    if (entry === undefined) return false;
+    if (entry.profile.fingerprint !== fingerprint) {
+      throw new TypeError('Fingerprint browser remoto no coincide.');
+    }
+
+    return this.#byAlias.delete(alias);
+  }
+
   lookup(remoteAlias: unknown): BrowserRemoteDirectoryEntry | null {
     const alias = opaqueAlias(remoteAlias);
     return this.#byAlias.get(alias) ?? null;
