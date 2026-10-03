@@ -24,6 +24,7 @@ const PROFILE_KEYS = [
   'fingerprint',
 ] as const;
 
+const REGISTRATION_KEYS = ['profile', 'transport'] as const;
 const OPAQUE_ALIAS_RE = /^[a-z][a-z0-9-]{0,63}$/;
 
 function canonicalProfile(value: unknown): BrowserRemoteProfile {
@@ -83,26 +84,49 @@ function opaqueAlias(value: unknown): string {
   return parsed;
 }
 
+function canonicalFingerprint(value: unknown): string {
+  const fingerprint = stringValue(value, 'expected_fingerprint', 64);
+  if (!/^[0-9a-f]{64}$/.test(fingerprint)) {
+    throw new TypeError('expected_fingerprint browser remoto inválido.');
+  }
+  return fingerprint;
+}
+
+function registrationRecord(value: unknown): Readonly<{
+  profile: unknown;
+  transport: unknown;
+}> {
+  const record = asRecord(value, 'BrowserRemoteDirectoryRegistration');
+  exactKeys(
+    record,
+    REGISTRATION_KEYS,
+    'BrowserRemoteDirectoryRegistration',
+  );
+  return Object.freeze({
+    profile: record.profile,
+    transport: record.transport,
+  });
+}
+
+function registrationEntry(value: unknown): BrowserRemoteDirectoryEntry {
+  const record = registrationRecord(value);
+  return Object.freeze({
+    profile: canonicalProfile(record.profile),
+    transport: sealedTransport(record.transport),
+  });
+}
+
 export class BrowserRemoteDirectory {
   readonly #byAlias = new Map<string, BrowserRemoteDirectoryEntry>();
 
   register(input: unknown): BrowserRemoteDirectoryEntry {
-    const record = asRecord(input, 'BrowserRemoteDirectoryRegistration');
-    exactKeys(
-      record,
-      ['profile', 'transport'],
-      'BrowserRemoteDirectoryRegistration',
-    );
+    const entry = registrationEntry(input);
 
-    const profile = canonicalProfile(record.profile);
-    const transport = sealedTransport(record.transport);
-
-    if (this.#byAlias.has(profile.remote_alias)) {
+    if (this.#byAlias.has(entry.profile.remote_alias)) {
       throw new TypeError('remote_alias browser remoto duplicado.');
     }
 
-    const entry = Object.freeze({ profile, transport });
-    this.#byAlias.set(profile.remote_alias, entry);
+    this.#byAlias.set(entry.profile.remote_alias, entry);
     return entry;
   }
 
@@ -112,10 +136,7 @@ export class BrowserRemoteDirectory {
 
   remove(remoteAlias: unknown, expectedFingerprint: unknown): boolean {
     const alias = opaqueAlias(remoteAlias);
-    const fingerprint = stringValue(expectedFingerprint, 'expected_fingerprint', 64);
-    if (!/^[0-9a-f]{64}$/.test(fingerprint)) {
-      throw new TypeError('expected_fingerprint browser remoto inválido.');
-    }
+    const fingerprint = canonicalFingerprint(expectedFingerprint);
 
     const entry = this.#byAlias.get(alias);
     if (entry === undefined) return false;
@@ -124,6 +145,34 @@ export class BrowserRemoteDirectory {
     }
 
     return this.#byAlias.delete(alias);
+  }
+
+  rotate(
+    remoteAlias: unknown,
+    expectedFingerprint: unknown,
+    replacement: unknown,
+  ): BrowserRemoteDirectoryEntry {
+    const alias = opaqueAlias(remoteAlias);
+    const fingerprint = canonicalFingerprint(expectedFingerprint);
+    const current = this.#byAlias.get(alias);
+
+    if (current === undefined) {
+      throw new TypeError('remote_alias browser remoto no registrado.');
+    }
+    if (current.profile.fingerprint !== fingerprint) {
+      throw new TypeError('Fingerprint browser remoto no coincide.');
+    }
+
+    const record = registrationRecord(replacement);
+    const profile = canonicalProfile(record.profile);
+    if (profile.remote_alias !== alias) {
+      throw new TypeError('La rotación debe conservar el remote_alias.');
+    }
+    const transport = sealedTransport(record.transport);
+    const next = Object.freeze({ profile, transport });
+
+    this.#byAlias.set(alias, next);
+    return next;
   }
 
   lookup(remoteAlias: unknown): BrowserRemoteDirectoryEntry | null {
