@@ -1,5 +1,3 @@
-import type { BrowserRemoteDirectoryDoctor } from './browser-remote-directory-doctor.ts';
-import type { BrowserRemoteDirectoryHealth } from './browser-remote-directory-health.ts';
 import {
   browserRemoteDirectoryMetrics,
   type BrowserRemoteDirectoryMetrics,
@@ -27,17 +25,15 @@ export type BrowserRemoteDirectoryHealthBundle = Readonly<{
 }>;
 
 type BundleCore = Omit<BrowserRemoteDirectoryHealthBundle, 'fingerprint'>;
-
 type DoctorEvidence = Readonly<{
-  status: BrowserRemoteDirectoryDoctor['status'];
+  status: 'DIRECTORY_READY' | 'DIRECTORY_UNAVAILABLE';
   evidence_current: boolean;
   snapshot_fingerprint: string;
   readiness_fingerprint: string;
   fingerprint: string;
 }>;
-
 type HealthEvidence = Readonly<{
-  status: BrowserRemoteDirectoryHealth['status'];
+  status: 'READY' | 'UNAVAILABLE';
   diagnostics_pass: number;
   diagnostics_blocked: number;
   doctor_fingerprint: string | null;
@@ -46,42 +42,9 @@ type HealthEvidence = Readonly<{
   metrics: BrowserRemoteDirectoryMetrics;
 }>;
 
-const DOCTOR_KEYS = [
-  'version',
-  'authority',
-  'status',
-  'runner_id',
-  'location',
-  'snapshot_fingerprint',
-  'readiness_fingerprint',
-  'evidence_current',
-  'fingerprint',
-] as const;
-
-const HEALTH_KEYS = [
-  'version',
-  'authority',
-  'status',
-  'profiles_total',
-  'capabilities_total',
-  'diagnostics_pass',
-  'diagnostics_blocked',
-  'doctor_fingerprint',
-  'snapshot_fingerprint',
-  'fingerprint',
-] as const;
-
-const METRICS_KEYS = [
-  'version',
-  'authority',
-  'readiness',
-  'profiles_total',
-  'capabilities_total',
-  'diagnostics_pass',
-  'diagnostics_blocked',
-  'fingerprint',
-] as const;
-
+const DOCTOR_KEYS = ['version', 'authority', 'status', 'runner_id', 'location', 'snapshot_fingerprint', 'readiness_fingerprint', 'evidence_current', 'fingerprint'] as const;
+const HEALTH_KEYS = ['version', 'authority', 'status', 'profiles_total', 'capabilities_total', 'diagnostics_pass', 'diagnostics_blocked', 'doctor_fingerprint', 'snapshot_fingerprint', 'fingerprint'] as const;
+const METRICS_KEYS = ['version', 'authority', 'readiness', 'profiles_total', 'capabilities_total', 'diagnostics_pass', 'diagnostics_blocked', 'fingerprint'] as const;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const DIAGNOSTIC_CHECKS = 4;
 
@@ -94,18 +57,13 @@ function sha256(value: unknown, field: string): string {
 function canonicalDoctor(input: unknown): DoctorEvidence {
   const record = asRecord(input, 'BrowserRemoteDirectoryDoctor');
   exactKeys(record, DOCTOR_KEYS, 'BrowserRemoteDirectoryDoctor');
-
-  if (record.version !== 1 || record.authority !== 'unchanged') {
-    throw new TypeError('BrowserRemoteDirectoryDoctor inválido.');
-  }
   if (
-    record.status !== 'DIRECTORY_READY'
-    && record.status !== 'DIRECTORY_UNAVAILABLE'
+    record.version !== 1
+    || record.authority !== 'unchanged'
+    || (record.status !== 'DIRECTORY_READY' && record.status !== 'DIRECTORY_UNAVAILABLE')
+    || typeof record.evidence_current !== 'boolean'
   ) {
-    throw new TypeError('BrowserRemoteDirectoryDoctor status inválido.');
-  }
-  if (typeof record.evidence_current !== 'boolean') {
-    throw new TypeError('BrowserRemoteDirectoryDoctor evidence_current inválido.');
+    throw new TypeError('BrowserRemoteDirectoryDoctor inválido.');
   }
 
   const runnerId = record.runner_id === null
@@ -114,37 +72,26 @@ function canonicalDoctor(input: unknown): DoctorEvidence {
   const location = record.location === null
     ? null
     : stringValue(record.location, 'doctor.location', 128);
-  const snapshotFingerprint = sha256(
-    record.snapshot_fingerprint,
-    'doctor.snapshot_fingerprint',
-  );
-  const readinessFingerprint = sha256(
-    record.readiness_fingerprint,
-    'doctor.readiness_fingerprint',
-  );
+  const snapshotFingerprint = sha256(record.snapshot_fingerprint, 'doctor.snapshot_fingerprint');
+  const readinessFingerprint = sha256(record.readiness_fingerprint, 'doctor.readiness_fingerprint');
   const fingerprint = sha256(record.fingerprint, 'doctor.fingerprint');
-
   if (
     record.status === 'DIRECTORY_READY'
-    && (
-      record.evidence_current !== true
-      || runnerId === null
-      || location === null
-    )
+    && (record.evidence_current !== true || runnerId === null || location === null)
   ) {
     throw new TypeError('BrowserRemoteDirectoryDoctor READY contradictorio.');
   }
 
-  const core = Object.freeze({
-    version: 1 as const,
-    authority: 'unchanged' as const,
+  const core = {
+    version: 1,
+    authority: 'unchanged',
     status: record.status,
     runner_id: runnerId,
     location,
     snapshot_fingerprint: snapshotFingerprint,
     readiness_fingerprint: readinessFingerprint,
     evidence_current: record.evidence_current,
-  });
+  } as const;
   if (stableSha256(core) !== fingerprint) {
     throw new TypeError('BrowserRemoteDirectoryDoctor fingerprint incoherente.');
   }
@@ -162,18 +109,14 @@ function canonicalHealth(input: unknown): HealthEvidence {
   const metrics = browserRemoteDirectoryMetrics(input);
   const record = asRecord(input, 'BrowserRemoteDirectoryHealth');
   exactKeys(record, HEALTH_KEYS, 'BrowserRemoteDirectoryHealth');
-
   return Object.freeze({
-    status: record.status as BrowserRemoteDirectoryHealth['status'],
+    status: record.status as 'READY' | 'UNAVAILABLE',
     diagnostics_pass: record.diagnostics_pass as number,
     diagnostics_blocked: record.diagnostics_blocked as number,
     doctor_fingerprint: record.doctor_fingerprint === null
       ? null
       : sha256(record.doctor_fingerprint, 'health.doctor_fingerprint'),
-    snapshot_fingerprint: sha256(
-      record.snapshot_fingerprint,
-      'health.snapshot_fingerprint',
-    ),
+    snapshot_fingerprint: sha256(record.snapshot_fingerprint, 'health.snapshot_fingerprint'),
     fingerprint: sha256(record.fingerprint, 'health.fingerprint'),
     metrics,
   });
@@ -211,14 +154,13 @@ export function browserRemoteDirectoryHealthBundle(
     2
     + (doctor.evidence_current ? 1 : 0)
     + (doctor.status === 'DIRECTORY_READY' ? 1 : 0);
-  const expectedBlocked = DIAGNOSTIC_CHECKS - expectedDiagnostics;
-  const expectedHealthStatus = expectedBlocked === 0 ? 'READY' : 'UNAVAILABLE';
-
+  const blocked = DIAGNOSTIC_CHECKS - expectedDiagnostics;
+  const status = blocked === 0 ? 'READY' : 'UNAVAILABLE';
   if (
     health.diagnostics_pass !== expectedDiagnostics
-    || health.diagnostics_blocked !== expectedBlocked
-    || health.status !== expectedHealthStatus
-    || metrics.readiness !== (expectedHealthStatus === 'READY' ? 1 : 0)
+    || health.diagnostics_blocked !== blocked
+    || health.status !== status
+    || metrics.readiness !== (status === 'READY' ? 1 : 0)
   ) {
     throw new TypeError('Evidencia doctor/health/metrics incoherente.');
   }
@@ -226,7 +168,7 @@ export function browserRemoteDirectoryHealthBundle(
   const core: BundleCore = Object.freeze({
     version: 1,
     authority: 'unchanged',
-    status: expectedHealthStatus,
+    status,
     doctor_fingerprint: doctor.fingerprint,
     health_fingerprint: health.fingerprint,
     metrics_fingerprint: metrics.fingerprint,
@@ -235,9 +177,5 @@ export function browserRemoteDirectoryHealthBundle(
     network_access: false,
     external_mutation: false,
   });
-
-  return Object.freeze({
-    ...core,
-    fingerprint: stableSha256(core),
-  });
+  return Object.freeze({ ...core, fingerprint: stableSha256(core) });
 }
