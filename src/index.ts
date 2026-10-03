@@ -40,6 +40,15 @@ export type { ExecutionResultEnvelope, ObservedQueueState, CapacitySnapshot } fr
 export { resourceSnapshot } from './resource-snapshot.ts';
 export type { ResourceSnapshot } from './resource-snapshot.ts';
 
+
+export { browserRemoteDirectorySnapshot, type BrowserRemoteDirectorySnapshot } from './browser-remote-directory-snapshot.ts';
+export { browserRemoteDirectoryReadiness, type BrowserRemoteDirectoryReadiness } from './browser-remote-directory-readiness.ts';
+export { browserRemoteDirectoryDoctor, type BrowserRemoteDirectoryDoctor } from './browser-remote-directory-doctor.ts';
+export { browserRemoteDirectoryHealth, type BrowserRemoteDirectoryHealth } from './browser-remote-directory-health.ts';
+export { browserRemoteDirectoryMetrics, type BrowserRemoteDirectoryMetrics } from './browser-remote-directory-metrics.ts';
+export { browserRemoteDirectoryHealthBundle, type BrowserRemoteDirectoryHealthBundle } from './browser-remote-directory-health-bundle.ts';
+export type { BrowserRemoteCapability, BrowserRemoteProfile } from './browser-remote-profile.ts';
+
 export { telemetryEnvelope } from './telemetry.ts';
 export type { TelemetryEnvelope, TelemetryMetricValue, TelemetryMetrics } from './telemetry.ts';
 
@@ -114,3 +123,4 @@ export { RecoveryLiveObjectStorage, RecoveryLiveObjectStorageError } from './rec
 export type { RecoveryLiveObjectStorageInput } from './recovery/live-object-storage.ts';
 export { RecoveryConnectionError, resolveRecoveryS3Connection } from './recovery/connection-resolver.ts';
 export type { RecoveryS3Connection } from './recovery/connection-resolver.ts';
+
