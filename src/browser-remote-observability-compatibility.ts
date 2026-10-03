@@ -204,7 +204,7 @@ export function browserRemoteObservabilityCompatibility(
     reasons.push('MANIFEST_VERSION_UNSUPPORTED');
   }
 
-  const supported = new Map(
+  const supported = new Map<string, number>(
     parsedManifest.exports.map((entry) => [entry.export_name, entry.contract_version]),
   );
   for (const requirement of parsedConsumer.required_exports) {
