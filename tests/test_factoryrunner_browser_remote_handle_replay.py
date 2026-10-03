@@ -84,7 +84,7 @@ class FactoryRunnerBrowserRemoteHandleReplayTests(unittest.TestCase):
     def setUpClass(cls):
         cls.observed = observe()
 
-    def test_duplicate_poll_batch_fails_before_remote_handle_can_replay_transport(self):
+    def test_supervisor_consumes_exact_handle_once_and_duplicate_request_cannot_replay_transport(self):
         duplicate = self.observed["duplicate"]
         self.assertEqual(duplicate["error"]["name"], "TypeError")
         self.assertIn("order_id duplicado", duplicate["error"]["message"])
