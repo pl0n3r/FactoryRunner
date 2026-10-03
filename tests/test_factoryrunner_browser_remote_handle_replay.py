@@ -37,14 +37,22 @@ async function duplicateRequest() {
   let directoryReads = 0;
   directory.entries = () => { directoryReads += 1; return originalEntries(); };
   const counts = { ack: 0, publish: 0, placement: 0, request: 0 };
-  const result = await configuredSupervisor(
-    root, directory, counts, async () => {}, 220, true,
-  ).tick(2);
+  let error = null;
+  try {
+    await configuredSupervisor(
+      root, directory, counts, async () => {}, 220, true,
+    ).tick(2);
+  } catch (caught) {
+    error = {
+      name: caught instanceof Error ? caught.name : typeof caught,
+      message: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
   const events = new DurableJournal(join(root, 'journal.ndjson'))
     .recover().events.map((event) => event.state);
   rmSync(root, { recursive: true, force: true });
   return {
-    result, counts, directoryReads, events, transportCalls: transport.calls,
+    error, counts, directoryReads, events, transportCalls: transport.calls,
   };
 }
 
@@ -76,16 +84,19 @@ class FactoryRunnerBrowserRemoteHandleReplayTests(unittest.TestCase):
     def setUpClass(cls):
         cls.observed = observe()
 
-    def test_supervisor_consumes_exact_handle_once_and_duplicate_request_cannot_replay_transport(self):
+    def test_duplicate_poll_batch_fails_before_remote_handle_can_replay_transport(self):
         duplicate = self.observed["duplicate"]
-        expected = {
-            "result": {"processed": 2, "cursor": None},
-            "counts": {"ack": 1, "publish": 1, "placement": 2, "request": 2},
-            "directoryReads": 3,
-            "transportCalls": 1,
-            "events": ["accepted", "started", "completed"],
-        }
-        self.assertEqual(duplicate, expected)
+        self.assertEqual(duplicate["error"]["name"], "TypeError")
+        self.assertIn("order_id duplicado", duplicate["error"]["message"])
+        self.assertEqual(
+            {key: duplicate[key] for key in ("counts", "directoryReads", "transportCalls", "events")},
+            {
+                "counts": {"ack": 0, "publish": 0, "placement": 0, "request": 0},
+                "directoryReads": 0,
+                "transportCalls": 0,
+                "events": [],
+            },
+        )
 
     def test_terminal_recovery_revalidates_local_contracts_without_ack_or_handle_transport_replay(self):
         recovery = self.observed["recovery"]
