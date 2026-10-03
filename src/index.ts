@@ -65,6 +65,8 @@ export {
 export {
   browserRemoteObservabilityPublicConsumerCompatibility,
   type BrowserRemoteObservabilityPublicConsumerCompatibility,
+  type BrowserRemoteObservabilityPublicConsumer,
+  type BrowserRemoteObservabilityPublicRequirement,
 } from './browser-remote-observability-public-consumer-compatibility.ts';
 
 export { telemetryEnvelope } from './telemetry.ts';
