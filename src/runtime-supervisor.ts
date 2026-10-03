@@ -59,6 +59,7 @@ export class RuntimeSupervisor {
   readonly #activeOrderIds = new Set<string>();
   #cursor: string | null = null;
   #draining = false;
+  #ticking = false;
 
   constructor(dependencies: RuntimeSupervisorDependencies) {
     this.#client = dependencies.client;
@@ -104,29 +105,38 @@ export class RuntimeSupervisor {
   }
 
   async tick(limit = 16): Promise<RuntimeTickResult> {
-    if (this.#draining) return { processed: 0, cursor: this.#cursor };
-    const now = integer(this.#now(), 'now');
-    const result = await this.#client.poll(this.#cursor, integer(limit, 'limit', 1, 64), now);
-    let processed = 0;
-    for (const order of result.orders) {
-      if (this.#draining) break;
-      const validated = this.#client.validatedOrder(order.order_id);
-      const admission = this.#admission === null
-        ? null
-        : this.#admissionDecision(validated, now);
-      if (this.#admission !== null && admission === null) continue;
-      const plan = this.#revalidatedPlan(validated, admission, now);
-      if (this.#plan !== null && plan === null) continue;
-      this.#activeOrderIds.add(order.order_id);
-      try {
-        await this.#process(order, plan);
-        processed += 1;
-      } finally {
-        this.#activeOrderIds.delete(order.order_id);
-      }
+    if (this.#ticking) {
+      throw new TypeError('RuntimeSupervisor.tick() ya está en ejecución.');
     }
-    if (processed === result.orders.length) this.#cursor = result.cursor;
-    return { processed, cursor: this.#cursor };
+
+    this.#ticking = true;
+    try {
+      if (this.#draining) return { processed: 0, cursor: this.#cursor };
+      const now = integer(this.#now(), 'now');
+      const result = await this.#client.poll(this.#cursor, integer(limit, 'limit', 1, 64), now);
+      let processed = 0;
+      for (const order of result.orders) {
+        if (this.#draining) break;
+        const validated = this.#client.validatedOrder(order.order_id);
+        const admission = this.#admission === null
+          ? null
+          : this.#admissionDecision(validated, now);
+        if (this.#admission !== null && admission === null) continue;
+        const plan = this.#revalidatedPlan(validated, admission, now);
+        if (this.#plan !== null && plan === null) continue;
+        this.#activeOrderIds.add(order.order_id);
+        try {
+          await this.#process(order, plan);
+          processed += 1;
+        } finally {
+          this.#activeOrderIds.delete(order.order_id);
+        }
+      }
+      if (processed === result.orders.length) this.#cursor = result.cursor;
+      return { processed, cursor: this.#cursor };
+    } finally {
+      this.#ticking = false;
+    }
   }
 
   #admissionDecision(
