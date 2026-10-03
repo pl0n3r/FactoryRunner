@@ -46,6 +46,16 @@ export type RuntimeTickResult = {
   cursor: string | null;
 };
 
+function assertUniquePollOrderIds(orders: readonly ControlBotPolledOrder[]): void {
+  const seen = new Set<string>();
+  for (const order of orders) {
+    if (seen.has(order.order_id)) {
+      throw new TypeError('ControlBot poll batch contiene order_id duplicado.');
+    }
+    seen.add(order.order_id);
+  }
+}
+
 export class RuntimeSupervisor {
   readonly #client: ControlBotClient;
   readonly #journal: DurableJournal;
@@ -114,6 +124,7 @@ export class RuntimeSupervisor {
       if (this.#draining) return { processed: 0, cursor: this.#cursor };
       const now = integer(this.#now(), 'now');
       const result = await this.#client.poll(this.#cursor, integer(limit, 'limit', 1, 64), now);
+      assertUniquePollOrderIds(result.orders);
       let processed = 0;
       for (const order of result.orders) {
         if (this.#draining) break;
