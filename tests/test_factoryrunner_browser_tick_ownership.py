@@ -1,28 +1,22 @@
 """Aceptación del ownership de cleanup de pins por tick (FactoryRunner #239)."""
-from __future__ import annotations
+import json, subprocess, unittest
+from pathlib import Path as _Path
 
-import json
-import subprocess
-import unittest
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests" / "test_factoryrunner_browser_remote_ack_drift.py"
-
-
-def _fixture_script() -> str:
-    source = FIXTURE.read_text(encoding="utf-8")
-    opener = '    script = r"""\n'
-    closer = '"""\n    raw = subprocess.check_output('
-    head, found, tail = source.partition(opener)
-    script, closed, _rest = tail.partition(closer)
-    if head == source or not found or not closed:
-        raise AssertionError("fixture #204 cambió")
-    return script
+_ROOT = _Path(__file__).resolve().parents[1]
+_FIXTURE = _ROOT / "tests" / "test_factoryrunner_browser_remote_ack_drift.py"
 
 
 def observe() -> dict[str, object]:
-    script = _fixture_script()
+    source = _FIXTURE.read_text(encoding="utf-8")
+    opener, closer = '    script = r"""\n', '"""\n    raw = subprocess.check_output('
+    parts = source.split(opener, 1)
+    if len(parts) != 2:
+        raise AssertionError("fixture #204 cambió: apertura")
+    tail = parts[1].split(closer, 1)
+    if len(tail) != 2:
+        raise AssertionError("fixture #204 cambió: cierre")
+    script = tail[0]
+
     import_anchor = (
         "import { BrowserRemoteDirectory } from './src/browser-remote-directory.ts';\n"
     )
@@ -128,14 +122,15 @@ async function tickPinOwnership() {
         1,
     )
 
-    raw = subprocess.check_output(
+    completed = subprocess.run(
         ("node", "--experimental-strip-types", "--input-type=module", "-e", script),
-        cwd=ROOT,
+        cwd=_ROOT,
         text=True,
-        stderr=subprocess.STDOUT,
+        capture_output=True,
+        check=True,
         timeout=20,
     )
-    return json.loads(raw.strip().splitlines()[-1])["ownership"]
+    return json.loads(completed.stdout.strip().splitlines()[-1])["ownership"]
 
 
 class FactoryRunnerBrowserTickOwnershipTests(unittest.TestCase):
@@ -148,16 +143,10 @@ class FactoryRunnerBrowserTickOwnershipTests(unittest.TestCase):
         self.assertEqual(concurrent["name"], "TypeError")
         self.assertIn("ya está en ejecución", concurrent["message"])
         self.assertEqual(self.observed["dropsWhileOwnerActive"], [])
-        self.assertEqual(
-            self.observed["ownerResult"],
-            {"processed": 1, "cursor": None},
-        )
+        self.assertEqual(self.observed["ownerResult"], {"processed": 1, "cursor": None})
         self.assertIsNone(self.observed["ownerError"])
         self.assertEqual(self.observed["transportCalls"], 1)
-        self.assertEqual(
-            self.observed["events"],
-            ["accepted", "started", "completed"],
-        )
+        self.assertEqual(self.observed["events"], ["accepted", "started", "completed"])
 
     def test_active_tick_cleans_only_its_own_pins(self):
         self.assertEqual(
