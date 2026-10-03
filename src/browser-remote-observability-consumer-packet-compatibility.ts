@@ -182,6 +182,6 @@ export function browserRemoteObservabilityConsumerPacketCompatibility(
     reasons,
     packet?.fingerprint ?? null,
     manifest?.fingerprint ?? null,
-    compatibility?.fingerprint ?? expectedCompatibility?.fingerprint ?? null,
+    compatibility?.fingerprint ?? null,
   );
 }
