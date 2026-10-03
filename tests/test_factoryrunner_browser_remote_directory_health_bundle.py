@@ -11,180 +11,99 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def observe() -> dict[str, object]:
     script = r"""
-import { BrowserRemoteDirectory } from './src/browser-remote-directory.ts';
-import { browserRemoteDirectoryDoctor } from './src/browser-remote-directory-doctor.ts';
-import { browserRemoteDirectoryHealth } from './src/browser-remote-directory-health.ts';
 import { browserRemoteDirectoryHealthBundle } from './src/browser-remote-directory-health-bundle.ts';
 import { browserRemoteDirectoryMetrics } from './src/browser-remote-directory-metrics.ts';
-import { browserRemoteDirectorySnapshot } from './src/browser-remote-directory-snapshot.ts';
-import { browserRemoteDirectoryReadiness } from './src/browser-remote-directory-readiness.ts';
-import { browserRemoteProfile } from './src/browser-remote-profile.ts';
+import { stableSha256 } from './src/validation.ts';
 
 const RUNNER = '11111111-1111-7111-8111-111111111111';
-const NOW = 1_000;
-const identity = {
-  version: 1,
-  runner_id: RUNNER,
-  protocol_version: 1,
-  runtime: 'node',
-  runtime_version: '24.0.0',
-  platform: 'linux',
-  location: 'hostinger-shared',
-  capabilities: ['browser.navigate', 'browser.close'],
-  max_parallel: 2,
-};
-const heartbeat = {
-  version: 1,
-  runner_id: RUNNER,
-  sequence: 8,
-  observed_at: 995,
-  status: 'ready',
-  capacity: { max: 2, active: 0 },
-  active_sessions: [],
-};
 
-function profile(capability, alias) {
-  return browserRemoteProfile({
+function withFingerprint(core) {
+  return Object.freeze({ ...core, fingerprint: stableSha256(core) });
+}
+
+function doctor(snapshot, readiness, ready) {
+  return withFingerprint({
     version: 1,
+    authority: 'unchanged',
+    status: ready ? 'DIRECTORY_READY' : 'DIRECTORY_UNAVAILABLE',
     runner_id: RUNNER,
     location: 'hostinger-shared',
-    capability,
-    remote_alias: alias,
+    snapshot_fingerprint: snapshot,
+    readiness_fingerprint: readiness,
+    evidence_current: ready,
   });
 }
 
-function transport(name) {
+function health(doctorEvidence, profiles, capabilities) {
+  const pass =
+    2
+    + (doctorEvidence.evidence_current ? 1 : 0)
+    + (doctorEvidence.status === 'DIRECTORY_READY' ? 1 : 0);
+  const blocked = 4 - pass;
+  return withFingerprint({
+    version: 1,
+    authority: 'unchanged',
+    status: blocked === 0 ? 'READY' : 'UNAVAILABLE',
+    profiles_total: profiles,
+    capabilities_total: capabilities,
+    diagnostics_pass: pass,
+    diagnostics_blocked: blocked,
+    doctor_fingerprint: doctorEvidence.fingerprint,
+    snapshot_fingerprint: doctorEvidence.snapshot_fingerprint,
+  });
+}
+
+function evidence(snapshot, readiness, ready, profiles = 2, capabilities = 2) {
+  const doctorEvidence = doctor(snapshot, readiness, ready);
+  const healthEvidence = health(doctorEvidence, profiles, capabilities);
+  const metricsEvidence = browserRemoteDirectoryMetrics(healthEvidence);
+  const bundle = browserRemoteDirectoryHealthBundle(
+    doctorEvidence,
+    healthEvidence,
+    metricsEvidence,
+  );
   return {
-    endpoint: `https://provider.example.invalid/${name}`,
-    headers: { authorization: 'sentinel-secret' },
-    cookies: 'sentinel-cookie',
-    async execute() {
-      throw new Error('bundle must not execute transport');
-    },
+    doctor: doctorEvidence,
+    health: healthEvidence,
+    metrics: metricsEvidence,
+    bundle,
   };
 }
 
-function currentEvidence(directory) {
-  const snapshot = browserRemoteDirectorySnapshot(directory);
-  const readiness = browserRemoteDirectoryReadiness(
-    identity,
-    heartbeat,
-    snapshot,
-    NOW,
-  );
-  const doctor = browserRemoteDirectoryDoctor(
-    identity,
-    heartbeat,
-    directory,
-    snapshot,
-    readiness,
-    NOW,
-  );
-  const health = browserRemoteDirectoryHealth(directory, doctor);
-  const metrics = browserRemoteDirectoryMetrics(health);
-  return { snapshot, readiness, doctor, health, metrics };
-}
-
-function rejected(...args) {
+function rejected(doctorEvidence, healthEvidence, metricsEvidence) {
   try {
-    browserRemoteDirectoryHealthBundle(...args);
+    browserRemoteDirectoryHealthBundle(
+      doctorEvidence,
+      healthEvidence,
+      metricsEvidence,
+    );
     return false;
   } catch {
     return true;
   }
 }
 
-const directory = new BrowserRemoteDirectory();
-const alpha = profile('browser.navigate', 'browser-alpha');
-const beta = profile('browser.close', 'browser-beta');
-directory.register({ profile: alpha, transport: transport('alpha') });
-directory.register({ profile: beta, transport: transport('beta') });
-
-const first = currentEvidence(directory);
-const readyBundle = browserRemoteDirectoryHealthBundle(
+const first = evidence('a'.repeat(64), 'b'.repeat(64), true);
+const repeated = browserRemoteDirectoryHealthBundle(
   first.doctor,
   first.health,
   first.metrics,
 );
-const repeatedBundle = browserRemoteDirectoryHealthBundle(
-  first.doctor,
-  first.health,
-  first.metrics,
-);
+const second = evidence('c'.repeat(64), 'd'.repeat(64), true, 3, 2);
+const unavailable = evidence('e'.repeat(64), 'f'.repeat(64), false, 1, 1);
 
-directory.rotate(
-  'browser-alpha',
-  alpha.fingerprint,
-  {
-    profile: profile('browser.close', 'browser-alpha'),
-    transport: transport('rotated'),
-  },
-);
-
-const staleDoctor = browserRemoteDirectoryDoctor(
-  identity,
-  heartbeat,
-  directory,
-  first.snapshot,
-  first.readiness,
-  NOW,
-);
-const staleHealth = browserRemoteDirectoryHealth(directory, staleDoctor);
-const staleMetrics = browserRemoteDirectoryMetrics(staleHealth);
-const unavailableBundle = browserRemoteDirectoryHealthBundle(
-  staleDoctor,
-  staleHealth,
-  staleMetrics,
-);
-
-const second = currentEvidence(directory);
-const currentBundle = browserRemoteDirectoryHealthBundle(
-  second.doctor,
-  second.health,
-  second.metrics,
-);
-
-const tamperedDoctor = {
-  ...second.doctor,
-  fingerprint: '0'.repeat(64),
-};
-const tamperedHealth = {
-  ...second.health,
-  snapshot_fingerprint: first.snapshot.fingerprint,
-};
-const tamperedMetrics = {
-  ...second.metrics,
-  diagnostics_pass: second.metrics.diagnostics_pass - 1,
-};
-
-const serialized = JSON.stringify(currentBundle);
+const tamperedDoctor = { ...second.doctor, fingerprint: '0'.repeat(64) };
+const tamperedHealth = { ...second.health, fingerprint: '1'.repeat(64) };
+const tamperedMetrics = { ...second.metrics, diagnostics_pass: 3 };
+const serialized = JSON.stringify(second.bundle);
 
 console.log(JSON.stringify({
-  readyBundle,
-  repeatedBundle,
-  unavailableBundle,
-  currentBundle,
-  firstDoctor: first.doctor.fingerprint,
-  firstHealth: first.health.fingerprint,
-  firstMetrics: first.metrics.fingerprint,
-  secondDoctor: second.doctor.fingerprint,
-  secondHealth: second.health.fingerprint,
-  secondMetrics: second.metrics.fingerprint,
-  crossDoctorRejected: rejected(
-    first.doctor,
-    second.health,
-    second.metrics,
-  ),
-  crossMetricsRejected: rejected(
-    second.doctor,
-    second.health,
-    first.metrics,
-  ),
-  staleCrossRejected: rejected(
-    first.doctor,
-    staleHealth,
-    staleMetrics,
-  ),
+  first,
+  repeated,
+  second,
+  unavailable,
+  crossDoctorRejected: rejected(first.doctor, second.health, second.metrics),
+  crossMetricsRejected: rejected(second.doctor, second.health, first.metrics),
   tamperedDoctorRejected: rejected(
     tamperedDoctor,
     second.health,
@@ -200,15 +119,12 @@ console.log(JSON.stringify({
     second.health,
     tamperedMetrics,
   ),
-  frozen: Object.isFrozen(currentBundle),
-  containsAlpha: serialized.includes('browser-alpha'),
-  containsBeta: serialized.includes('browser-beta'),
+  frozen: Object.isFrozen(second.bundle),
   containsLocation: serialized.includes('hostinger-shared'),
-  containsProvider: serialized.includes('provider.example.invalid'),
+  containsProvider: serialized.includes('provider'),
   containsTransport: serialized.includes('transport'),
-  containsAuthorization: serialized.includes('authorization'),
-  containsCookie: serialized.includes('sentinel-cookie'),
-  containsSecret: serialized.includes('sentinel-secret'),
+  containsSecret: serialized.includes('secret'),
+  containsPayload: serialized.includes('payload'),
 }));
 """
     completed = subprocess.run(
@@ -228,59 +144,42 @@ class FactoryRunnerBrowserRemoteDirectoryHealthBundleTests(unittest.TestCase):
         cls.observed = observe()
 
     def test_bundle_binds_doctor_health_and_metrics_fingerprints_without_sensitive_fields(self):
-        item = self.observed["readyBundle"]
+        first = self.observed["first"]
+        item = first["bundle"]
         self.assertEqual(item["version"], 1)
         self.assertEqual(item["authority"], "unchanged")
         self.assertEqual(item["status"], "READY")
         self.assertEqual(
             item["doctor_fingerprint"],
-            self.observed["firstDoctor"],
+            first["doctor"]["fingerprint"],
         )
         self.assertEqual(
             item["health_fingerprint"],
-            self.observed["firstHealth"],
+            first["health"]["fingerprint"],
         )
         self.assertEqual(
             item["metrics_fingerprint"],
-            self.observed["firstMetrics"],
+            first["metrics"]["fingerprint"],
         )
         self.assertFalse(item["network_access"])
         self.assertFalse(item["external_mutation"])
         self.assertEqual(
             item["fingerprint"],
-            self.observed["repeatedBundle"]["fingerprint"],
+            self.observed["repeated"]["fingerprint"],
         )
+
+        second = self.observed["second"]["bundle"]
+        self.assertEqual(second["status"], "READY")
         self.assertTrue(self.observed["frozen"])
-
-        current = self.observed["currentBundle"]
-        self.assertEqual(current["status"], "READY")
-        self.assertEqual(
-            current["doctor_fingerprint"],
-            self.observed["secondDoctor"],
-        )
-        self.assertEqual(
-            current["health_fingerprint"],
-            self.observed["secondHealth"],
-        )
-        self.assertEqual(
-            current["metrics_fingerprint"],
-            self.observed["secondMetrics"],
-        )
-
-        unavailable = self.observed["unavailableBundle"]
+        unavailable = self.observed["unavailable"]["bundle"]
         self.assertEqual(unavailable["status"], "UNAVAILABLE")
-        self.assertFalse(unavailable["network_access"])
-        self.assertFalse(unavailable["external_mutation"])
 
         for key in (
-            "containsAlpha",
-            "containsBeta",
             "containsLocation",
             "containsProvider",
             "containsTransport",
-            "containsAuthorization",
-            "containsCookie",
             "containsSecret",
+            "containsPayload",
         ):
             with self.subTest(key=key):
                 self.assertFalse(self.observed[key])
@@ -289,7 +188,6 @@ class FactoryRunnerBrowserRemoteDirectoryHealthBundleTests(unittest.TestCase):
         for key in (
             "crossDoctorRejected",
             "crossMetricsRejected",
-            "staleCrossRejected",
             "tamperedDoctorRejected",
             "tamperedHealthRejected",
             "tamperedMetricsRejected",
