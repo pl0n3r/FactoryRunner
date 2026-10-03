@@ -138,26 +138,3 @@ export type { RecoveryLiveObjectStorageInput } from './recovery/live-object-stor
 export { RecoveryConnectionError, resolveRecoveryS3Connection } from './recovery/connection-resolver.ts';
 export type { RecoveryS3Connection } from './recovery/connection-resolver.ts';
 
-export { browserRemoteDirectorySnapshot } from './browser-remote-directory-snapshot.ts';
-export type { BrowserRemoteDirectorySnapshot } from './browser-remote-directory-snapshot.ts';
-
-export { browserRemoteDirectoryReadiness } from './browser-remote-directory-readiness.ts';
-export type { BrowserRemoteDirectoryReadiness } from './browser-remote-directory-readiness.ts';
-
-export { browserRemoteDirectoryDoctor } from './browser-remote-directory-doctor.ts';
-export type { BrowserRemoteDirectoryDoctor } from './browser-remote-directory-doctor.ts';
-
-export { browserRemoteDirectoryHealth } from './browser-remote-directory-health.ts';
-export type { BrowserRemoteDirectoryHealth } from './browser-remote-directory-health.ts';
-
-export { browserRemoteDirectoryMetrics } from './browser-remote-directory-metrics.ts';
-export type { BrowserRemoteDirectoryMetrics } from './browser-remote-directory-metrics.ts';
-
-export { browserRemoteDirectoryHealthBundle } from './browser-remote-directory-health-bundle.ts';
-export type { BrowserRemoteDirectoryHealthBundle } from './browser-remote-directory-health-bundle.ts';
-
-export type {
-  BrowserRemoteCapability,
-  BrowserRemoteProfile,
-} from './browser-remote-profile.ts';
-
