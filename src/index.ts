@@ -58,6 +58,14 @@ export {
   type BrowserRemoteObservabilityConsumerPacketCompatibility,
   type BrowserRemoteObservabilityConsumerPacketCompatibilityReason,
 } from './browser-remote-observability-consumer-packet-compatibility.ts';
+export {
+  browserRemoteObservabilityPublicPacket,
+  type BrowserRemoteObservabilityPublicPacket,
+} from './browser-remote-observability-public-packet.ts';
+export {
+  browserRemoteObservabilityPublicConsumerCompatibility,
+  type BrowserRemoteObservabilityPublicConsumerCompatibility,
+} from './browser-remote-observability-public-consumer-compatibility.ts';
 
 export { telemetryEnvelope } from './telemetry.ts';
 export type { TelemetryEnvelope, TelemetryMetricValue, TelemetryMetrics } from './telemetry.ts';
