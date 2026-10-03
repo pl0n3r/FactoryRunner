@@ -90,20 +90,18 @@ export class ControlBotClient {
     }
 
     const orders: ControlBotPolledOrder[] = [];
-    const batch = new Map<string, ExecutionOrder>();
+    const batch = new Set<string>();
     const staged = new Map<string, { fingerprint: string; order: ExecutionOrder }>();
     try {
       for (const rawOrder of response.orders) {
         const order = parseExecutionOrder(rawOrder);
         assertOrderExecutable(order, this.#identity, now);
+        if (batch.has(order.order_id)) {
+          throw new TypeError('Respuesta poll contiene order_id duplicado.');
+        }
+        batch.add(order.order_id);
         const prior = this.#validatedOrders.get(order.order_id);
         if (prior) assertIdempotentOrder(prior.order, order);
-        const existing = batch.get(order.order_id);
-        if (existing) {
-          assertIdempotentOrder(existing, order);
-          continue;
-        }
-        batch.set(order.order_id, order);
         const fingerprint = orderFingerprint(order);
         orders.push({
           version: order.version,

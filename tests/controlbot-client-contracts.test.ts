@@ -96,34 +96,40 @@ test('poll envelope is exact, bounded and runner-scoped', async () => {
   await assert.rejects(() => client.poll(null, 65, 1_500), /limit inválido/);
 });
 
-test('poll validates orders, collapses identical duplicates and rejects conflicts', async () => {
-  const transport = new FakeTransport();
-  const client = new ControlBotClient(identity(), transport);
+test('poll rejects identical and conflicting duplicate order ids', async () => {
+  for (const duplicate of [order(), order({ attempt: 2 })]) {
+    const transport = new FakeTransport();
+    const client = new ControlBotClient(identity(), transport);
+    transport.pollResponse = { version: 1, cursor: null, orders: [order(), duplicate] };
 
-  transport.pollResponse = { version: 1, cursor: null, orders: [order(), order()] };
-  const result = await client.poll(null, 4, 1_500);
-  assert.equal(result.orders.length, 1);
+    await assert.rejects(
+      () => client.poll(null, 4, 1_500),
+      (error: unknown) => error instanceof ControlBotClientError && error.message === 'controlbot_protocol_invalid',
+    );
+    await assert.rejects(
+      () => client.ack(ORDER_ID),
+      /controlbot_protocol_invalid/,
+    );
+  }
 
-  const conflictTransport = new FakeTransport();
-  const conflictClient = new ControlBotClient(identity(), conflictTransport);
-  conflictTransport.pollResponse = { version: 1, cursor: null, orders: [order(), order({ attempt: 2 })] };
+  const repeatTransport = new FakeTransport();
+  const repeatClient = new ControlBotClient(identity(), repeatTransport);
+  assert.equal((await repeatClient.poll(null, 4, 1_500)).orders.length, 1);
+  repeatTransport.pollResponse = { version: 1, cursor: null, orders: [order()] };
+  assert.equal((await repeatClient.poll(null, 4, 1_500)).orders.length, 1);
+
+  repeatTransport.pollResponse = { version: 1, cursor: null, orders: [order({ attempt: 2 })] };
   await assert.rejects(
-    () => conflictClient.poll(null, 4, 1_500),
-    (error: unknown) => error instanceof ControlBotClientError && error.message === 'controlbot_protocol_invalid',
-  );
-  await assert.rejects(
-    () => conflictClient.ack(ORDER_ID),
+    () => repeatClient.poll(null, 4, 1_500),
     /controlbot_protocol_invalid/,
   );
 
-  transport.pollResponse = { version: 1, cursor: null, orders: [order({ attempt: 2 })] };
-  await assert.rejects(
-    () => client.poll(null, 4, 1_500),
-    /controlbot_protocol_invalid/,
-  );
-
-  transport.pollResponse = { version: 1, cursor: null, orders: [order({ runner_id: '33333333-3333-7333-8333-333333333333' })] };
-  await assert.rejects(() => client.poll(null, 4, 1_500), /controlbot_protocol_invalid/);
+  repeatTransport.pollResponse = {
+    version: 1,
+    cursor: null,
+    orders: [order({ runner_id: '33333333-3333-7333-8333-333333333333' })],
+  };
+  await assert.rejects(() => repeatClient.poll(null, 4, 1_500), /controlbot_protocol_invalid/);
 });
 
 test('ack uses only validated identity and fingerprint fields', async () => {

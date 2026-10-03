@@ -1,4 +1,4 @@
-"""Aceptación de unicidad de order_id por poll batch (FactoryRunner #240)."""
+"""Aceptación end-to-end de unicidad de order_id por poll batch (FactoryRunner #240/#251)."""
 from __future__ import annotations
 
 import json
@@ -11,11 +11,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def observe() -> dict[str, object]:
     script = r"""
+import { ControlBotClient } from './src/controlbot/client.ts';
 import { RuntimeSupervisor } from './src/runtime-supervisor.ts';
 
 const RUNNER = '11111111-1111-7111-8111-111111111111';
 const ORDER_A = '22222222-2222-7222-8222-222222222222';
 const ORDER_B = '33333333-3333-7333-8333-333333333333';
+
+const identity = {
+  version: 1,
+  runner_id: RUNNER,
+  protocol_version: 1,
+  runtime: 'node',
+  runtime_version: '0.1.4',
+  platform: 'linux-arm64',
+  location: 'hostinger-shared',
+  capabilities: ['git'],
+  max_parallel: 2,
+};
 
 function order(orderId, workItem) {
   return {
@@ -27,47 +40,39 @@ function order(orderId, workItem) {
     attempt: 1,
     issued_at: 1000,
     expires_at: 2000,
-    instruction_ref: 'controlbot:instruction:240',
+    instruction_ref: 'controlbot:instruction:251',
   };
 }
 
-const orderA = order(ORDER_A, 'factoryrunner:work:240:a');
-const orderB = order(ORDER_B, 'factoryrunner:work:240:b');
-const polledA = { ...orderA, fingerprint: 'a'.repeat(64) };
-const polledB = { ...orderB, fingerprint: 'b'.repeat(64) };
-
-const counts = { validated: 0, ack: 0, execute: 0, publish: 0 };
+const orderA = order(ORDER_A, 'factoryrunner:work:251:a');
+const orderB = order(ORDER_B, 'factoryrunner:work:251:b');
+const counts = { ack: 0, execute: 0, publish: 0 };
 const pollCursors = [];
 let polls = 0;
 
-const client = {
-  async poll(cursor) {
-    pollCursors.push(cursor);
+const transport = {
+  async poll(request) {
+    pollCursors.push(request.cursor);
     polls += 1;
     if (polls === 1) {
       return {
         version: 1,
-        cursor: 'cursor-duplicate',
-        orders: [polledA, polledA],
+        cursor: 'controlbotcursor:duplicate',
+        orders: [orderA, orderA],
       };
     }
     return {
       version: 1,
-      cursor: 'cursor-ok',
-      orders: [polledA, polledB],
+      cursor: 'controlbotcursor:ok',
+      orders: [orderA, orderB],
     };
-  },
-  validatedOrder(orderId) {
-    counts.validated += 1;
-    if (orderId === ORDER_A) return orderA;
-    if (orderId === ORDER_B) return orderB;
-    throw new TypeError('unknown order');
   },
   async ack() { counts.ack += 1; },
   async publishEvents() { counts.publish += 1; },
   async publishHeartbeat() {},
 };
 
+const client = new ControlBotClient(identity, transport);
 const storedOrders = [];
 const storedEvents = [];
 const journal = {
@@ -161,12 +166,12 @@ class FactoryRunnerRuntimePollUniquenessTests(unittest.TestCase):
 
     def test_duplicate_order_ids_fail_closed_before_execution(self):
         error = self.observed["duplicateError"]
-        self.assertEqual(error["name"], "TypeError")
-        self.assertIn("order_id duplicado", error["message"])
+        self.assertEqual(error["name"], "ControlBotClientError")
+        self.assertEqual(error["message"], "controlbot_protocol_invalid")
         self.assertEqual(
             self.observed["afterDuplicate"],
             {
-                "counts": {"validated": 0, "ack": 0, "execute": 0, "publish": 0},
+                "counts": {"ack": 0, "execute": 0, "publish": 0},
                 "storedOrders": 0,
                 "storedEvents": 0,
                 "delivered": 0,
@@ -177,11 +182,11 @@ class FactoryRunnerRuntimePollUniquenessTests(unittest.TestCase):
         self.assertEqual(self.observed["pollCursors"], [None, None])
         self.assertEqual(
             self.observed["uniqueResult"],
-            {"processed": 2, "cursor": "cursor-ok"},
+            {"processed": 2, "cursor": "controlbotcursor:ok"},
         )
         self.assertEqual(
             self.observed["finalCounts"],
-            {"validated": 4, "ack": 2, "execute": 2, "publish": 2},
+            {"ack": 2, "execute": 2, "publish": 2},
         )
         self.assertEqual(
             self.observed["storedOrders"],
