@@ -27,7 +27,11 @@ export function browserRemoteDirectorySnapshot(
       .entries()
       .map((entry) => entry.profile)
       .sort((left, right) =>
-        left.remote_alias.localeCompare(right.remote_alias, 'en')),
+        left.remote_alias < right.remote_alias
+          ? -1
+          : left.remote_alias > right.remote_alias
+            ? 1
+            : 0),
   );
 
   const core: BrowserRemoteDirectorySnapshotCore = Object.freeze({
