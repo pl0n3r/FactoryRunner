@@ -49,6 +49,16 @@ export { browserRemoteDirectoryMetrics, type BrowserRemoteDirectoryMetrics } fro
 export { browserRemoteDirectoryHealthBundle, type BrowserRemoteDirectoryHealthBundle } from './browser-remote-directory-health-bundle.ts';
 export type { BrowserRemoteCapability, BrowserRemoteProfile } from './browser-remote-profile.ts';
 
+export {
+  browserRemoteObservabilityConsumerPacket,
+  type BrowserRemoteObservabilityConsumerPacket,
+} from './browser-remote-observability-consumer-packet.ts';
+export {
+  browserRemoteObservabilityConsumerPacketCompatibility,
+  type BrowserRemoteObservabilityConsumerPacketCompatibility,
+  type BrowserRemoteObservabilityConsumerPacketCompatibilityReason,
+} from './browser-remote-observability-consumer-packet-compatibility.ts';
+
 export { telemetryEnvelope } from './telemetry.ts';
 export type { TelemetryEnvelope, TelemetryMetricValue, TelemetryMetrics } from './telemetry.ts';
 
