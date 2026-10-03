@@ -166,8 +166,8 @@ async function rotationAcrossTicks() {
     counts,
     firstTransportCalls: firstTransport.calls,
     rotatedTransportCalls: rotatedTransport.calls,
-    firstTransportOrder: firstTransport.requests[0]?.order_id ?? null,
-    rotatedTransportOrder: rotatedTransport.requests[0]?.order_id ?? null,
+    firstTransportUrl: firstTransport.requests[0]?.command?.url ?? null,
+    rotatedTransportUrl: rotatedTransport.requests[0]?.command?.url ?? null,
     firstOrder: firstOrder.order_id,
     secondOrder: secondOrder.order_id,
     events,
@@ -277,8 +277,8 @@ class FactoryRunnerBrowserRemoteDirectoryLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(item["firstTransportCalls"], 1)
         self.assertEqual(item["rotatedTransportCalls"], 1)
-        self.assertEqual(item["firstTransportOrder"], item["firstOrder"])
-        self.assertEqual(item["rotatedTransportOrder"], item["secondOrder"])
+        self.assertEqual(item["firstTransportUrl"], "https://example.com/lifecycle-old")
+        self.assertEqual(item["rotatedTransportUrl"], "https://example.com/lifecycle-new")
         self.assertEqual(
             [event["state"] for event in item["events"]],
             ["accepted", "started", "completed"] * 2,
