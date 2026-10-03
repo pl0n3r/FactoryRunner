@@ -26,7 +26,10 @@ class FactoryRunnerControlBotClientTests(unittest.TestCase):
         tests = read("tests/controlbot-client-contracts.test.ts")
         self.assertIn("ControlBotPolledOrder", source)
         self.assertIn("instruction_ref", tests)
-        self.assertIn("collapses identical duplicates", tests)
+        self.assertIn("batch.has(order.order_id)", source)
+        self.assertIn("order_id duplicado", source)
+        self.assertIn("poll rejects identical and conflicting duplicate order ids", tests)
+        self.assertNotIn("collapses identical duplicates", tests)
 
     def test_ack_contract(self):
         source = read("src/controlbot/client.ts")
