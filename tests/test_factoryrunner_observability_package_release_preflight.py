@@ -192,6 +192,25 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
             drifted["source"]["manifest_sha256"] = "0" * 64
             cases.append(("manifest-drift", base_provenance, drifted))
 
+            forged_provenance = copy.deepcopy(base_provenance)
+            forged_dependencies = copy.deepcopy(base_dependencies)
+            forged_sha = "a" * 64
+            for item in forged_provenance["files"]:
+                if item["path"] == "package.json":
+                    item["sha256"] = forged_sha
+            forged_dependencies["source"]["manifest_sha256"] = forged_sha
+            cases.append(("forged-cross-evidence", forged_provenance, forged_dependencies))
+
+            synthetic_runtime = copy.deepcopy(base_dependencies)
+            synthetic_runtime["runtime_dependencies"] = [
+                {
+                    "name": "synthetic-runtime",
+                    "specifier": "1.0.0",
+                    "locked_version": "1.0.0",
+                }
+            ]
+            cases.append(("synthetic-runtime", base_provenance, synthetic_runtime))
+
             partial = copy.deepcopy(base_provenance)
             partial["files"] = [
                 item for item in partial["files"] if item["path"] != "package.json"
