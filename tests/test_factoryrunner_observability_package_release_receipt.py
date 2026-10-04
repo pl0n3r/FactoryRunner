@@ -40,7 +40,7 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
         check: bool = True,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        completed = subprocess.run(
             [
                 "node",
                 "--experimental-strip-types",
@@ -49,11 +49,18 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
             ],
             cwd=ROOT,
             env=env,
-            check=check,
+            check=False,
             capture_output=True,
             text=True,
             timeout=60,
         )
+        if check and completed.returncode != 0:
+            self.fail(
+                f"{script.name} failed with exit {completed.returncode}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
+        return completed
 
     def _build_evidence(
         self,
