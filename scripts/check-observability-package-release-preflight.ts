@@ -194,6 +194,25 @@ function tarNumber(block: Buffer, start: number, width: number): number {
   return parsed;
 }
 
+function verifyTarHeader(header: Buffer): void {
+  const checksumExpected = tarNumber(header, 148, 8);
+  const checksumHeader = Buffer.from(header);
+  checksumHeader.fill(0x20, 148, 156);
+  const checksumActual = checksumHeader.reduce((sum, byte) => sum + byte, 0);
+  if (checksumActual !== checksumExpected) reject('artifact: checksum tar inválido.');
+}
+
+function tarEntryPath(header: Buffer): string {
+  const type = header[156];
+  if (type !== 0 && type !== 0x30) reject('artifact: tipo tar no permitido.');
+
+  const name = tarText(header, 0, 100);
+  const prefix = tarText(header, 345, 155);
+  const raw = prefix === '' ? name : prefix + '/' + name;
+  if (!raw.startsWith('package/')) reject('artifact: entry fuera de package/.');
+  return localPath(raw.slice('package/'.length), 'artifact entry');
+}
+
 function archiveEntries(compressed: Buffer): Map<string, Buffer> {
   let archive: Buffer;
   try {
@@ -213,20 +232,8 @@ function archiveEntries(compressed: Buffer): Map<string, Buffer> {
       break;
     }
 
-    const checksumExpected = tarNumber(header, 148, 8);
-    const checksumHeader = Buffer.from(header);
-    checksumHeader.fill(0x20, 148, 156);
-    const checksumActual = checksumHeader.reduce((sum, byte) => sum + byte, 0);
-    if (checksumActual !== checksumExpected) reject('artifact: checksum tar inválido.');
-
-    const type = header[156];
-    if (type !== 0 && type !== 0x30) reject('artifact: tipo tar no permitido.');
-
-    const name = tarText(header, 0, 100);
-    const prefix = tarText(header, 345, 155);
-    const raw = prefix === '' ? name : prefix + '/' + name;
-    if (!raw.startsWith('package/')) reject('artifact: entry fuera de package/.');
-    const path = localPath(raw.slice('package/'.length), 'artifact entry');
+    verifyTarHeader(header);
+    const path = tarEntryPath(header);
 
     const size = tarNumber(header, 124, 12);
     const dataStart = cursor + 512;
