@@ -26,8 +26,8 @@ type RuntimeDependency = Readonly<{
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_LOCKFILE_BYTES = 8 * 1024 * 1024;
-const PACKAGE_NAME_RE = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/;
-const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const PACKAGE_NAME_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -41,6 +41,50 @@ function compareText(left: string, right: string): number {
 
 function sha256(body: Uint8Array | string): string {
   return createHash('sha256').update(body).digest('hex');
+}
+
+function versionTuple(value: string): readonly [number, number, number] {
+  if (!SEMVER_RE.test(value)) fail('Versión semver no soportada: ' + value);
+  const parts = value.split('.').map((part) => Number.parseInt(part, 10));
+  return Object.freeze([parts[0], parts[1], parts[2]] as const);
+}
+
+function compareVersion(
+  left: readonly [number, number, number],
+  right: readonly [number, number, number],
+): number {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] < right[index]) return -1;
+    if (left[index] > right[index]) return 1;
+  }
+  return 0;
+}
+
+function specifierMatchesVersion(specifier: string, version: string): boolean {
+  const locked = versionTuple(version);
+  const prefix = specifier[0];
+  const raw = prefix === '^' || prefix === '~' ? specifier.slice(1) : specifier;
+  if (!SEMVER_RE.test(raw)) {
+    fail('Specifier semver no soportado: ' + specifier);
+  }
+  const base = versionTuple(raw);
+
+  if (prefix !== '^' && prefix !== '~') {
+    return compareVersion(locked, base) === 0;
+  }
+  if (compareVersion(locked, base) < 0) return false;
+
+  let upper: readonly [number, number, number];
+  if (prefix === '~') {
+    upper = [base[0], base[1] + 1, 0];
+  } else if (base[0] > 0) {
+    upper = [base[0] + 1, 0, 0];
+  } else if (base[1] > 0) {
+    upper = [0, base[1] + 1, 0];
+  } else {
+    upper = [0, 0, base[2] + 1];
+  }
+  return compareVersion(locked, upper) < 0;
 }
 
 function parseOptions(argv: readonly string[]): Options {
@@ -91,7 +135,7 @@ function parseJson(body: Buffer, label: string): unknown {
 function dependencyMap(value: unknown, label: string): Readonly<Record<string, string>> {
   if (value === undefined) return Object.freeze({});
   const object = asObject(value, label);
-  const result: Record<string, string> = {};
+  const result = Object.create(null) as Record<string, string>;
 
   for (const name of Object.keys(object).sort(compareText)) {
     const specifier = object[name];
@@ -225,6 +269,9 @@ function packageLock(
       || entry.dev === true
     ) {
       fail('Entrada runtime bloqueada inválida: ' + name);
+    }
+    if (!specifierMatchesVersion(manifestDependencies[name], entry.version)) {
+      fail('Versión bloqueada no satisface el specifier runtime: ' + name);
     }
 
     dependencies.push(Object.freeze({
