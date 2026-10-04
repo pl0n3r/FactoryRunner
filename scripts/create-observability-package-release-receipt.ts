@@ -21,6 +21,15 @@ type PackageCore = Readonly<{
   type: 'module';
 }>;
 
+type PreflightResult = Readonly<{
+  accepted: true;
+  artifact_sha256: string;
+  package: PackageCore;
+  runtime_evidence_bound: true;
+  network_access: false;
+  external_mutation: false;
+}>;
+
 const SHA256_RE = /^[a-f0-9]{64}$/;
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 const PACKAGE_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
@@ -28,6 +37,7 @@ const LIMITS = Object.freeze({
   artifact: 32 * 1024 * 1024,
   evidence: 4 * 1024 * 1024,
   preflight: 1024 * 1024,
+  receipt: 4096,
 });
 
 function fail(message: string): never {
@@ -248,6 +258,35 @@ function inspectDependencies(value: unknown): PackageCore {
   return packageCore(root.package, 'dependencies.package', false);
 }
 
+function inspectPreflightResult(value: unknown): PreflightResult {
+  const root = exactObject(value, 'preflight result', [
+    'accepted',
+    'artifact_sha256',
+    'package',
+    'runtime_evidence_bound',
+    'network_access',
+    'external_mutation',
+  ]);
+  if (
+    root.accepted !== true
+    || root.runtime_evidence_bound !== true
+    || root.network_access !== false
+    || root.external_mutation !== false
+    || typeof root.artifact_sha256 !== 'string'
+    || !SHA256_RE.test(root.artifact_sha256)
+  ) {
+    fail('preflight result: resultado local inválido.');
+  }
+  return Object.freeze({
+    accepted: true,
+    artifact_sha256: root.artifact_sha256,
+    package: packageCore(root.package, 'preflight result.package', true),
+    runtime_evidence_bound: true,
+    network_access: false,
+    external_mutation: false,
+  });
+}
+
 function samePackage(left: PackageCore, right: PackageCore): boolean {
   return left.name === right.name
     && left.version === right.version
@@ -287,7 +326,10 @@ function verifyPreflightScript(path: string): void {
   }
 }
 
-function runPreflight(options: Options): void {
+function runPreflight(options: Options): Readonly<{
+  result: PreflightResult;
+  stdout: string;
+}> {
   const completed = spawnSync(
     process.execPath,
     [
@@ -305,12 +347,25 @@ function runPreflight(options: Options): void {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 60_000,
+      maxBuffer: LIMITS.preflight,
     },
   );
 
-  if (completed.error !== undefined || completed.status !== 0) {
+  if (
+    completed.error !== undefined
+    || completed.status !== 0
+    || typeof completed.stdout !== 'string'
+    || Buffer.byteLength(completed.stdout, 'utf8') <= 0
+    || Buffer.byteLength(completed.stdout, 'utf8') > LIMITS.preflight
+  ) {
     fail('preflight: validación local rechazada.');
   }
+
+  const parsed = parseJson(Buffer.from(completed.stdout, 'utf8'), 'preflight result');
+  return Object.freeze({
+    result: inspectPreflightResult(parsed),
+    stdout: completed.stdout,
+  });
 }
 
 async function main(): Promise<void> {
@@ -339,7 +394,14 @@ async function main(): Promise<void> {
     fail('Artifact no coincide con provenance.');
   }
 
-  runPreflight(options);
+  const preflight = runPreflight(options);
+  if (
+    preflight.result.artifact_sha256 !== artifactHash
+    || !samePackage(preflight.result.package, provenance.package)
+    || !samePackage(preflight.result.package, dependencies)
+  ) {
+    fail('preflight result: evidencia mezclada o divergente.');
+  }
 
   const receipt = {
     schema_version: 1,
@@ -353,17 +415,23 @@ async function main(): Promise<void> {
       provenance_sha256: sha256(provenanceBody),
       dependency_evidence_sha256: sha256(dependenciesBody),
       preflight_contract_sha256: sha256(preflightBody),
+      preflight_result_sha256: sha256(preflight.stdout),
     },
     verification: {
       preflight_passed: true,
+      runtime_evidence_bound: true,
       network_access: false,
       external_mutation: false,
     },
+    authority: 'unchanged',
     network_access: false,
     external_mutation: false,
   };
 
   const serialized = JSON.stringify(canonicalValue(receipt), null, 2) + '\n';
+  if (Buffer.byteLength(serialized, 'utf8') > LIMITS.receipt) {
+    fail('receipt fuera de límites.');
+  }
   await writeFile(options.output, serialized, { encoding: 'utf8', flag: 'wx' });
 }
 
