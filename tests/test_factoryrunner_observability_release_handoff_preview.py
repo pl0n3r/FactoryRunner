@@ -169,7 +169,9 @@ class FactoryRunnerObservabilityReleaseHandoffPreviewTests(unittest.TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertEqual(rejected.stdout, "")
 
-            receipt, snapshot, binding, preflight, handoff = self._fixture(root / "mixed")
+            mixed_root = root / "mixed"
+            mixed_root.mkdir()
+            receipt, snapshot, binding, preflight, handoff = self._fixture(mixed_root)
             mixed = json.loads(binding.read_text(encoding="utf-8"))
             mixed["source_snapshot"]["commit_sha"] = "8" * 40
             binding.write_text(
