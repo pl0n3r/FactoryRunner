@@ -27,45 +27,47 @@ const VERIFIER = resolve(
   'scripts',
   'check-observability-package-release-receipt.ts',
 );
+const EXPECTED_PACKAGE = '@pl0n3r/factoryrunner';
 
 function fail(message: string): never {
   throw new Error(message);
 }
 
 function parseOptions(argv: readonly string[]): Options {
-  const flags = [
-    '--receipt',
-    '--artifact',
-    '--provenance',
-    '--dependencies',
-    '--preflight',
-  ] as const;
-  if (argv.length !== flags.length * 2) fail('Argumentos inválidos.');
-
-  const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const value = argv[index + 1];
-    if (
-      !flags.includes(flag as typeof flags[number])
-      || value === undefined
-      || value.trim() === ''
-      || values.has(flag)
-    ) {
-      fail('Argumentos inválidos.');
-    }
-    values.set(flag, value);
+  const [
+    receiptFlag,
+    receipt,
+    artifactFlag,
+    artifact,
+    provenanceFlag,
+    provenance,
+    dependenciesFlag,
+    dependencies,
+    preflightFlag,
+    preflight,
+  ] = argv;
+  if (
+    argv.length !== 10
+    || receiptFlag !== '--receipt'
+    || artifactFlag !== '--artifact'
+    || provenanceFlag !== '--provenance'
+    || dependenciesFlag !== '--dependencies'
+    || preflightFlag !== '--preflight'
+    || [receipt, artifact, provenance, dependencies, preflight].some(
+      (value) => value === undefined || value.trim() === '',
+    )
+  ) {
+    fail('Argumentos inválidos.');
   }
 
   return Object.freeze({
-    receipt: resolve(values.get('--receipt') as string),
-    artifact: resolve(values.get('--artifact') as string),
-    provenance: resolve(values.get('--provenance') as string),
-    dependencies: resolve(values.get('--dependencies') as string),
-    preflight: resolve(values.get('--preflight') as string),
+    receipt: resolve(receipt),
+    artifact: resolve(artifact),
+    provenance: resolve(provenance),
+    dependencies: resolve(dependencies),
+    preflight: resolve(preflight),
   });
 }
-
 function verifyReceipt(options: Options): Verification {
   const completed = spawnSync(
     process.execPath,
@@ -120,10 +122,10 @@ function verifyReceipt(options: Options): Verification {
   }
   const packageValue = result.package as Record<string, unknown>;
   if (
-    typeof packageValue.name !== 'string'
+    packageValue.name !== EXPECTED_PACKAGE
     || typeof packageValue.version !== 'string'
   ) {
-    fail('Verifier no confirmó identidad del paquete.');
+    fail('Verifier no confirmó identidad exacta del paquete.');
   }
 
   return Object.freeze({
@@ -195,7 +197,7 @@ async function consumeVerifiedArtifact(
     }
 
     const script = join(directory, 'consumer.mjs');
-    await writeFile(script, `import { browserRemoteObservabilityPublicPacket } from '${verification.package.name}';
+    await writeFile(script, `import { browserRemoteObservabilityPublicPacket } from '@pl0n3r/factoryrunner';
 
 const health = Object.freeze({
   version: 1,
