@@ -1,6 +1,8 @@
 import hashlib
 import json
 import os
+import posixpath
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -10,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = ROOT / "package.json"
+BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 
 FORBIDDEN_PATH_PARTS = (
     "controlbot",
@@ -27,13 +30,41 @@ FORBIDDEN_SCRIPT_RE = (
     "curl ",
     "wget ",
 )
+RELATIVE_TS_IMPORT_RE = re.compile(
+    r"""(?:from\s*|import\s*\()\s*["'](\.[^"']+\.ts)["']"""
+)
 
 
 class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
     def manifest(self) -> dict:
         return json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
 
-    def _pack_once(self, destination: Path) -> tuple[dict, dict[str, str], set[str]]:
+    def _build_stage(self, parent: Path, name: str) -> Path:
+        stage = parent / name
+        self.assertFalse(stage.exists())
+        subprocess.run(
+            [
+                "node",
+                "--experimental-strip-types",
+                str(BUILDER),
+                "--output",
+                str(stage),
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertTrue((stage / "package.json").is_file())
+        return stage
+
+    def _pack_stage(
+        self,
+        stage: Path,
+        destination: Path,
+    ) -> tuple[dict, dict[str, str], set[str]]:
+        destination.mkdir()
         cache = destination / "npm-cache"
         cache.mkdir()
         env = os.environ.copy()
@@ -47,19 +78,18 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
                 "npm_config_cache": str(cache),
             }
         )
-        command = [
-            "npm",
-            "pack",
-            "--json",
-            "--offline",
-            "--ignore-scripts",
-            "--pack-destination",
-            str(destination),
-            ".",
-        ]
         completed = subprocess.run(
-            command,
-            cwd=ROOT,
+            [
+                "npm",
+                "pack",
+                "--json",
+                "--offline",
+                "--ignore-scripts",
+                "--pack-destination",
+                str(destination),
+                ".",
+            ],
+            cwd=stage,
             env=env,
             check=True,
             capture_output=True,
@@ -70,14 +100,14 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
         self.assertIsInstance(payload, list)
         self.assertEqual(len(payload), 1)
 
-        result = payload[0]
-        filename = result.get("filename")
+        filename = payload[0].get("filename")
         self.assertIsInstance(filename, str)
         archive = destination / filename
         self.assertTrue(archive.is_file())
 
         hashes: dict[str, str] = {}
         members: set[str] = set()
+        packed_manifest: dict | None = None
         with tarfile.open(archive, mode="r:gz") as handle:
             for member in handle.getmembers():
                 if not member.isfile():
@@ -87,27 +117,73 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
                 members.add(relative)
                 extracted = handle.extractfile(member)
                 self.assertIsNotNone(extracted)
-                hashes[relative] = hashlib.sha256(extracted.read()).hexdigest()
+                body = extracted.read()
+                hashes[relative] = hashlib.sha256(body).hexdigest()
+                if relative == "package.json":
+                    packed_manifest = json.loads(body.decode("utf-8"))
 
-        packed_manifest_member = handle_manifest = "package.json"
-        self.assertIn(packed_manifest_member, hashes)
-        with tarfile.open(archive, mode="r:gz") as handle:
-            manifest_file = handle.extractfile("package/package.json")
-            self.assertIsNotNone(manifest_file)
-            packed_manifest = json.loads(manifest_file.read().decode("utf-8"))
-
+        self.assertIsNotNone(packed_manifest)
         return packed_manifest, hashes, members
 
-    def _expected_members(self) -> set[str]:
-        manifest = self.manifest()
-        files = manifest.get("files")
+    def _expected_js_files(self) -> list[str]:
+        files = self.manifest().get("files")
         self.assertIsInstance(files, list)
         self.assertTrue(all(isinstance(path, str) for path in files))
-        metadata = {"package.json"}
-        # npm incluye README de forma obligatoria cuando existe, aun con files allowlisted.
-        if (ROOT / "README.md").is_file():
-            metadata.add("README.md")
-        return metadata | set(files)
+        return [path.removesuffix(".ts") + ".js" for path in files]
+
+    def _expected_members(self) -> set[str]:
+        return {"package.json", "README.md", *self._expected_js_files()}
+
+    def _assert_stage_is_runtime_js_only(self, stage: Path) -> None:
+        staged = json.loads((stage / "package.json").read_text(encoding="utf-8"))
+        self.assertIs(staged.get("private"), True)
+        self.assertEqual(staged.get("type"), "module")
+        self.assertEqual(
+            staged.get("exports"),
+            {".": "./src/browser-remote-observability-public.js"},
+        )
+        self.assertEqual(staged.get("files"), self._expected_js_files())
+        self.assertNotIn("scripts", staged)
+        self.assertNotIn("dependencies", staged)
+        self.assertNotIn("devDependencies", staged)
+        self.assertNotIn("publishConfig", staged)
+        self.assertNotIn("bin", staged)
+
+        public_entrypoint = (
+            stage / "src" / "browser-remote-observability-public.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("export {", public_entrypoint)
+        self.assertNotIn("exports.", public_entrypoint)
+        self.assertNotIn("module.exports", public_entrypoint)
+
+        allowed = set(self._expected_js_files())
+        for relative in allowed:
+            source = (stage / relative).read_text(encoding="utf-8")
+            self.assertIsNone(
+                RELATIVE_TS_IMPORT_RE.search(source),
+                f"import TS residual en {relative}",
+            )
+            for specifier in re.findall(
+                r"""(?:from\s*|import\s*\()\s*["'](\.[^"']+)["']""",
+                source,
+            ):
+                if not specifier.endswith(".js"):
+                    continue
+                target = posixpath.normpath(
+                    posixpath.join(posixpath.dirname(relative), specifier)
+                )
+                self.assertIn(
+                    target,
+                    allowed,
+                    f"import emitido fuera de la allowlist: {relative} -> {target}",
+                )
+
+    def test_builder_is_self_contained_without_node_modules_transpiler(self) -> None:
+        source = BUILDER.read_text(encoding="utf-8")
+        self.assertIn("stripTypeScriptTypes", source)
+        self.assertNotIn("from 'typescript'", source)
+        self.assertNotIn('from "typescript"', source)
+        self.assertNotIn("transpileModule", source)
 
     def test_local_pack_contains_only_allowlisted_public_sources_and_metadata(self) -> None:
         manifest = self.manifest()
@@ -120,14 +196,26 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
         self.assertNotIn("bin", manifest)
 
         with tempfile.TemporaryDirectory() as tmp:
-            packed_manifest, _hashes, members = self._pack_once(Path(tmp))
+            root = Path(tmp)
+            stage = self._build_stage(root, "stage")
+            self._assert_stage_is_runtime_js_only(stage)
+            packed_manifest, _hashes, members = self._pack_stage(
+                stage,
+                root / "pack",
+            )
 
         self.assertEqual(members, self._expected_members())
         self.assertEqual(packed_manifest["name"], manifest["name"])
         self.assertEqual(packed_manifest["version"], manifest["version"])
         self.assertIs(packed_manifest.get("private"), True)
-        self.assertEqual(packed_manifest.get("exports"), manifest.get("exports"))
-        self.assertEqual(packed_manifest.get("files"), manifest.get("files"))
+        self.assertEqual(
+            packed_manifest.get("exports"),
+            {".": "./src/browser-remote-observability-public.js"},
+        )
+        self.assertEqual(
+            packed_manifest.get("files"),
+            self._expected_js_files(),
+        )
 
         lowered = "\n".join(sorted(members)).lower()
         for forbidden in FORBIDDEN_PATH_PARTS:
@@ -151,9 +239,18 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
                 r"^(pre|post)?publish$|^(pre|post)?pack$|^prepare$",
             )
 
-        with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
-            first_manifest, first_hashes, first_members = self._pack_once(Path(first_tmp))
-            second_manifest, second_hashes, second_members = self._pack_once(Path(second_tmp))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first_stage = self._build_stage(root, "stage-a")
+            second_stage = self._build_stage(root, "stage-b")
+            first_manifest, first_hashes, first_members = self._pack_stage(
+                first_stage,
+                root / "pack-a",
+            )
+            second_manifest, second_hashes, second_members = self._pack_stage(
+                second_stage,
+                root / "pack-b",
+            )
 
         self.assertEqual(first_members, second_members)
         self.assertEqual(first_manifest, second_manifest)
