@@ -198,6 +198,15 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
             ]
             cases.append(("partial", partial, base_dependencies))
 
+            forged_files = copy.deepcopy(base_provenance)
+            forged_target = next(
+                item
+                for item in forged_files["files"]
+                if item["path"] != "package.json"
+            )
+            forged_target["sha256"] = "f" * 64
+            cases.append(("forged-internal-file", forged_files, base_dependencies))
+
             authority = copy.deepcopy(base_dependencies)
             authority["registry_authority"] = {
                 "enabled": True,
