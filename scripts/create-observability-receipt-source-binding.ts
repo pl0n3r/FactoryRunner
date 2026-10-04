@@ -48,37 +48,42 @@ function exactObject(
   label: string,
   fields: readonly string[],
 ): JsonObject {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    fail(label + ': objeto requerido.');
+  if (value === null || Array.isArray(value) || typeof value !== 'object') {
+    fail(`${label}: objeto requerido.`);
   }
-  const object = value as JsonObject;
-  const actual = Object.keys(object).sort(compareText);
-  const expected = [...fields].sort(compareText);
+  const record = value as JsonObject;
+  const allowed = new Set(fields);
+  const present = Object.keys(record);
   if (
-    actual.length !== expected.length
-    || actual.some((key, index) => key !== expected[index])
+    present.length !== allowed.size
+    || present.some((key) => !allowed.has(key))
   ) {
-    fail(label + ': schema desconocido o incompleto.');
+    fail(`${label}: schema desconocido o incompleto.`);
   }
-  return object;
+  return record;
 }
 
 function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalValue);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as JsonObject)
+        .sort(([left], [right]) => compareText(left, right))
+        .map(([key, entry]) => [key, canonicalValue(entry)]),
+    );
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) fail('Valor no serializable.');
+    return value;
+  }
   if (
     value === null
     || typeof value === 'string'
     || typeof value === 'boolean'
-    || (typeof value === 'number' && Number.isFinite(value))
   ) {
     return value;
-  }
-  if (Array.isArray(value)) return value.map((entry) => canonicalValue(entry));
-  if (typeof value === 'object' && value !== null) {
-    const result: JsonObject = {};
-    for (const key of Object.keys(value as JsonObject).sort(compareText)) {
-      result[key] = canonicalValue((value as JsonObject)[key]);
-    }
-    return result;
   }
   fail('Valor no serializable.');
 }
@@ -136,29 +141,34 @@ function samePackage(left: PackageIdentity, right: PackageIdentity): boolean {
 }
 
 function parseOptions(argv: readonly string[]): Options {
-  const flags = ['--verified-receipt', '--source-snapshot', '--output'] as const;
-  if (argv.length !== flags.length * 2) fail('Argumentos inválidos.');
+  if (argv.length !== 6) fail('Argumentos inválidos.');
+  const accepted = new Set(['--verified-receipt', '--source-snapshot', '--output']);
+  const parsed: Record<string, string> = {};
 
-  const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const value = argv[index + 1];
+  for (let cursor = 0; cursor < argv.length; cursor += 2) {
+    const flag = argv[cursor];
+    const candidate = argv[cursor + 1];
     if (
-      !flags.includes(flag as typeof flags[number])
-      || value === undefined
-      || value.trim() === ''
-      || values.has(flag)
+      !accepted.has(flag)
+      || candidate === undefined
+      || candidate.trim().length === 0
+      || Object.hasOwn(parsed, flag)
     ) {
       fail('Argumentos inválidos.');
     }
-    values.set(flag, value);
+    parsed[flag] = candidate;
   }
-  if (flags.some((flag) => !values.has(flag))) fail('Falta input requerido.');
 
+  const receipt = parsed['--verified-receipt'];
+  const snapshot = parsed['--source-snapshot'];
+  const output = parsed['--output'];
+  if (receipt === undefined || snapshot === undefined || output === undefined) {
+    fail('Falta input requerido.');
+  }
   return Object.freeze({
-    verifiedReceipt: resolve(values.get('--verified-receipt') as string),
-    sourceSnapshot: resolve(values.get('--source-snapshot') as string),
-    output: resolve(values.get('--output') as string),
+    verifiedReceipt: resolve(receipt),
+    sourceSnapshot: resolve(snapshot),
+    output: resolve(output),
   });
 }
 
