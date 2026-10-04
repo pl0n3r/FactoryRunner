@@ -47,6 +47,7 @@ class PolicyCallerPermissionsTests(unittest.TestCase):
             _mapping_block(self.lines, "permissions:", 0),
         )
         self.assertNotIn("    permissions:", self._policy_job())
+        self.assertEqual(1, self.text.count("permissions:"))
         self.assertNotIn("issues: write", self.text)
         self.assertNotIn("checks: read", self.text)
 
