@@ -24,6 +24,7 @@ type ArchiveFile = Readonly<{
 }>;
 
 const MAX_TARBALL_BYTES = 32 * 1024 * 1024;
+const MAX_ARCHIVE_BYTES = 16 * 1024 * 1024;
 const SHA256_RE = /^[a-f0-9]{64}$/;
 
 function compareText(left: string, right: string): number {
@@ -86,6 +87,15 @@ function octal(block: Buffer, start: number, length: number): number {
   return value;
 }
 
+function validateTarHeaderChecksum(header: Buffer): void {
+  const expected = octal(header, 148, 8);
+  let actual = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    actual += index >= 148 && index < 156 ? 0x20 : header[index];
+  }
+  if (actual !== expected) fail('Checksum tar inválido.');
+}
+
 function canonicalArchivePath(raw: string): string {
   if (!raw.startsWith('package/')) fail('Entrada tar fuera de package/.');
   const path = raw.slice('package/'.length);
@@ -104,7 +114,7 @@ function canonicalArchivePath(raw: string): string {
 function parseTarball(compressed: Buffer): Map<string, Buffer> {
   let archive: Buffer;
   try {
-    archive = gunzipSync(compressed);
+    archive = gunzipSync(compressed, { maxOutputLength: MAX_ARCHIVE_BYTES });
   } catch {
     fail('Tarball gzip inválido.');
   }
@@ -121,6 +131,7 @@ function parseTarball(compressed: Buffer): Map<string, Buffer> {
       break;
     }
 
+    validateTarHeaderChecksum(header);
     const name = cString(header, 0, 100);
     const prefix = cString(header, 345, 155);
     const rawPath = prefix === '' ? name : prefix + '/' + name;
@@ -134,7 +145,7 @@ function parseTarball(compressed: Buffer): Map<string, Buffer> {
       const path = canonicalArchivePath(rawPath);
       if (files.has(path)) fail('Archivo duplicado en tarball.');
       files.set(path, Buffer.from(archive.subarray(dataStart, dataEnd)));
-    } else if (typeFlag !== '5' && typeFlag !== 'x' && typeFlag !== 'g') {
+    } else if (typeFlag !== '5') {
       fail('Tipo de entrada tar no permitido.');
     }
 
