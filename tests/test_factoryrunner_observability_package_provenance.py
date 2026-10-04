@@ -1,4 +1,6 @@
+import copy
 import hashlib
+import io
 import json
 import os
 import socket
@@ -83,6 +85,8 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        env["USER"] = "provenance-secret-user-7f8e91"
         return subprocess.run(
             [
                 "node",
@@ -96,11 +100,37 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
                 str(output),
             ],
             cwd=ROOT,
+            env=env,
             check=check,
             capture_output=True,
             text=True,
             timeout=60,
         )
+
+    def _tamper_package_json(self, source: Path, destination: Path) -> None:
+        with tarfile.open(source, mode="r:gz") as original:
+            with tarfile.open(
+                destination,
+                mode="w:gz",
+                format=tarfile.USTAR_FORMAT,
+            ) as rewritten:
+                for member in original.getmembers():
+                    cloned = copy.copy(member)
+                    if not member.isfile():
+                        rewritten.addfile(cloned)
+                        continue
+                    extracted = original.extractfile(member)
+                    self.assertIsNotNone(extracted)
+                    body = extracted.read()
+                    if member.name == "package/package.json":
+                        payload = json.loads(body.decode("utf-8"))
+                        payload["unexpected_metadata"] = "must-fail-closed"
+                        body = (
+                            json.dumps(payload, separators=(",", ":"), sort_keys=True)
+                            + "\n"
+                        ).encode("utf-8")
+                    cloned.size = len(body)
+                    rewritten.addfile(cloned, io.BytesIO(body))
 
     def _archive_hashes(self, tarball: Path) -> dict[str, tuple[int, str]]:
         result: dict[str, tuple[int, str]] = {}
@@ -160,6 +190,17 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
             self.assertIs(provenance["network_access"], False)
             self.assertIs(provenance["external_mutation"], False)
 
+            tampered_tarball = root / "tampered-package-json.tgz"
+            self._tamper_package_json(tarball, tampered_tarball)
+            tampered = self._provenance(
+                stage,
+                tampered_tarball,
+                root / "tampered.json",
+                check=False,
+            )
+            self.assertNotEqual(tampered.returncode, 0)
+            self.assertFalse((root / "tampered.json").exists())
+
             staged["version"] = "9.9.9"
             (stage / "package.json").write_text(
                 json.dumps(staged, indent=2) + "\n",
@@ -210,9 +251,7 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
             self.assertNotIn("timestamp", lowered)
             self.assertNotIn("created_at", lowered)
             self.assertNotIn(socket.gethostname().lower(), lowered)
-            username = os.environ.get("USER")
-            if username and len(username) > 2:
-                self.assertNotIn(username.lower(), lowered)
+            self.assertNotIn("provenance-secret-user-7f8e91", lowered)
 
             extra = stage / "unexpected.txt"
             extra.write_text("not allowlisted\n", encoding="utf-8")
