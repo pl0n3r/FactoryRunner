@@ -157,6 +157,26 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
         archive[index] = ord("1") if archive[index] != ord("1") else ord("2")
         destination.write_bytes(gzip.compress(bytes(archive), mtime=0))
 
+    def _inject_directory_entry(self, source: Path, destination: Path) -> None:
+        with tarfile.open(source, mode="r:gz") as original:
+            with tarfile.open(
+                destination,
+                mode="w:gz",
+                format=tarfile.USTAR_FORMAT,
+            ) as rewritten:
+                directory = tarfile.TarInfo("package/../../escape/")
+                directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
+                rewritten.addfile(directory)
+                for member in original.getmembers():
+                    cloned = copy.copy(member)
+                    if member.isfile():
+                        extracted = original.extractfile(member)
+                        self.assertIsNotNone(extracted)
+                        rewritten.addfile(cloned, io.BytesIO(extracted.read()))
+                    else:
+                        rewritten.addfile(cloned)
+
     def _archive_hashes(self, tarball: Path) -> dict[str, tuple[int, str]]:
         result: dict[str, tuple[int, str]] = {}
         with tarfile.open(tarball, mode="r:gz") as handle:
@@ -331,6 +351,23 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
             )
             self.assertNotEqual(failed_oversized.returncode, 0)
             self.assertFalse(oversized_output.exists())
+
+    def test_provenance_rejects_directory_entries_with_ignored_or_unsafe_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage, tarball = self._build_and_pack(root)
+            directory_tarball = root / "directory-entry.tgz"
+            self._inject_directory_entry(tarball, directory_tarball)
+
+            output = root / "directory-entry.json"
+            failed = self._provenance(
+                stage,
+                directory_tarball,
+                output,
+                check=False,
+            )
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
