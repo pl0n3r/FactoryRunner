@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
 type Options = Readonly<{
@@ -28,6 +28,15 @@ const VERIFIER = resolve(
   'check-observability-package-release-receipt.ts',
 );
 const EXPECTED_PACKAGE = '@pl0n3r/factoryrunner';
+const NPM_CLI = resolve(
+  dirname(process.execPath),
+  '..',
+  'lib',
+  'node_modules',
+  'npm',
+  'bin',
+  'npm-cli.js',
+);
 
 function fail(message: string): never {
   throw new Error(message);
@@ -158,6 +167,11 @@ async function consumeVerifiedArtifact(
   options: Options,
   verification: Verification,
 ): Promise<Readonly<{ packet_status: string; packet_authority: string }>> {
+  const npmCliMetadata = await lstat(NPM_CLI);
+  if (!npmCliMetadata.isFile()) {
+    fail('npm CLI canónico no disponible.');
+  }
+
   const directory = await mkdtemp(join(tmpdir(), 'factoryrunner-verified-consumer-'));
   try {
     const cache = join(directory, 'npm-cache');
@@ -172,8 +186,9 @@ async function consumeVerifiedArtifact(
     );
 
     const install = spawnSync(
-      'npm',
+      process.execPath,
       [
+        NPM_CLI,
         'install',
         '--offline',
         '--ignore-scripts',
@@ -221,7 +236,7 @@ process.stdout.write(JSON.stringify({
 }));
 `, 'utf8');
 
-    const consumed = spawnSync('node', [script], {
+    const consumed = spawnSync(process.execPath, [script], {
       cwd: directory,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
