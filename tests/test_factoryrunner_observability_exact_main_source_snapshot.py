@@ -94,6 +94,11 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
         self,
     ) -> None:
         source = SNAPSHOT.read_text(encoding="utf-8").lower()
+        self.assertIn("const git_binary = '/usr/bin/git';", source)
+        self.assertIn("const trusted_path = '/usr/bin:/bin';", source)
+        self.assertIn("spawnsync(\n    git_binary,", source)
+        self.assertIn("path: trusted_path", source)
+        self.assertNotIn("spawnsync(\n    'git',", source)
         for forbidden in (
             "node:http",
             "node:https",
