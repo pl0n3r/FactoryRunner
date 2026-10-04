@@ -9,52 +9,49 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILDER = ROOT / "scripts" / "build-observability-package.ts"
-PROVENANCE = ROOT / "scripts" / "build-observability-package-provenance.ts"
-DEPENDENCIES = ROOT / "scripts" / "build-observability-package-dependency-evidence.ts"
-PREFLIGHT = ROOT / "scripts" / "check-observability-package-release-preflight.ts"
+SCRIPTS = ROOT / "scripts"
+BUILDER = SCRIPTS / "build-observability-package.ts"
+PROVENANCE = SCRIPTS / "build-observability-package-provenance.ts"
+DEPENDENCIES = SCRIPTS / "build-observability-package-dependency-evidence.ts"
+PREFLIGHT = SCRIPTS / "check-observability-package-release-preflight.ts"
 LOCKFILE = ROOT / "package-lock.json"
 
 
 class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
-    def _npm_env(self, cache: Path) -> dict[str, str]:
-        cache.mkdir()
-        env = os.environ.copy()
-        env.update(
-            {
-                "npm_config_offline": "true",
-                "npm_config_ignore_scripts": "true",
-                "npm_config_audit": "false",
-                "npm_config_fund": "false",
-                "npm_config_update_notifier": "false",
-                "npm_config_cache": str(cache),
-            }
-        )
-        return env
-
-    def _build_release_evidence(
+    def _node(
         self,
-        root: Path,
-    ) -> tuple[Path, Path, Path, Path]:
-        stage = root / "stage"
-        subprocess.run(
-            [
-                "node",
-                "--experimental-strip-types",
-                str(BUILDER),
-                "--output",
-                str(stage),
-            ],
-            cwd=ROOT,
-            check=True,
+        script: Path,
+        *arguments: str,
+        check: bool = True,
+        cwd: Path = ROOT,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["node", "--experimental-strip-types", str(script), *arguments],
+            cwd=cwd,
+            env=env,
+            check=check,
             capture_output=True,
             text=True,
             timeout=60,
         )
 
+    def _release_fixture(self, root: Path) -> tuple[Path, Path, Path]:
+        stage = root / "stage"
+        self._node(BUILDER, "--output", str(stage))
+
         pack = root / "pack"
         pack.mkdir()
-        completed = subprocess.run(
+        npm_env = {
+            **os.environ,
+            "npm_config_offline": "true",
+            "npm_config_ignore_scripts": "true",
+            "npm_config_audit": "false",
+            "npm_config_fund": "false",
+            "npm_config_update_notifier": "false",
+            "npm_config_cache": str(root / "npm-cache"),
+        }
+        packed = subprocess.run(
             [
                 "npm",
                 "pack",
@@ -66,215 +63,169 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
                 ".",
             ],
             cwd=stage,
-            env=self._npm_env(root / "npm-cache"),
+            env=npm_env,
             check=True,
             capture_output=True,
             text=True,
             timeout=60,
         )
-        payload = json.loads(completed.stdout)
-        self.assertIsInstance(payload, list)
-        self.assertEqual(len(payload), 1)
-        tarball = pack / payload[0]["filename"]
-        self.assertTrue(tarball.is_file())
+        pack_result = json.loads(packed.stdout)
+        self.assertEqual(len(pack_result), 1)
+        artifact = pack / pack_result[0]["filename"]
 
         provenance = root / "provenance.json"
-        subprocess.run(
-            [
-                "node",
-                "--experimental-strip-types",
-                str(PROVENANCE),
-                "--tarball",
-                str(tarball),
-                "--stage",
-                str(stage),
-                "--output",
-                str(provenance),
-            ],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
+        self._node(
+            PROVENANCE,
+            "--tarball",
+            str(artifact),
+            "--stage",
+            str(stage),
+            "--output",
+            str(provenance),
         )
 
         dependencies = root / "dependencies.json"
-        subprocess.run(
-            [
-                "node",
-                "--experimental-strip-types",
-                str(DEPENDENCIES),
-                "--manifest",
-                str(stage / "package.json"),
-                "--lockfile",
-                str(LOCKFILE),
-                "--output",
-                str(dependencies),
-            ],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
+        self._node(
+            DEPENDENCIES,
+            "--manifest",
+            str(stage / "package.json"),
+            "--lockfile",
+            str(LOCKFILE),
+            "--output",
+            str(dependencies),
         )
-        return stage, tarball, provenance, dependencies
+        return artifact, provenance, dependencies
 
-    def _preflight(
+    def _check(
         self,
-        tarball: Path,
+        artifact: Path,
         provenance: Path,
         dependencies: Path,
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [
-                "node",
-                "--experimental-strip-types",
-                str(PREFLIGHT),
-                "--artifact",
-                str(tarball),
-                "--provenance",
-                str(provenance),
-                "--dependencies",
-                str(dependencies),
-            ],
-            cwd=ROOT,
+        return self._node(
+            PREFLIGHT,
+            "--artifact",
+            str(artifact),
+            "--provenance",
+            str(provenance),
+            "--dependencies",
+            str(dependencies),
             check=check,
-            capture_output=True,
-            text=True,
-            timeout=60,
         )
 
     def test_preflight_accepts_exact_local_artifact_with_matching_provenance_and_dependencies(
         self,
     ) -> None:
         source = PREFLIGHT.read_text(encoding="utf-8").lower()
-        for forbidden in (
-            "node:http",
-            "node:https",
-            "fetch(",
-            "child_process",
-            "npm publish",
-            "npm login",
-            "npm view",
-            "--registry",
-        ):
-            self.assertNotIn(forbidden, source)
+        self.assertTrue(
+            all(
+                token not in source
+                for token in (
+                    "node:http",
+                    "node:https",
+                    "fetch(",
+                    "child_process",
+                    "npm publish",
+                    "npm login",
+                    "npm view",
+                    "--registry",
+                )
+            )
+        )
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _, tarball, provenance, dependencies = self._build_release_evidence(root)
-            provenance_before = provenance.read_bytes()
-            dependencies_before = dependencies.read_bytes()
-            artifact_before = tarball.read_bytes()
+            artifact, provenance, dependencies = self._release_fixture(root)
+            frozen = {
+                "artifact": artifact.read_bytes(),
+                "provenance": provenance.read_bytes(),
+                "dependencies": dependencies.read_bytes(),
+            }
 
-            completed = self._preflight(tarball, provenance, dependencies)
+            completed = self._check(artifact, provenance, dependencies)
             result = json.loads(completed.stdout)
+            dependency_payload = json.loads(dependencies.read_text(encoding="utf-8"))
 
+            self.assertIs(result["accepted"], True)
             self.assertEqual(
-                result,
-                {
-                    "accepted": True,
-                    "artifact_sha256": hashlib.sha256(artifact_before).hexdigest(),
-                    "package": {
-                        "name": "@pl0n3r/factoryrunner",
-                        "version": "0.1.0",
-                        "private": True,
-                        "type": "module",
-                    },
-                    "runtime_evidence_bound": True,
-                    "network_access": False,
-                    "external_mutation": False,
-                },
+                result["artifact_sha256"],
+                hashlib.sha256(frozen["artifact"]).hexdigest(),
             )
-            self.assertEqual(tarball.read_bytes(), artifact_before)
-            self.assertEqual(provenance.read_bytes(), provenance_before)
-            self.assertEqual(dependencies.read_bytes(), dependencies_before)
+            self.assertEqual(result["package"], dependency_payload["package"])
+            self.assertIs(result["runtime_evidence_bound"], True)
+            self.assertIs(result["network_access"], False)
+            self.assertIs(result["external_mutation"], False)
+            self.assertEqual(artifact.read_bytes(), frozen["artifact"])
+            self.assertEqual(provenance.read_bytes(), frozen["provenance"])
+            self.assertEqual(dependencies.read_bytes(), frozen["dependencies"])
 
     def test_preflight_rejects_drift_tampering_or_publish_network_authority(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _, tarball, provenance, dependencies = self._build_release_evidence(root)
+            artifact, provenance, dependencies = self._release_fixture(root)
 
-            tampered_artifact = root / tarball.name
-            tampered_artifact.write_bytes(tarball.read_bytes() + b"tamper")
-            artifact_failed = self._preflight(
-                tampered_artifact,
-                provenance,
-                dependencies,
-                check=False,
+            tampered_artifact = root / artifact.name
+            tampered_artifact.write_bytes(artifact.read_bytes() + b"tamper")
+            self.assertNotEqual(
+                self._check(
+                    tampered_artifact,
+                    provenance,
+                    dependencies,
+                    check=False,
+                ).returncode,
+                0,
             )
-            self.assertNotEqual(artifact_failed.returncode, 0)
 
-            provenance_payload = json.loads(provenance.read_text(encoding="utf-8"))
-            provenance_payload["network_access"] = True
-            bad_provenance = root / "bad-provenance.json"
-            bad_provenance.write_text(
-                json.dumps(provenance_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            provenance_failed = self._preflight(
-                tarball,
-                bad_provenance,
-                dependencies,
-                check=False,
-            )
-            self.assertNotEqual(provenance_failed.returncode, 0)
+            base_provenance = json.loads(provenance.read_text(encoding="utf-8"))
+            base_dependencies = json.loads(dependencies.read_text(encoding="utf-8"))
+            cases: list[tuple[str, dict, dict]] = []
 
-            dependency_payload = json.loads(dependencies.read_text(encoding="utf-8"))
-            dependency_payload["source"]["manifest_sha256"] = "0" * 64
-            bad_dependencies = root / "bad-dependencies.json"
-            bad_dependencies.write_text(
-                json.dumps(dependency_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            dependency_failed = self._preflight(
-                tarball,
-                provenance,
-                bad_dependencies,
-                check=False,
-            )
-            self.assertNotEqual(dependency_failed.returncode, 0)
+            networked = copy.deepcopy(base_provenance)
+            networked["network_access"] = True
+            cases.append(("networked", networked, base_dependencies))
 
-            partial_payload = copy.deepcopy(json.loads(provenance.read_text(encoding="utf-8")))
-            partial_payload["files"] = [
-                item
-                for item in partial_payload["files"]
-                if item["path"] != "package.json"
+            drifted = copy.deepcopy(base_dependencies)
+            drifted["source"]["manifest_sha256"] = "0" * 64
+            cases.append(("manifest-drift", base_provenance, drifted))
+
+            partial = copy.deepcopy(base_provenance)
+            partial["files"] = [
+                item for item in partial["files"] if item["path"] != "package.json"
             ]
-            partial_provenance = root / "partial-provenance.json"
-            partial_provenance.write_text(
-                json.dumps(partial_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            partial_failed = self._preflight(
-                tarball,
-                partial_provenance,
-                dependencies,
-                check=False,
-            )
-            self.assertNotEqual(partial_failed.returncode, 0)
+            cases.append(("partial", partial, base_dependencies))
 
-            authority_payload = json.loads(dependencies.read_text(encoding="utf-8"))
-            authority_payload["registry_authority"] = {
+            authority = copy.deepcopy(base_dependencies)
+            authority["registry_authority"] = {
                 "enabled": True,
                 "token": "must-never-be-accepted",
             }
-            authority_dependencies = root / "authority-dependencies.json"
-            authority_dependencies.write_text(
-                json.dumps(authority_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            authority_failed = self._preflight(
-                tarball,
-                provenance,
-                authority_dependencies,
-                check=False,
-            )
-            self.assertNotEqual(authority_failed.returncode, 0)
+            cases.append(("authority", base_provenance, authority))
+
+            for label, provenance_payload, dependency_payload in cases:
+                with self.subTest(label=label):
+                    provenance_path = root / f"{label}-provenance.json"
+                    dependency_path = root / f"{label}-dependencies.json"
+                    provenance_path.write_text(
+                        json.dumps(provenance_payload, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    dependency_path.write_text(
+                        json.dumps(dependency_payload, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+                    self.assertNotEqual(
+                        self._check(
+                            artifact,
+                            provenance_path,
+                            dependency_path,
+                            check=False,
+                        ).returncode,
+                        0,
+                    )
 
 
 if __name__ == "__main__":
