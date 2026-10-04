@@ -295,6 +295,24 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
             self.assertNotEqual(failed_unknown.returncode, 0)
             self.assertFalse(unknown_output.exists())
 
+            original = json.loads(provenance.read_text(encoding="utf-8"))
+            reordered = dict(reversed(list(original.items())))
+            reordered_path = root / "reordered-provenance.json"
+            reordered_path.write_text(
+                json.dumps(reordered, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            reordered_output = root / "reordered-output.json"
+            failed_reordered = self._receipt(
+                tarball,
+                reordered_path,
+                dependencies,
+                reordered_output,
+                check=False,
+            )
+            self.assertNotEqual(failed_reordered.returncode, 0)
+            self.assertFalse(reordered_output.exists())
+
             copied_preflight = root / PREFLIGHT.name
             copied_preflight.write_bytes(PREFLIGHT.read_bytes())
             wrong_output = root / "wrong-preflight.json"
