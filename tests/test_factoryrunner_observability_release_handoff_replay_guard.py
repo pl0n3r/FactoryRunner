@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "check-observability-release-handoff-replay-guard.ts"
 MAIN_PIN_BUILDER = ROOT / "scripts" / "create-observability-release-handoff-main-pin.ts"
 VERIFY_TEST = ROOT / "tests" / "test_factoryrunner_observability_release_handoff_verify.py"
+NODE_BINARY = shutil.which("node")
 
 
 def canonical(value: object) -> str:
@@ -31,6 +33,11 @@ def load_verify_fixture():
 
 
 class FactoryRunnerObservabilityReleaseHandoffReplayGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        if NODE_BINARY is None:
+            raise unittest.SkipTest("node no está disponible")
+
     def _fixture(self, root: Path) -> tuple[Path, Path, Path, Path, Path, Path]:
         fixture = load_verify_fixture()
         receipt, snapshot, binding, preflight, handoff = fixture._fixture(root)
@@ -38,7 +45,7 @@ class FactoryRunnerObservabilityReleaseHandoffReplayGuardTests(unittest.TestCase
         pin = root / "main-pin.json"
         completed = subprocess.run(
             [
-                "node",
+                NODE_BINARY,
                 "--experimental-strip-types",
                 str(MAIN_PIN_BUILDER),
                 "--commit-sha",
