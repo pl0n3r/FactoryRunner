@@ -225,7 +225,7 @@ class FactoryRunnerObservabilityPackageDependenciesTests(unittest.TestCase):
             )
             drift_lock = json.loads(LOCKFILE.read_text(encoding="utf-8"))
             drift_lock["packages"][""]["dependencies"] = {
-                "example-runtime": "^2.0.0"
+                "example-runtime": "^1.2.0"
             }
             drift_lock["packages"]["node_modules/example-runtime"] = {
                 "version": "2.0.1"
