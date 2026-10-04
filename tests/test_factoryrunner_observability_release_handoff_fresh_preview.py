@@ -167,7 +167,9 @@ class FactoryRunnerObservabilityReleaseHandoffFreshPreviewTests(unittest.TestCas
             self.assertNotEqual(rejected.returncode, 0)
             self.assertEqual(rejected.stdout, "")
 
-            receipt, snapshot, binding, preflight, handoff, pin = self._fixture(root / "second")
+            second = root / "second"
+            second.mkdir()
+            receipt, snapshot, binding, preflight, handoff, pin = self._fixture(second)
             tampered = json.loads(handoff.read_text(encoding="utf-8"))
             tampered["decision_required"] = False
             handoff.write_text(
