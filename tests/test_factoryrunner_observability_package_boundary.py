@@ -1,0 +1,113 @@
+import json
+import posixpath
+import re
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ENTRYPOINT = "src/browser-remote-observability-public.ts"
+IMPORT_RE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\()\s*["'](\.[^"']+)["']""")
+EXPORT_RE = re.compile(
+    r"""export\s+(?:type\s+)?\{(?P<body>[^}]*)\}\s+from\s+["'][^"']+["'];?""",
+    re.DOTALL,
+)
+EXPECTED_EXPORTS = {
+    "browserRemoteObservabilityPublicConsumerCompatibility",
+    "browserRemoteObservabilityPublicPacket",
+    "BrowserRemoteDirectoryHealthBundle",
+    "BrowserRemoteObservabilityPublicConsumer",
+    "BrowserRemoteObservabilityPublicPacket",
+    "BrowserRemoteObservabilityPublicRequirement",
+}
+FORBIDDEN_FILES = {
+    "src/controlbot/client.ts",
+    "src/execution-loop.ts",
+    "src/journal.ts",
+    "src/outbox.ts",
+    "src/recovery/live-object-storage.ts",
+    "src/runtime-supervisor.ts",
+    "src/adapters/recovery-database.ts",
+    "src/adapters/recovery-google-drive.ts",
+    "src/adapters/recovery-object-storage.ts",
+}
+
+
+class FactoryRunnerObservabilityPackageBoundaryTests(unittest.TestCase):
+    def manifest(self) -> dict:
+        return json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+
+    def public_symbols(self) -> set[str]:
+        source = (ROOT / ENTRYPOINT).read_text(encoding="utf-8")
+        self.assertNotIn("export *", source)
+        result: set[str] = set()
+        for match in EXPORT_RE.finditer(source):
+            for raw in match.group("body").split(","):
+                item = raw.strip()
+                if not item:
+                    continue
+                if item.startswith("type "):
+                    item = item[5:].strip()
+                result.add(item.split(" as ", 1)[-1].strip())
+        return result
+
+    def resolve(self, source: str, specifier: str) -> str:
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(source), specifier))
+        self.assertTrue(path.startswith("src/"), f"dependencia fuera de src/: {path}")
+        if not path.endswith(".ts"):
+            path += ".ts"
+        return path
+
+    def closure(self) -> list[str]:
+        pending = [ENTRYPOINT]
+        visited: set[str] = set()
+        while pending:
+            relative = pending.pop()
+            if relative in visited:
+                continue
+            path = ROOT / relative
+            self.assertTrue(path.is_file(), f"falta fuente requerida: {relative}")
+            visited.add(relative)
+            for specifier in IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                dependency = self.resolve(relative, specifier)
+                if dependency not in visited:
+                    pending.append(dependency)
+        return sorted(visited)
+
+    def test_package_manifest_exposes_only_supported_public_entrypoint_and_runtime_free_metadata(self) -> None:
+        manifest = self.manifest()
+        self.assertIs(manifest.get("private"), True)
+        self.assertEqual(manifest.get("type"), "module")
+        self.assertEqual(manifest.get("exports"), {".": f"./{ENTRYPOINT}"})
+        self.assertNotIn("publishConfig", manifest)
+        self.assertNotIn("bin", manifest)
+        self.assertEqual(self.public_symbols(), EXPECTED_EXPORTS)
+
+        files = manifest.get("files")
+        self.assertIsInstance(files, list)
+        self.assertEqual(files, sorted(set(files)))
+        self.assertEqual(files, self.closure())
+
+        scripts = manifest.get("scripts")
+        self.assertIsInstance(scripts, dict)
+        for name, command in scripts.items():
+            self.assertNotRegex(name, re.compile(r"publish|prepack|postpack|prepare", re.I))
+            self.assertNotRegex(str(command), re.compile(r"npm\s+(publish|login|adduser)|--registry|curl|wget", re.I))
+
+    def test_package_boundary_excludes_internal_runtime_secrets_docs_and_unintended_files(self) -> None:
+        files = self.manifest()["files"]
+        self.assertTrue(FORBIDDEN_FILES.isdisjoint(files))
+        self.assertFalse(any(path.startswith("src/controlbot/") for path in files))
+        self.assertFalse(any(path.startswith("src/recovery/") for path in files))
+        for path in files:
+            self.assertTrue(path.startswith("src/"))
+            self.assertTrue(path.endswith(".ts"))
+            self.assertNotIn("*", path)
+            self.assertNotIn("?", path)
+            self.assertTrue((ROOT / path).is_file())
+        self.assertEqual(files, self.closure())
+        self.assertEqual(self.public_symbols(), EXPECTED_EXPORTS)
+
+
+if __name__ == "__main__":
+    unittest.main()

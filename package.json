@@ -3,6 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/browser-remote-observability-public.ts"
+  },
+  "files": [
+    "src/adapters/browser.ts",
+    "src/browser-plan.ts",
+    "src/browser-remote-directory-doctor.ts",
+    "src/browser-remote-directory-health-bundle.ts",
+    "src/browser-remote-directory-health.ts",
+    "src/browser-remote-directory-metrics.ts",
+    "src/browser-remote-directory-readiness.ts",
+    "src/browser-remote-directory-snapshot.ts",
+    "src/browser-remote-directory.ts",
+    "src/browser-remote-driver.ts",
+    "src/browser-remote-observability-compatibility.ts",
+    "src/browser-remote-observability-consumer-packet-compatibility.ts",
+    "src/browser-remote-observability-consumer-packet.ts",
+    "src/browser-remote-observability-manifest.ts",
+    "src/browser-remote-observability-public-consumer-compatibility.ts",
+    "src/browser-remote-observability-public-packet.ts",
+    "src/browser-remote-observability-public.ts",
+    "src/browser-remote-profile.ts",
+    "src/runner.ts",
+    "src/validation.ts"
+  ],
   "engines": {
     "node": ">=24"
   },
