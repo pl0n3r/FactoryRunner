@@ -39,7 +39,7 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1
+    uses: pl0n3r/factory/.github/workflows/etiquetas-pr.yml@a2a2350b8ce686fda5aa06f49cd0e9accaa9ed98
     with:
       mode: validate
       language: es

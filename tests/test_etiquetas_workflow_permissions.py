@@ -32,15 +32,28 @@ class EtiquetasWorkflowPermissionsTests(unittest.TestCase):
 
     def test_non_pr_jobs_remain_read_only_and_factory_v1_is_preserved(self) -> None:
         reusable = "uses: pl0n3r/factory/.github/workflows/etiquetas.yml@v1"
-        self.assertEqual(4, self.text.count(reusable))
+        pr_reusable = (
+            "uses: pl0n3r/factory/.github/workflows/etiquetas-pr.yml@"
+            "a2a2350b8ce686fda5aa06f49cd0e9accaa9ed98"
+        )
+        self.assertEqual(3, self.text.count(reusable))
+        self.assertEqual(1, self.text.count(pr_reusable))
+        self.assertNotIn("@main", self.text)
         self.assertNotIn("contents: write", self.text)
         self.assertNotIn("secrets: inherit", self.text)
 
-        for job in ("sync", "validar-issue", "validar-pr", "sweep"):
+        for job in ("sync", "validar-issue", "sweep"):
             block = self._job_block(job)
             self.assertRegex(block, r"(?m)^      contents: read$")
             self.assertRegex(block, r"(?m)^      issues: write$")
             self.assertIn(reusable, block)
+            self.assertNotIn(pr_reusable, block)
+
+        validar_pr = self._job_block("validar-pr")
+        self.assertRegex(validar_pr, r"(?m)^      contents: read$")
+        self.assertRegex(validar_pr, r"(?m)^      issues: write$")
+        self.assertIn(pr_reusable, validar_pr)
+        self.assertNotIn(reusable, validar_pr)
 
 
 if __name__ == "__main__":
