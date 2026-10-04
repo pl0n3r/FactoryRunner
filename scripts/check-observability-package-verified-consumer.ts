@@ -158,7 +158,6 @@ async function consumeVerifiedArtifact(
 ): Promise<Readonly<{ packet_status: string; packet_authority: string }>> {
   const directory = await mkdtemp(join(tmpdir(), 'factoryrunner-verified-consumer-'));
   try {
-    const consumer = join(directory, 'consumer');
     const cache = join(directory, 'npm-cache');
     await writeFile(
       join(directory, 'package.json'),
@@ -196,28 +195,9 @@ async function consumeVerifiedArtifact(
     }
 
     const script = join(directory, 'consumer.mjs');
-    await writeFile(script, `import { createHash } from 'node:crypto';
-import { browserRemoteObservabilityPublicPacket } from '${verification.package.name}';
+    await writeFile(script, `import { browserRemoteObservabilityPublicPacket } from '${verification.package.name}';
 
-function canonicalValue(value) {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map((item) => canonicalValue(item));
-  if (typeof value === 'object') {
-    const ordered = {};
-    for (const key of Object.keys(value).sort((left, right) => left.localeCompare(right, 'en'))) {
-      ordered[key] = canonicalValue(value[key]);
-    }
-    return ordered;
-  }
-  throw new TypeError('Valor no serializable.');
-}
-
-function fingerprint(value) {
-  return createHash('sha256').update(JSON.stringify(canonicalValue(value)), 'utf8').digest('hex');
-}
-
-const core = Object.freeze({
+const health = Object.freeze({
   version: 1,
   authority: 'unchanged',
   status: 'READY',
@@ -228,8 +208,8 @@ const core = Object.freeze({
   readiness_fingerprint: 'e'.repeat(64),
   network_access: false,
   external_mutation: false,
+  fingerprint: '448d8b7d0482096707e346cce6df6cb6fa0b58a4049006a4cd350949315c1fb6',
 });
-const health = Object.freeze({ ...core, fingerprint: fingerprint(core) });
 const packet = browserRemoteObservabilityPublicPacket(health);
 process.stdout.write(JSON.stringify({
   packet_status: packet.status,
@@ -240,7 +220,7 @@ process.stdout.write(JSON.stringify({
 `, 'utf8');
 
     const consumed = spawnSync('node', [script], {
-      cwd: consumer === directory ? consumer : directory,
+      cwd: directory,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 30_000,
