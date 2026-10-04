@@ -1,15 +1,10 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { lstat, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { lstat, readFile, writeFile } from 'node:fs/promises';
+import { posix, resolve } from 'node:path';
 import process from 'node:process';
 
 type JsonObject = Record<string, unknown>;
-
-type Options = Readonly<{
-  repo: string;
-  output: string;
-}>;
 
 type PackageIdentity = Readonly<{
   name: string;
@@ -33,6 +28,30 @@ const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES = 64 * 1024;
 const GIT_BINARY = '/usr/bin/git';
 const TRUSTED_PATH = '/usr/bin:/bin';
+const SNAPSHOT_FILENAME = '.factoryrunner-exact-main-source-snapshot.json';
+
+const PACKAGE_SOURCE_PATHS = Object.freeze([
+  'src/adapters/browser.ts',
+  'src/browser-plan.ts',
+  'src/browser-remote-directory-doctor.ts',
+  'src/browser-remote-directory-health-bundle.ts',
+  'src/browser-remote-directory-health.ts',
+  'src/browser-remote-directory-metrics.ts',
+  'src/browser-remote-directory-readiness.ts',
+  'src/browser-remote-directory-snapshot.ts',
+  'src/browser-remote-directory.ts',
+  'src/browser-remote-driver.ts',
+  'src/browser-remote-observability-compatibility.ts',
+  'src/browser-remote-observability-consumer-packet-compatibility.ts',
+  'src/browser-remote-observability-consumer-packet.ts',
+  'src/browser-remote-observability-manifest.ts',
+  'src/browser-remote-observability-public-consumer-compatibility.ts',
+  'src/browser-remote-observability-public-packet.ts',
+  'src/browser-remote-observability-public.ts',
+  'src/browser-remote-profile.ts',
+  'src/runner.ts',
+  'src/validation.ts',
+]);
 
 const RELEASE_SUPPORT_PATHS = Object.freeze([
   'README.md',
@@ -47,6 +66,10 @@ const RELEASE_SUPPORT_PATHS = Object.freeze([
   'scripts/create-observability-package-release-receipt.ts',
 ]);
 
+const RELEASE_SOURCE_PATHS = Object.freeze(
+  [...RELEASE_SUPPORT_PATHS, ...PACKAGE_SOURCE_PATHS].sort(compareText),
+);
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -59,44 +82,6 @@ function compareText(left: string, right: string): number {
 
 function sha256(body: Uint8Array | string): string {
   return createHash('sha256').update(body).digest('hex');
-}
-
-function parseOptions(argv: readonly string[]): Options {
-  if (argv.length !== 4) {
-    fail(
-      'Uso: create-observability-exact-main-source-snapshot.ts '
-      + '--repo <repositorio-local> --output <snapshot.json>',
-    );
-  }
-
-  const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
-    const key = argv[index];
-    const value = argv[index + 1];
-    if (
-      !['--repo', '--output'].includes(key)
-      || value === undefined
-      || value.trim() === ''
-      || values.has(key)
-    ) {
-      fail('Argumentos inválidos.');
-    }
-    values.set(key, value);
-  }
-
-  const repo = resolve(values.get('--repo') as string);
-  const output = resolve(values.get('--output') as string);
-  const fromRepo = relative(repo, output);
-  const normalizedFromRepo = fromRepo.split(sep).join('/');
-  if (
-    fromRepo === ''
-    || isAbsolute(fromRepo)
-    || (normalizedFromRepo !== '..' && !normalizedFromRepo.startsWith('../'))
-  ) {
-    fail('El snapshot debe escribirse fuera del repositorio.');
-  }
-
-  return Object.freeze({ repo, output });
 }
 
 function canonicalValue(value: unknown): unknown {
@@ -172,10 +157,7 @@ function rejectSensitivePath(path: string): void {
   }
 }
 
-function packageContract(value: unknown): {
-  identity: PackageIdentity;
-  sourcePaths: readonly string[];
-} {
+function packageIdentity(value: unknown): PackageIdentity {
   const manifest = asObject(value, 'package.json');
   if (
     typeof manifest.name !== 'string'
@@ -186,58 +168,47 @@ function packageContract(value: unknown): {
     || manifest.private !== true
     || manifest.type !== 'module'
     || !Array.isArray(manifest.files)
-    || manifest.files.length === 0
+    || manifest.files.length !== PACKAGE_SOURCE_PATHS.length
+    || manifest.files.some((entry, index) => entry !== PACKAGE_SOURCE_PATHS[index])
   ) {
     fail('package.json: contrato de release inválido.');
   }
 
-  const sourcePaths = manifest.files.map((entry) => {
-    if (
-      typeof entry !== 'string'
-      || !entry.startsWith('src/')
-      || !entry.endsWith('.ts')
-      || entry.includes('*')
-      || entry.includes('?')
-    ) {
-      fail('package.json: ruta source inválida.');
-    }
-    const path = canonicalPath(entry);
-    rejectSensitivePath(path);
-    return path;
+  return Object.freeze({
+    name: manifest.name,
+    version: manifest.version,
+    private: true,
+    type: 'module',
   });
-  if (new Set(sourcePaths).size !== sourcePaths.length) {
-    fail('package.json: files contiene duplicados.');
-  }
-  const sorted = [...sourcePaths].sort(compareText);
-  if (sourcePaths.some((path, index) => path !== sorted[index])) {
-    fail('package.json: files debe estar ordenado.');
-  }
-
-  return {
-    identity: Object.freeze({
-      name: manifest.name,
-      version: manifest.version,
-      private: true,
-      type: 'module',
-    }),
-    sourcePaths: Object.freeze(sourcePaths),
-  };
 }
 
 function git(repo: string, args: readonly string[], label: string): string {
   const completed = spawnSync(
     GIT_BINARY,
-    ['-C', repo, ...args],
+    [
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      'core.untrackedCache=false',
+      '-C',
+      repo,
+      ...args,
+    ],
     {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 15_000,
       maxBuffer: 1024 * 1024,
+      shell: false,
+      windowsHide: true,
       env: {
-        ...process.env,
         PATH: TRUSTED_PATH,
         GIT_TERMINAL_PROMPT: '0',
         GIT_OPTIONAL_LOCKS: '0',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        LC_ALL: 'C',
+        LANG: 'C',
       },
     },
   );
@@ -268,33 +239,18 @@ function exactMain(repo: string): Readonly<{ commit: string; tree: string }> {
   return Object.freeze({ commit, tree });
 }
 
-async function sourceFiles(
-  repo: string,
-  paths: readonly string[],
-): Promise<readonly SourceFile[]> {
+async function sourceFiles(repo: string): Promise<readonly SourceFile[]> {
   const status = git(
     repo,
-    ['status', '--porcelain=v1', '--untracked-files=all', '--', ...paths],
+    ['status', '--porcelain=v1', '--untracked-files=all', '--', ...RELEASE_SOURCE_PATHS],
     'worktree status',
   );
   if (status !== '') fail('Worktree dirty en paths de release.');
 
-  const entries = await Promise.all(paths.map(async (path) => {
+  const entries = await Promise.all(RELEASE_SOURCE_PATHS.map(async (path) => {
     canonicalPath(path);
     rejectSensitivePath(path);
     const absolute = resolve(repo, ...path.split('/'));
-    const boundary = relative(repo, absolute);
-    const normalizedBoundary = boundary.split(sep).join('/');
-    if (
-      boundary === ''
-      || isAbsolute(boundary)
-      || normalizedBoundary === '..'
-      || normalizedBoundary.startsWith('../')
-      || normalizedBoundary !== path
-    ) {
-      fail('Ruta source fuera del repositorio.');
-    }
-
     const metadata = await lstat(absolute);
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
       fail('Source debe ser archivo regular sin symlink.');
@@ -326,34 +282,24 @@ async function sourceFiles(
 }
 
 async function main(): Promise<void> {
-  const options = parseOptions(process.argv.slice(2));
-  const repoStat = await stat(options.repo);
-  if (!repoStat.isDirectory()) fail('Repositorio local inválido.');
+  if (process.argv.length !== 2) fail('Este script no acepta paths por argumentos.');
 
-  const packageBody = await readFile(resolve(options.repo, 'package.json'), 'utf8');
-  const contract = packageContract(parseJson(packageBody, 'package.json'));
-  const paths = [...new Set([
-    ...RELEASE_SUPPORT_PATHS,
-    ...contract.sourcePaths,
-  ])].sort(compareText);
-
-  for (const path of paths) {
-    canonicalPath(path);
-    rejectSensitivePath(path);
-  }
-
-  const identity = exactMain(options.repo);
-  const files = await sourceFiles(options.repo, paths);
+  const repo = process.cwd();
+  const output = resolve(repo, '..', SNAPSHOT_FILENAME);
+  const packageBody = await readFile(resolve(repo, 'package.json'), 'utf8');
+  const identity = packageIdentity(parseJson(packageBody, 'package.json'));
+  const sourceIdentity = exactMain(repo);
+  const files = await sourceFiles(repo);
   const sourceFingerprintBody = JSON.stringify(canonicalValue(files), null, 2) + '\n';
   const sourceSha256 = sha256(sourceFingerprintBody);
 
   const snapshot = {
     schema_version: 1,
-    package: contract.identity,
+    package: identity,
     repository: {
       ref: 'refs/heads/main',
-      commit_sha: identity.commit,
-      tree_sha: identity.tree,
+      commit_sha: sourceIdentity.commit,
+      tree_sha: sourceIdentity.tree,
     },
     source: {
       sha256: sourceSha256,
@@ -376,7 +322,7 @@ async function main(): Promise<void> {
   ) {
     fail('Snapshot fuera de límites.');
   }
-  await writeFile(options.output, serialized, { encoding: 'utf8', flag: 'wx' });
+  await writeFile(output, serialized, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
 }
 
 await main();
