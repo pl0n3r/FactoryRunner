@@ -40,11 +40,11 @@ class PolicyCallerPermissionsTests(unittest.TestCase):
 
     def test_policy_caller_keeps_legacy_minimal_permissions(self) -> None:
         self.assertEqual(
-            _mapping_block(self.lines, "permissions:", 0),
             {
                 "contents": "read",
                 "pull-requests": "read",
             },
+            _mapping_block(self.lines, "permissions:", 0),
         )
         self.assertNotIn("    permissions:", self._policy_job())
         self.assertNotIn("issues: write", self.text)
