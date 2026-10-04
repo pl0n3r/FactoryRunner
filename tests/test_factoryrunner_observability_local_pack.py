@@ -103,7 +103,11 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
         files = manifest.get("files")
         self.assertIsInstance(files, list)
         self.assertTrue(all(isinstance(path, str) for path in files))
-        return {"package.json", *files}
+        metadata = {"package.json"}
+        # npm incluye README de forma obligatoria cuando existe, aun con files allowlisted.
+        if (ROOT / "README.md").is_file():
+            metadata.add("README.md")
+        return metadata | set(files)
 
     def test_local_pack_contains_only_allowlisted_public_sources_and_metadata(self) -> None:
         manifest = self.manifest()
