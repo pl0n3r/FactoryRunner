@@ -18,7 +18,6 @@ type LockedRuntimeReference = Readonly<{
   specifier: string;
   locked_version: string;
 }>;
-type VersionTuple = readonly [number, number, number];
 
 const SHA = /^[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -255,18 +254,15 @@ function archiveEntries(compressed: Buffer): Map<string, Buffer> {
   return entries;
 }
 
-function versionTuple(value: string, label: string): VersionTuple {
+function semverParts(value: string, label: string): readonly bigint[] {
   if (!VERSION.test(value)) reject(label + ': semver no soportado.');
-  const [major, minor, patch] = value.split('.').map((part) => Number.parseInt(part, 10));
-  return Object.freeze([major, minor, patch]);
+  return Object.freeze(value.split('.').map((part) => BigInt(part)));
 }
 
-function compareVersion(left: VersionTuple, right: VersionTuple): number {
-  for (let index = 0; index < 3; index += 1) {
-    if (left[index] < right[index]) return -1;
-    if (left[index] > right[index]) return 1;
-  }
-  return 0;
+function compareSemver(left: readonly bigint[], right: readonly bigint[]): number {
+  const changed = left.findIndex((value, index) => value !== right[index]);
+  if (changed === -1) return 0;
+  return left[changed] < right[changed] ? -1 : 1;
 }
 
 function normalizeSpecifier(value: unknown, label: string): string {
@@ -274,10 +270,9 @@ function normalizeSpecifier(value: unknown, label: string): string {
     reject(label + ': specifier requerido.');
   }
   const specifier = value.trim();
-  const prefix = specifier.startsWith('^') || specifier.startsWith('~')
-    ? specifier[0]
-    : '';
-  const base = prefix === '' ? specifier : specifier.slice(1);
+  const base = specifier.startsWith('^') || specifier.startsWith('~')
+    ? specifier.slice(1)
+    : specifier;
   if (!VERSION.test(base)) {
     reject(label + ': solo se soporta exact, ^ o ~ sobre x.y.z.');
   }
@@ -285,26 +280,24 @@ function normalizeSpecifier(value: unknown, label: string): string {
 }
 
 function lockedVersionSatisfies(specifier: string, lockedVersion: string): boolean {
-  const prefix = specifier.startsWith('^') || specifier.startsWith('~')
+  const operator = specifier.startsWith('^') || specifier.startsWith('~')
     ? specifier[0]
     : '';
-  const base = versionTuple(prefix === '' ? specifier : specifier.slice(1), 'specifier');
-  const locked = versionTuple(lockedVersion, 'locked_version');
+  const floor = semverParts(operator === '' ? specifier : specifier.slice(1), 'specifier');
+  const locked = semverParts(lockedVersion, 'locked_version');
+  if (operator === '') return compareSemver(locked, floor) === 0;
+  if (compareSemver(locked, floor) < 0) return false;
 
-  if (prefix === '') return compareVersion(locked, base) === 0;
-  if (compareVersion(locked, base) < 0) return false;
+  const [major, minor, patch] = floor;
+  const ceiling = operator === '~'
+    ? [major, minor + 1n, 0n]
+    : major > 0n
+      ? [major + 1n, 0n, 0n]
+      : minor > 0n
+        ? [0n, minor + 1n, 0n]
+        : [0n, 0n, patch + 1n];
 
-  let upper: VersionTuple;
-  if (prefix === '~') {
-    upper = [base[0], base[1] + 1, 0];
-  } else if (base[0] > 0) {
-    upper = [base[0] + 1, 0, 0];
-  } else if (base[1] > 0) {
-    upper = [0, base[1] + 1, 0];
-  } else {
-    upper = [0, 0, base[2] + 1];
-  }
-  return compareVersion(locked, upper) < 0;
+  return compareSemver(locked, ceiling) < 0;
 }
 
 function dependencyMap(value: unknown, label: string): readonly RuntimeReference[] {
