@@ -11,7 +11,7 @@ type Options = Readonly<{
   output: string;
 }>;
 
-type PackageIdentity = Readonly<{
+type PackageMetadata = Readonly<{
   name: string;
   version: string;
   private: true;
@@ -176,7 +176,7 @@ function ensureUnsupportedDependencyKindsAbsent(
 }
 
 function packageManifest(input: unknown): {
-  identity: PackageIdentity;
+  packageMetadata: PackageMetadata;
   runtimeDependencies: Readonly<Record<string, string>>;
 } {
   const manifest = asObject(input, 'package.json empaquetado');
@@ -199,7 +199,7 @@ function packageManifest(input: unknown): {
   ensureUnsupportedDependencyKindsAbsent(manifest, 'package.json empaquetado');
 
   return {
-    identity: Object.freeze({
+    packageMetadata: Object.freeze({
       name: manifest.name,
       version: manifest.version,
       private: true,
@@ -214,7 +214,7 @@ function packageManifest(input: unknown): {
 
 function packageLock(
   input: unknown,
-  identity: PackageIdentity,
+  packageMetadata: PackageMetadata,
   manifestDependencies: Readonly<Record<string, string>>,
 ): {
   lockfileVersion: 3;
@@ -224,16 +224,16 @@ function packageLock(
   if (
     lock.lockfileVersion !== 3
     || typeof lock.name !== 'string'
-    || lock.name !== identity.name
+    || lock.name !== packageMetadata.name
     || typeof lock.version !== 'string'
-    || lock.version !== identity.version
+    || lock.version !== packageMetadata.version
   ) {
     fail('Identidad raíz de package-lock.json incoherente.');
   }
 
   const packages = asObject(lock.packages, 'package-lock.json packages');
   const root = asObject(packages[''], 'package-lock.json packages[""]');
-  if (root.name !== identity.name || root.version !== identity.version) {
+  if (root.name !== packageMetadata.name || root.version !== packageMetadata.version) {
     fail('Entrada raíz de package-lock.json incoherente.');
   }
 
@@ -328,13 +328,13 @@ async function main(): Promise<void> {
   const manifest = packageManifest(parseJson(manifestBody, 'package.json empaquetado'));
   const lock = packageLock(
     parseJson(lockBody, 'package-lock.json'),
-    manifest.identity,
+    manifest.packageMetadata,
     manifest.runtimeDependencies,
   );
 
   const evidence = {
     schema_version: 1,
-    package: manifest.identity,
+    package: manifest.packageMetadata,
     source: {
       manifest_sha256: sha256(manifestBody),
       lockfile_sha256: sha256(lockBody),
