@@ -280,7 +280,7 @@ function inspectPreflightResult(value: unknown): PreflightResult {
   return Object.freeze({
     accepted: true,
     artifact_sha256: root.artifact_sha256,
-    package: packageCore(root.package, 'preflight result.package', true),
+    package: packageCore(root.package, 'preflight result.package', false),
     runtime_evidence_bound: true,
     network_access: false,
     external_mutation: false,
