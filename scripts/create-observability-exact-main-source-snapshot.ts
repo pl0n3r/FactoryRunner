@@ -158,8 +158,12 @@ function rejectSensitivePath(path: string): void {
     'private_key',
     'id_rsa',
   ]);
+  const hasSensitiveSegment = segments.some((segment) => {
+    const stem = segment.replace(/\.[^.]+$/, '');
+    return forbiddenSegments.has(segment) || forbiddenSegments.has(stem);
+  });
   if (
-    segments.some((segment) => forbiddenSegments.has(segment))
+    hasSensitiveSegment
     || ['.pem', '.key', '.p12', '.pfx'].some((suffix) => lower.endsWith(suffix))
   ) {
     fail('Ruta sensible no permitida en evidencia de source.');
