@@ -1,4 +1,5 @@
 import copy
+import gzip
 import hashlib
 import io
 import json
@@ -132,6 +133,30 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
                     cloned.size = len(body)
                     rewritten.addfile(cloned, io.BytesIO(body))
 
+    def _rewrite_as_pax(self, source: Path, destination: Path) -> None:
+        with tarfile.open(source, mode="r:gz") as original:
+            with tarfile.open(
+                destination,
+                mode="w:gz",
+                format=tarfile.PAX_FORMAT,
+                pax_headers={"comment": "provenance-must-reject-pax"},
+            ) as rewritten:
+                for member in original.getmembers():
+                    cloned = copy.copy(member)
+                    if member.isfile():
+                        extracted = original.extractfile(member)
+                        self.assertIsNotNone(extracted)
+                        rewritten.addfile(cloned, io.BytesIO(extracted.read()))
+                    else:
+                        rewritten.addfile(cloned)
+
+    def _corrupt_tar_header_checksum(self, source: Path, destination: Path) -> None:
+        archive = bytearray(gzip.decompress(source.read_bytes()))
+        self.assertGreaterEqual(len(archive), 512)
+        index = 136
+        archive[index] = ord("1") if archive[index] != ord("1") else ord("2")
+        destination.write_bytes(gzip.compress(bytes(archive), mtime=0))
+
     def _archive_hashes(self, tarball: Path) -> dict[str, tuple[int, str]]:
         result: dict[str, tuple[int, str]] = {}
         with tarfile.open(tarball, mode="r:gz") as handle:
@@ -263,6 +288,49 @@ class FactoryRunnerObservabilityPackageProvenanceTests(unittest.TestCase):
             )
             self.assertNotEqual(failed.returncode, 0)
             self.assertFalse((root / "extra.json").exists())
+
+    def test_provenance_rejects_pax_headers_without_interpreting_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage, tarball = self._build_and_pack(root)
+            pax_tarball = root / "pax.tgz"
+            self._rewrite_as_pax(tarball, pax_tarball)
+
+            output = root / "pax-provenance.json"
+            failed = self._provenance(stage, pax_tarball, output, check=False)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertFalse(output.exists())
+
+    def test_provenance_rejects_invalid_tar_checksum_and_oversized_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage, tarball = self._build_and_pack(root)
+
+            corrupt_tarball = root / "bad-checksum.tgz"
+            self._corrupt_tar_header_checksum(tarball, corrupt_tarball)
+            corrupt_output = root / "bad-checksum.json"
+            failed_checksum = self._provenance(
+                stage,
+                corrupt_tarball,
+                corrupt_output,
+                check=False,
+            )
+            self.assertNotEqual(failed_checksum.returncode, 0)
+            self.assertFalse(corrupt_output.exists())
+
+            oversized_tarball = root / "oversized.tgz"
+            oversized_tarball.write_bytes(
+                gzip.compress(b"\0" * (16 * 1024 * 1024 + 512), mtime=0)
+            )
+            oversized_output = root / "oversized.json"
+            failed_oversized = self._provenance(
+                stage,
+                oversized_tarball,
+                oversized_output,
+                check=False,
+            )
+            self.assertNotEqual(failed_oversized.returncode, 0)
+            self.assertFalse(oversized_output.exists())
 
 
 if __name__ == "__main__":
