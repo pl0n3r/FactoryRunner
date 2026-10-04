@@ -50,8 +50,12 @@ function closedRecord(
     reject(`${label}: objeto requerido.`);
   }
   const record = value as JsonObject;
-  const actual = Object.keys(record).sort().join('\u0000');
-  const expected = [...expectedKeys].sort().join('\u0000');
+  const actual = Object.keys(record)
+    .sort((left, right) => left.localeCompare(right, 'en'))
+    .join('\u0000');
+  const expected = [...expectedKeys]
+    .sort((left, right) => left.localeCompare(right, 'en'))
+    .join('\u0000');
   if (actual !== expected) reject(`${label}: schema no reconocido.`);
   return record;
 }
