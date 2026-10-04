@@ -36,9 +36,37 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
             timeout=60,
         )
 
-    def _release_fixture(self, root: Path) -> tuple[Path, Path, Path]:
+    def _release_fixture(
+        self,
+        root: Path,
+        *,
+        runtime_dependency: bool = False,
+    ) -> tuple[Path, Path, Path]:
         stage = root / "stage"
         self._node(BUILDER, "--output", str(stage))
+
+        lockfile = LOCKFILE
+        if runtime_dependency:
+            manifest_path = stage / "package.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["dependencies"] = {"example-runtime": "^1.2.0"}
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            lock_payload = json.loads(LOCKFILE.read_text(encoding="utf-8"))
+            lock_payload["packages"][""]["dependencies"] = {
+                "example-runtime": "^1.2.0"
+            }
+            lock_payload["packages"]["node_modules/example-runtime"] = {
+                "version": "1.2.3"
+            }
+            lockfile = root / "runtime-package-lock.json"
+            lockfile.write_text(
+                json.dumps(lock_payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
         pack = root / "pack"
         pack.mkdir()
@@ -90,7 +118,7 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
             "--manifest",
             str(stage / "package.json"),
             "--lockfile",
-            str(LOCKFILE),
+            str(lockfile),
             "--output",
             str(dependencies),
         )
@@ -254,6 +282,45 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
                         ).returncode,
                         0,
                     )
+
+    def test_preflight_rejects_locked_version_outside_runtime_specifier(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact, provenance, dependencies = self._release_fixture(
+                root,
+                runtime_dependency=True,
+            )
+
+            valid = self._check(artifact, provenance, dependencies)
+            self.assertEqual(valid.returncode, 0)
+
+            payload = json.loads(dependencies.read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["runtime_dependencies"],
+                [
+                    {
+                        "name": "example-runtime",
+                        "specifier": "^1.2.0",
+                        "locked_version": "1.2.3",
+                    }
+                ],
+            )
+            payload["runtime_dependencies"][0]["locked_version"] = "9.0.0"
+            outside = root / "outside-range-dependencies.json"
+            outside.write_text(
+                json.dumps(payload, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            rejected = self._check(
+                artifact,
+                provenance,
+                outside,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
 
 
 if __name__ == "__main__":

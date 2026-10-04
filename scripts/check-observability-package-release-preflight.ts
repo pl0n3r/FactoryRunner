@@ -13,6 +13,11 @@ type PackageCore = Readonly<{
 }>;
 type LocalFile = Readonly<{ path: string; sha256: string; size: number }>;
 type RuntimeReference = Readonly<{ name: string; specifier: string }>;
+type LockedRuntimeReference = Readonly<{
+  name: string;
+  specifier: string;
+  locked_version: string;
+}>;
 
 const SHA = /^[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -249,6 +254,52 @@ function archiveEntries(compressed: Buffer): Map<string, Buffer> {
   return entries;
 }
 
+function semverParts(value: string, label: string): readonly bigint[] {
+  if (!VERSION.test(value)) reject(label + ': semver no soportado.');
+  return Object.freeze(value.split('.').map((part) => BigInt(part)));
+}
+
+function compareSemver(left: readonly bigint[], right: readonly bigint[]): number {
+  const changed = left.findIndex((value, index) => value !== right[index]);
+  if (changed === -1) return 0;
+  return left[changed] < right[changed] ? -1 : 1;
+}
+
+function normalizeSpecifier(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    reject(label + ': specifier requerido.');
+  }
+  const specifier = value.trim();
+  const base = specifier.startsWith('^') || specifier.startsWith('~')
+    ? specifier.slice(1)
+    : specifier;
+  if (!VERSION.test(base)) {
+    reject(label + ': solo se soporta exact, ^ o ~ sobre x.y.z.');
+  }
+  return specifier;
+}
+
+function lockedVersionSatisfies(specifier: string, lockedVersion: string): boolean {
+  const operator = specifier.startsWith('^') || specifier.startsWith('~')
+    ? specifier[0]
+    : '';
+  const floor = semverParts(operator === '' ? specifier : specifier.slice(1), 'specifier');
+  const locked = semverParts(lockedVersion, 'locked_version');
+  if (operator === '') return compareSemver(locked, floor) === 0;
+  if (compareSemver(locked, floor) < 0) return false;
+
+  const [major, minor, patch] = floor;
+  const ceiling = operator === '~'
+    ? [major, minor + 1n, 0n]
+    : major > 0n
+      ? [major + 1n, 0n, 0n]
+      : minor > 0n
+        ? [0n, minor + 1n, 0n]
+        : [0n, 0n, patch + 1n];
+
+  return compareSemver(locked, ceiling) < 0;
+}
+
 function dependencyMap(value: unknown, label: string): readonly RuntimeReference[] {
   if (value === undefined) return Object.freeze([]);
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -257,19 +308,13 @@ function dependencyMap(value: unknown, label: string): readonly RuntimeReference
   const result: RuntimeReference[] = [];
   for (const name of Object.keys(value as Obj).sort(compareText)) {
     const specifier = (value as Obj)[name];
-    if (
-      !PACKAGE.test(name)
-      || typeof specifier !== 'string'
-      || specifier.trim() === ''
-      || specifier.includes('://')
-      || specifier.includes('\\')
-      || specifier.startsWith('/')
-      || specifier.startsWith('.')
-      || specifier.includes(':')
-    ) {
-      reject(label + ': dependencia no localmente verificable.');
+    if (!PACKAGE.test(name)) {
+      reject(label + ': nombre de dependencia inválido.');
     }
-    result.push(Object.freeze({ name, specifier: specifier.trim() }));
+    result.push(Object.freeze({
+      name,
+      specifier: normalizeSpecifier(specifier, label + '.' + name),
+    }));
   }
   return Object.freeze(result);
 }
@@ -428,7 +473,7 @@ function inspectProvenance(value: unknown): Readonly<{
 function inspectDependencies(value: unknown): Readonly<{
   package: PackageCore;
   manifestSha256: string;
-  runtime: readonly RuntimeReference[];
+  runtime: readonly LockedRuntimeReference[];
 }> {
   const root = shape(value, 'dependency evidence', [
     'schema_version',
@@ -457,7 +502,7 @@ function inspectDependencies(value: unknown): Readonly<{
   if (!Array.isArray(root.runtime_dependencies)) {
     reject('dependency evidence.runtime_dependencies: lista requerida.');
   }
-  const runtime: RuntimeReference[] = [];
+  const runtime: LockedRuntimeReference[] = [];
   let previous: string | null = null;
   for (const [index, item] of root.runtime_dependencies.entries()) {
     const dep = shape(
@@ -468,16 +513,24 @@ function inspectDependencies(value: unknown): Readonly<{
     if (
       typeof dep.name !== 'string'
       || !PACKAGE.test(dep.name)
-      || typeof dep.specifier !== 'string'
-      || dep.specifier.trim() === ''
-      || dep.specifier.includes('://')
       || typeof dep.locked_version !== 'string'
       || !VERSION.test(dep.locked_version)
-      || (previous !== null && previous >= dep.name)
+      || (previous !== null && compareText(previous, dep.name) >= 0)
     ) {
       reject('dependency evidence: dependencia runtime no canónica.');
     }
-    runtime.push(Object.freeze({ name: dep.name, specifier: dep.specifier.trim() }));
+    const specifier = normalizeSpecifier(
+      dep.specifier,
+      'dependency evidence.runtime_dependencies[' + index + '].specifier',
+    );
+    if (!lockedVersionSatisfies(specifier, dep.locked_version)) {
+      reject('dependency evidence: locked_version fuera del specifier.');
+    }
+    runtime.push(Object.freeze({
+      name: dep.name,
+      specifier,
+      locked_version: dep.locked_version,
+    }));
     previous = dep.name;
   }
 
@@ -542,7 +595,10 @@ async function main(): Promise<void> {
   if (digest(packageBody) !== dependencies.manifestSha256) {
     reject('artifact package.json: hash diverge de dependency evidence.');
   }
-  if (!sameJson(packed.dependencies, dependencies.runtime)) {
+  const evidenceRuntime = dependencies.runtime.map(({ name, specifier }) => (
+    Object.freeze({ name, specifier })
+  ));
+  if (!sameJson(packed.dependencies, evidenceRuntime)) {
     reject('artifact package.json: dependencias runtime divergen de la evidencia.');
   }
 
