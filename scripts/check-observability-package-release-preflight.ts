@@ -27,13 +27,19 @@ function reject(message: string): never {
   throw new Error(message);
 }
 
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return left.localeCompare(right, 'en');
+}
+
 function shape(value: unknown, label: string, expected: readonly string[]): Obj {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     reject(label + ': objeto requerido.');
   }
   const object = value as Obj;
-  const actual = Object.keys(object).sort();
-  const wanted = [...expected].sort();
+  const actual = Object.keys(object).sort(compareText);
+  const wanted = [...expected].sort(compareText);
   if (
     actual.length !== wanted.length
     || actual.some((key, index) => key !== wanted[index])
@@ -108,9 +114,9 @@ function normalizeExports(value: unknown, label: string): Readonly<Record<string
     reject(label + ': objeto requerido.');
   }
   const result: Record<string, string> = {};
-  for (const [key, target] of Object.entries(value as Obj).sort(([left], [right]) => (
-    left < right ? -1 : left > right ? 1 : 0
-  ))) {
+  for (const [key, target] of Object.entries(value as Obj).sort(
+    ([left], [right]) => compareText(left, right),
+  )) {
     if (
       key.trim() === ''
       || typeof target !== 'string'
@@ -242,7 +248,7 @@ function dependencyMap(value: unknown, label: string): readonly RuntimeReference
     reject(label + ': objeto requerido.');
   }
   const result: RuntimeReference[] = [];
-  for (const name of Object.keys(value as Obj).sort()) {
+  for (const name of Object.keys(value as Obj).sort(compareText)) {
     const specifier = (value as Obj)[name];
     if (
       !PACKAGE.test(name)
@@ -389,7 +395,7 @@ function inspectProvenance(value: unknown): Readonly<{
   });
 
   const paths = files.map((item) => item.path);
-  const expected = ['README.md', 'package.json', ...allowlist].sort();
+  const expected = ['README.md', 'package.json', ...allowlist].sort(compareText);
   if (
     new Set(paths).size !== paths.length
     || paths.join('\0') !== [...paths].sort().join('\0')
@@ -508,7 +514,7 @@ async function main(): Promise<void> {
 
   const actualFiles = [...archived.entries()]
     .map(([path, body]) => Object.freeze({ path, sha256: digest(body), size: body.length }))
-    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+    .sort((left, right) => compareText(left.path, right.path));
   if (!sameJson(actualFiles, provenance.files)) {
     reject('artifact: file-list o hashes internos divergen de provenance.');
   }
