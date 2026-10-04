@@ -26,6 +26,12 @@ type ArchiveFile = Readonly<{
 const MAX_TARBALL_BYTES = 32 * 1024 * 1024;
 const SHA256_RE = /^[a-f0-9]{64}$/;
 
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -161,7 +167,7 @@ function validateExports(value: unknown): Readonly<Record<string, string>> {
     fail('exports inválido.');
   }
   const ordered: Record<string, string> = {};
-  for (const [key, target] of entries.sort(([a], [b]) => a.localeCompare(b, 'en'))) {
+  for (const [key, target] of entries.sort(([a], [b]) => compareText(a, b))) {
     ordered[key] = target as string;
   }
   return Object.freeze(ordered);
@@ -202,7 +208,7 @@ function validatePackage(input: unknown): {
     return value;
   });
   if (new Set(allowlist).size !== allowlist.length) fail('Allowlist duplicada.');
-  const sorted = [...allowlist].sort((a, b) => a.localeCompare(b, 'en'));
+  const sorted = [...allowlist].sort(compareText);
   if (allowlist.some((value, index) => value !== sorted[index])) {
     fail('Allowlist debe estar ordenada.');
   }
@@ -232,7 +238,7 @@ async function collectStageFiles(root: string): Promise<Map<string, Buffer>> {
 
   async function walk(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
+    entries.sort((a, b) => compareText(a.name, b.name));
     for (const entry of entries) {
       const absolute = resolve(directory, entry.name);
       if (entry.isSymbolicLink()) fail('Symlink no permitido en staging.');
@@ -267,7 +273,7 @@ function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => canonicalValue(item));
   if (typeof value === 'object' && value !== null) {
     const result: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort((a, b) => a.localeCompare(b, 'en'))) {
+    for (const key of Object.keys(value as Record<string, unknown>).sort(compareText)) {
       result[key] = canonicalValue((value as Record<string, unknown>)[key]);
     }
     return result;
@@ -289,10 +295,9 @@ function validateCoherence(
   allowlist: readonly string[],
   stagedPackage: unknown,
 ): void {
-  const expected = ['README.md', 'package.json', ...allowlist]
-    .sort((a, b) => a.localeCompare(b, 'en'));
-  const stagedPaths = [...staged.keys()].sort((a, b) => a.localeCompare(b, 'en'));
-  const archivedPaths = [...archived.keys()].sort((a, b) => a.localeCompare(b, 'en'));
+  const expected = ['README.md', 'package.json', ...allowlist].sort(compareText);
+  const stagedPaths = [...staged.keys()].sort(compareText);
+  const archivedPaths = [...archived.keys()].sort(compareText);
 
   if (!equalJson(stagedPaths, expected)) fail('File list del staging no coincide con allowlist.');
   if (!equalJson(archivedPaths, expected)) fail('File list del tarball no coincide con allowlist.');
@@ -305,8 +310,9 @@ function validateCoherence(
   if (
     !equalJson(stagedValidated.metadata, packedValidated.metadata)
     || !equalJson(stagedValidated.allowlist, packedValidated.allowlist)
+    || !equalJson(stagedPackage, packedPackage)
   ) {
-    fail('Metadata package.json del tarball no coincide con staging.');
+    fail('package.json del tarball no coincide exactamente con staging.');
   }
 
   for (const path of expected) {
@@ -347,7 +353,7 @@ async function main(): Promise<void> {
       sha256: sha256(body),
       size: body.length,
     }))
-    .sort((a, b) => a.path.localeCompare(b.path, 'en'));
+    .sort((a, b) => compareText(a.path, b.path));
 
   const manifest = {
     schema_version: 1,
