@@ -178,7 +178,7 @@ class FactoryRunnerObservabilityPackageReleasePreflightTests(unittest.TestCase):
                     "accepted": True,
                     "artifact_sha256": hashlib.sha256(artifact_before).hexdigest(),
                     "package": {
-                        "name": "@pl0n3r/factoryrunner-observability",
+                        "name": "@pl0n3r/factoryrunner",
                         "version": "0.1.0",
                         "private": True,
                         "type": "module",
