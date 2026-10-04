@@ -173,7 +173,9 @@ class FactoryRunnerObservabilityReleaseHandoffPacketTests(unittest.TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertFalse(stale_output.exists())
 
-            receipt, snapshot, binding, preflight = self._evidence(root / "mixed")
+            mixed_root = root / "mixed"
+            mixed_root.mkdir()
+            receipt, snapshot, binding, preflight = self._evidence(mixed_root)
             binding_value = json.loads(binding.read_text(encoding="utf-8"))
             binding_value["unexpected"] = True
             binding.write_text(canonical(binding_value), encoding="utf-8")
