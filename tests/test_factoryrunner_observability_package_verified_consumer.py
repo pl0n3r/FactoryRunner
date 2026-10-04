@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_factoryrunner_observability_package_release_receipt import (
-    FactoryRunnerObservabilityPackageReleaseReceiptTests as ReceiptFixture,
+from test_factoryrunner_observability_package_release_receipt_verify import (
+    FactoryRunnerObservabilityPackageReleaseReceiptVerifyTests as VerifiedReceiptFixture,
 )
 
 
@@ -17,17 +17,11 @@ CONSUMER = ROOT / "scripts" / "check-observability-package-verified-consumer.ts"
 
 
 class FactoryRunnerObservabilityPackageVerifiedConsumerTests(unittest.TestCase):
-    def _fixture(self) -> ReceiptFixture:
-        return ReceiptFixture(
-            "test_receipt_binds_exact_artifact_provenance_dependencies_and_preflight_fingerprints"
-        )
-
     def _bundle(self, root: Path) -> tuple[Path, Path, Path, Path]:
-        helper = self._fixture()
-        _, artifact, provenance, dependencies = helper._build_evidence(root)
-        receipt = root / "receipt.json"
-        helper._receipt(artifact, provenance, dependencies, receipt)
-        return artifact, provenance, dependencies, receipt
+        helper = VerifiedReceiptFixture(
+            "test_verifier_accepts_only_exact_receipt_and_bound_local_artifacts"
+        )
+        return helper._bundle(root)
 
     def _run(
         self,
