@@ -31,6 +31,8 @@ const PACKAGE_RE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 16 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES = 64 * 1024;
+const GIT_BINARY = '/usr/bin/git';
+const TRUSTED_PATH = '/usr/bin:/bin';
 
 const RELEASE_SUPPORT_PATHS = Object.freeze([
   'README.md',
@@ -224,7 +226,7 @@ function packageContract(value: unknown): {
 
 function git(repo: string, args: readonly string[], label: string): string {
   const completed = spawnSync(
-    'git',
+    GIT_BINARY,
     ['-C', repo, ...args],
     {
       encoding: 'utf8',
@@ -233,6 +235,7 @@ function git(repo: string, args: readonly string[], label: string): string {
       maxBuffer: 1024 * 1024,
       env: {
         ...process.env,
+        PATH: TRUSTED_PATH,
         GIT_TERMINAL_PROMPT: '0',
         GIT_OPTIONAL_LOCKS: '0',
       },
@@ -276,9 +279,7 @@ async function sourceFiles(
   );
   if (status !== '') fail('Worktree dirty en paths de release.');
 
-  let total = 0;
-  const result: SourceFile[] = [];
-  for (const path of paths) {
+  const entries = await Promise.all(paths.map(async (path) => {
     canonicalPath(path);
     rejectSensitivePath(path);
     const absolute = resolve(repo, ...path.split('/'));
@@ -301,9 +302,13 @@ async function sourceFiles(
     if (metadata.size <= 0 || metadata.size > MAX_FILE_BYTES) {
       fail('Source fuera de límites.');
     }
-    total += metadata.size;
-    if (total > MAX_TOTAL_BYTES) fail('Source total fuera de límites.');
+    return Object.freeze({ path, absolute, size: metadata.size });
+  }));
 
+  const total = entries.reduce((sum, entry) => sum + entry.size, 0);
+  if (total > MAX_TOTAL_BYTES) fail('Source total fuera de límites.');
+
+  const result = await Promise.all(entries.map(async ({ path, absolute }) => {
     const headBlob = git(repo, ['rev-parse', '--verify', `HEAD:${path}`], 'HEAD source blob');
     const worktreeBlob = git(repo, ['hash-object', '--', path], 'worktree source blob');
     if (!SHA1_RE.test(headBlob) || !SHA1_RE.test(worktreeBlob) || headBlob !== worktreeBlob) {
@@ -313,8 +318,8 @@ async function sourceFiles(
     const body = await readFile(absolute);
     const digest = sha256(body);
     if (!SHA256_RE.test(digest)) fail('SHA-256 de source inválido.');
-    result.push(Object.freeze({ path, sha256: digest, size: body.length }));
-  }
+    return Object.freeze({ path, sha256: digest, size: body.length });
+  }));
 
   result.sort((left, right) => compareText(left.path, right.path));
   return Object.freeze(result);
