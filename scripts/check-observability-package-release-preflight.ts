@@ -307,7 +307,7 @@ function inspectPackedPackage(body: Buffer): Readonly<{
   ));
   if (
     new Set(files).size !== files.length
-    || files.join('\0') !== [...files].sort().join('\0')
+    || files.join('\0') !== [...files].sort(compareText).join('\0')
   ) {
     reject('artifact package.json.files: debe ser única y ordenada.');
   }
@@ -377,7 +377,7 @@ function inspectProvenance(value: unknown): Readonly<{
   ));
   if (
     new Set(allowlist).size !== allowlist.length
-    || allowlist.join('\0') !== [...allowlist].sort().join('\0')
+    || allowlist.join('\0') !== [...allowlist].sort(compareText).join('\0')
   ) {
     reject('provenance.allowlist: debe ser única y ordenada.');
   }
@@ -398,7 +398,7 @@ function inspectProvenance(value: unknown): Readonly<{
   const expected = ['README.md', 'package.json', ...allowlist].sort(compareText);
   if (
     new Set(paths).size !== paths.length
-    || paths.join('\0') !== [...paths].sort().join('\0')
+    || paths.join('\0') !== [...paths].sort(compareText).join('\0')
     || paths.length !== expected.length
     || paths.some((path, index) => path !== expected[index])
   ) {
