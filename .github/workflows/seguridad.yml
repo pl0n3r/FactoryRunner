@@ -1,0 +1,166 @@
+name: Seguridad y puertas humanas
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seguridad-${{ github.repository }}-human-gates
+  cancel-in-progress: false
+
+jobs:
+  materializar-respuesta:
+    name: Materializar decisión explícita
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request == null &&
+      github.event.issue.state == 'open' &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.user.type != 'Bot' &&
+      (
+        github.event.comment.body == '/decidir A' ||
+        github.event.comment.body == '/decidir B' ||
+        github.event.comment.body == '/decidir C' ||
+        github.event.comment.body == '/decidir D'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Descargar política Factory versionada
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pl0n3r/factory
+          ref: v1
+          path: .factory
+          persist-credentials: false
+
+      - name: Reconciliar puerta canónica antes de decidir
+        id: gate_sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.factory/seguridad \
+            python3 .factory/seguridad/sincronizar_puerta.py valid >> "$GITHUB_OUTPUT"
+
+      - name: Validar comando y materializar decisión
+        if: steps.gate_sync.outputs.canonical == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.factory/seguridad \
+            python3 .factory/seguridad/decision_respuesta.py < "$GITHUB_EVENT_PATH"
+
+  sincronizar-decision:
+    name: Validar y enrutar decisión
+    if: github.event_name == 'issues' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Descargar política Factory versionada
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: pl0n3r/factory
+          ref: v1
+          path: .factory
+          persist-credentials: false
+
+      - name: Autorizar origen
+        id: actor
+        env:
+          AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+        run: |
+          set -euo pipefail
+          case "$AUTHOR_ASSOCIATION" in
+            OWNER|MEMBER|COLLABORATOR) echo "trusted=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "trusted=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Clasificar Issue
+        id: gate
+        if: steps.actor.outputs.trusted == 'true'
+        run: |
+          set -euo pipefail
+          python3 .factory/seguridad/puertas_humanas.py \
+            --format github < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Avisar puerta inválida y bloquear Issue
+        if: steps.actor.outputs.trusted == 'true' && steps.gate.outputs.status == 'invalid-gate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          REASON: ${{ steps.gate.outputs.reason }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.factory/seguridad \
+            python3 .factory/seguridad/sincronizar_puerta.py invalid
+
+      - name: Restaurar y reconciliar puerta válida
+        id: gate_sync
+        if: steps.actor.outputs.trusted == 'true' && steps.gate.outputs.status == 'gate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH=.factory/seguridad \
+            python3 .factory/seguridad/sincronizar_puerta.py valid >> "$GITHUB_OUTPUT"
+
+      - name: Enrutar puerta válida
+        if: steps.actor.outputs.trusted == 'true' && steps.gate.outputs.status == 'gate' && steps.gate_sync.outputs.canonical == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          OWNER: ${{ github.repository_owner }}
+          CATEGORY: ${{ steps.gate.outputs.category }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$REPOSITORIO/issues/$ISSUE" --jq '.labels[].name')"
+          if ! grep -Fxq 'decisión: dueño' <<<"$current"; then
+            if ! gh api --paginate "repos/$REPOSITORIO/labels?per_page=100" --jq '.[].name' \
+              | grep -Fxq 'decisión: dueño'; then
+              gh api --method POST "repos/$REPOSITORIO/labels" \
+                -f name='decisión: dueño' -f color='B60205' \
+                -f description='Decisión reservada explícitamente al dueño.'
+            fi
+            jq -n '{labels:["decisión: dueño"]}' \
+              | gh api --method POST "repos/$REPOSITORIO/issues/$ISSUE/labels" --input -
+            jq -n '{assignees:[env.OWNER]}' \
+              | gh api --method POST "repos/$REPOSITORIO/issues/$ISSUE/assignees" --input -
+            printf '@%s 🧭 DECISIÓN NECESARIA · categoría %s. Revisa el contexto, opciones, recomendación y default seguro en este Issue.\n' \
+              "$OWNER" "$CATEGORY" \
+              | jq -Rs '{body:.}' \
+              | gh api --method POST "repos/$REPOSITORIO/issues/$ISSUE/comments" --input -
+          fi
+
+      - name: Retirar de la cola si no es puerta válida y confiable
+        if: always() && (steps.actor.outputs.trusted != 'true' || steps.gate.outputs.status != 'gate')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORIO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$REPOSITORIO/issues/$ISSUE" --jq '.labels[].name' \
+            | grep -Fxq 'decisión: dueño'; then
+            gh api --method DELETE \
+              "repos/$REPOSITORIO/issues/$ISSUE/labels/decisi%C3%B3n%3A%20due%C3%B1o"
+          fi
