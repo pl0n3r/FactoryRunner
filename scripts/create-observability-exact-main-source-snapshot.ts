@@ -85,7 +85,12 @@ function parseOptions(argv: readonly string[]): Options {
   const repo = resolve(values.get('--repo') as string);
   const output = resolve(values.get('--output') as string);
   const fromRepo = relative(repo, output);
-  if (fromRepo === '' || (!fromRepo.startsWith('..') && !isAbsolute(fromRepo))) {
+  const normalizedFromRepo = fromRepo.split(sep).join('/');
+  if (
+    fromRepo === ''
+    || isAbsolute(fromRepo)
+    || (normalizedFromRepo !== '..' && !normalizedFromRepo.startsWith('../'))
+  ) {
     fail('El snapshot debe escribirse fuera del repositorio.');
   }
 
@@ -274,11 +279,13 @@ async function sourceFiles(
     rejectSensitivePath(path);
     const absolute = resolve(repo, ...path.split('/'));
     const boundary = relative(repo, absolute);
+    const normalizedBoundary = boundary.split(sep).join('/');
     if (
       boundary === ''
-      || boundary.startsWith('..')
       || isAbsolute(boundary)
-      || boundary.split(sep).join('/') !== path
+      || normalizedBoundary === '..'
+      || normalizedBoundary.startsWith('../')
+      || normalizedBoundary !== path
     ) {
       fail('Ruta source fuera del repositorio.');
     }
