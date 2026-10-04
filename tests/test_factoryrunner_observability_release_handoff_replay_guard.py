@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "check-observability-release-handoff-replay-guard.ts"
+MAIN_PIN_BUILDER = ROOT / "scripts" / "create-observability-release-handoff-main-pin.ts"
 VERIFY_TEST = ROOT / "tests" / "test_factoryrunner_observability_release_handoff_verify.py"
 
 
@@ -35,24 +36,31 @@ class FactoryRunnerObservabilityReleaseHandoffReplayGuardTests(unittest.TestCase
         receipt, snapshot, binding, preflight, handoff = fixture._fixture(root)
         packet = json.loads(handoff.read_text(encoding="utf-8"))
         pin = root / "main-pin.json"
-        pin.write_text(
-            canonical(
-                {
-                    "schema_version": 1,
-                    "repository": {
-                        "ref": "refs/heads/main",
-                        "commit_sha": packet["repository"]["commit_sha"],
-                        "tree_sha": packet["repository"]["tree_sha"],
-                    },
-                    "verification": {"current_main_explicit": True},
-                    "authority": "unchanged",
-                    "publish_authority": False,
-                    "network_access": False,
-                    "external_mutation": False,
-                }
-            ),
-            encoding="utf-8",
+        completed = subprocess.run(
+            [
+                "node",
+                "--experimental-strip-types",
+                str(MAIN_PIN_BUILDER),
+                "--commit-sha",
+                packet["repository"]["commit_sha"],
+                "--tree-sha",
+                packet["repository"]["tree_sha"],
+                "--output",
+                str(pin),
+            ],
+            cwd=ROOT,
+            env={},
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
+        if completed.returncode != 0:
+            self.fail(
+                f"{MAIN_PIN_BUILDER.name} failed with exit {completed.returncode}\n"
+                f"stdout:\n{completed.stdout}\n"
+                f"stderr:\n{completed.stderr}"
+            )
         return receipt, snapshot, binding, preflight, handoff, pin
 
     def _run(
