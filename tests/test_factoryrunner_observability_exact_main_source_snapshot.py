@@ -11,6 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "scripts" / "create-observability-exact-main-source-snapshot.ts"
+GIT_BINARY = "/usr/bin/git"
+NODE_BINARY = shutil.which("node")
+SNAPSHOT_FILENAME = ".factoryrunner-exact-main-source-snapshot.json"
 
 RELEASE_SUPPORT_PATHS = (
     "README.md",
@@ -27,13 +30,28 @@ RELEASE_SUPPORT_PATHS = (
 
 
 class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        if NODE_BINARY is None:
+            raise unittest.SkipTest("node no está disponible")
+        if not Path(GIT_BINARY).is_file():
+            raise unittest.SkipTest("/usr/bin/git no está disponible")
+
     def _git(self, repo: Path, *arguments: str) -> str:
         completed = subprocess.run(
-            ["git", "-C", str(repo), *arguments],
+            [GIT_BINARY, "-C", str(repo), *arguments],
             check=True,
             capture_output=True,
             text=True,
             timeout=30,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "GIT_TERMINAL_PROMPT": "0",
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
         )
         return completed.stdout.strip()
 
@@ -56,27 +74,24 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
         self._git(repo, "commit", "-m", "fixture: exact main release source")
         return paths
 
+    def _snapshot_path(self, repo: Path) -> Path:
+        return repo.parent / SNAPSHOT_FILENAME
+
     def _run_snapshot(
         self,
         repo: Path,
-        output: Path,
         *,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        env = os.environ.copy()
-        env["USER"] = "source-snapshot-secret-user-9f4c2e"
         completed = subprocess.run(
-            [
-                "node",
-                "--experimental-strip-types",
-                str(SNAPSHOT),
-                "--repo",
-                str(repo),
-                "--output",
-                str(output),
-            ],
-            cwd=ROOT,
-            env=env,
+            [NODE_BINARY, "--experimental-strip-types", str(SNAPSHOT)],
+            cwd=repo,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "USER": "source-snapshot-secret-user-9f4c2e",
+                "LC_ALL": "C",
+                "LANG": "C",
+            },
             check=False,
             capture_output=True,
             text=True,
@@ -96,9 +111,15 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
         source = SNAPSHOT.read_text(encoding="utf-8").lower()
         self.assertIn("const git_binary = '/usr/bin/git';", source)
         self.assertIn("const trusted_path = '/usr/bin:/bin';", source)
+        self.assertIn("const snapshot_filename = '.factoryrunner-exact-main-source-snapshot.json';", source)
         self.assertIn("spawnsync(\n    git_binary,", source)
-        self.assertIn("path: trusted_path", source)
-        self.assertNotIn("spawnsync(\n    'git',", source)
+        self.assertIn("git_config_nosystem: '1'", source)
+        self.assertIn("git_config_global: '/dev/null'", source)
+        self.assertIn("shell: false", source)
+        self.assertNotIn("...process.env", source)
+        self.assertNotIn("process.argv.slice", source)
+        self.assertIn("process.argv.length !== 2", source)
+        self.assertIn("entry !== package_source_paths[index]", source)
         for forbidden in (
             "node:http",
             "node:https",
@@ -115,23 +136,29 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            repo = root / "repo"
-            repo.mkdir()
+            repo = root / "positive" / "repo"
+            repo.mkdir(parents=True)
             expected_paths = self._seed_repo(repo)
+            output = self._snapshot_path(repo)
 
-            first = root / "snapshot-a.json"
-            second = root / "snapshot-b.json"
-            self._run_snapshot(repo, first)
-            self._run_snapshot(repo, second)
+            self._run_snapshot(repo)
+            first_body = output.read_text(encoding="utf-8")
+            first_mode = output.stat().st_mode & 0o777
 
-            first_body = first.read_text(encoding="utf-8")
-            second_body = second.read_text(encoding="utf-8")
+            exclusive = self._run_snapshot(repo, check=False)
+            self.assertNotEqual(exclusive.returncode, 0)
+            self.assertEqual(output.read_text(encoding="utf-8"), first_body)
+
+            output.unlink()
+            self._run_snapshot(repo)
+            second_body = output.read_text(encoding="utf-8")
             payload = json.loads(first_body)
             manifest = json.loads((repo / "package.json").read_text(encoding="utf-8"))
 
             self.assertEqual(first_body, second_body)
             self.assertEqual(first_body, json.dumps(payload, indent=2, sort_keys=True) + "\n")
-            self.assertLessEqual(len(first.read_bytes()), 64 * 1024)
+            self.assertEqual(first_mode, 0o600)
+            self.assertLessEqual(len(output.read_bytes()), 64 * 1024)
             self.assertEqual(payload["schema_version"], 1)
             self.assertEqual(
                 payload["package"],
@@ -188,30 +215,28 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
 
-            dirty_repo = root / "dirty"
-            dirty_repo.mkdir()
+            dirty_repo = root / "dirty" / "repo"
+            dirty_repo.mkdir(parents=True)
             dirty_paths = self._seed_repo(dirty_repo)
             dirty_target = dirty_repo / next(path for path in dirty_paths if path.startswith("src/"))
             dirty_target.write_text(
                 dirty_target.read_text(encoding="utf-8") + "\n// dirty\n",
                 encoding="utf-8",
             )
-            dirty_output = root / "dirty.json"
-            dirty = self._run_snapshot(dirty_repo, dirty_output, check=False)
+            dirty = self._run_snapshot(dirty_repo, check=False)
             self.assertNotEqual(dirty.returncode, 0)
-            self.assertFalse(dirty_output.exists())
+            self.assertFalse(self._snapshot_path(dirty_repo).exists())
 
-            detached_repo = root / "detached"
-            detached_repo.mkdir()
+            detached_repo = root / "detached" / "repo"
+            detached_repo.mkdir(parents=True)
             self._seed_repo(detached_repo)
             self._git(detached_repo, "checkout", "--detach", "HEAD")
-            detached_output = root / "detached.json"
-            detached = self._run_snapshot(detached_repo, detached_output, check=False)
+            detached = self._run_snapshot(detached_repo, check=False)
             self.assertNotEqual(detached.returncode, 0)
-            self.assertFalse(detached_output.exists())
+            self.assertFalse(self._snapshot_path(detached_repo).exists())
 
-            sensitive_repo = root / "sensitive"
-            sensitive_repo.mkdir()
+            sensitive_repo = root / "sensitive" / "repo"
+            sensitive_repo.mkdir(parents=True)
             self._seed_repo(sensitive_repo)
             manifest_path = sensitive_repo / "package.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -226,10 +251,9 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
             self._git(sensitive_repo, "add", "--all")
             self._git(sensitive_repo, "commit", "-m", "fixture: sensitive source path")
 
-            sensitive_output = root / "sensitive.json"
-            sensitive = self._run_snapshot(sensitive_repo, sensitive_output, check=False)
+            sensitive = self._run_snapshot(sensitive_repo, check=False)
             self.assertNotEqual(sensitive.returncode, 0)
-            self.assertFalse(sensitive_output.exists())
+            self.assertFalse(self._snapshot_path(sensitive_repo).exists())
 
 
 if __name__ == "__main__":
