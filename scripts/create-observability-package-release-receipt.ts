@@ -315,6 +315,15 @@ function canonicalValue(value: unknown): unknown {
   fail('Valor no serializable.');
 }
 
+function parseCanonicalJson(body: Buffer, label: string): unknown {
+  const parsed = parseJson(body, label);
+  const canonical = JSON.stringify(canonicalValue(parsed), null, 2) + '\n';
+  if (body.toString('utf8') !== canonical) {
+    fail(label + ': representación JSON no canónica.');
+  }
+  return parsed;
+}
+
 function verifyPreflightScript(path: string): void {
   const expected = resolve(
     process.cwd(),
@@ -379,8 +388,8 @@ async function main(): Promise<void> {
     boundedRead(options.preflight, LIMITS.preflight, 'preflight'),
   ]);
 
-  const provenance = inspectProvenance(parseJson(provenanceBody, 'provenance'));
-  const dependencies = inspectDependencies(parseJson(dependenciesBody, 'dependencies'));
+  const provenance = inspectProvenance(parseCanonicalJson(provenanceBody, 'provenance'));
+  const dependencies = inspectDependencies(parseCanonicalJson(dependenciesBody, 'dependencies'));
   if (!samePackage(provenance.package, dependencies)) {
     fail('Evidencias pertenecen a paquetes distintos.');
   }
