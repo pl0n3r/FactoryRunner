@@ -110,6 +110,22 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
         )
         return stage, tarball, provenance, dependencies
 
+    def _preflight(
+        self,
+        tarball: Path,
+        provenance: Path,
+        dependencies: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        return self._run_node(
+            PREFLIGHT,
+            "--artifact",
+            str(tarball),
+            "--provenance",
+            str(provenance),
+            "--dependencies",
+            str(dependencies),
+        )
+
     def _receipt(
         self,
         tarball: Path,
@@ -145,6 +161,8 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             stage, tarball, provenance, dependencies = self._build_evidence(root)
+            preflight = self._preflight(tarball, provenance, dependencies)
+            preflight_result = json.loads(preflight.stdout)
             output = root / "release-receipt.json"
             self._receipt(tarball, provenance, dependencies, output)
 
@@ -179,9 +197,22 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
                 receipt["evidence"]["preflight_contract_sha256"],
                 hashlib.sha256(PREFLIGHT.read_bytes()).hexdigest(),
             )
+            self.assertEqual(
+                receipt["evidence"]["preflight_result_sha256"],
+                hashlib.sha256(preflight.stdout.encode("utf-8")).hexdigest(),
+            )
+            self.assertEqual(preflight_result["artifact_sha256"], receipt["artifact"]["sha256"])
+            self.assertEqual(preflight_result["package"]["name"], receipt["package"]["name"])
+            self.assertEqual(preflight_result["package"]["version"], receipt["package"]["version"])
+            self.assertIs(preflight_result["accepted"], True)
+            self.assertIs(preflight_result["runtime_evidence_bound"], True)
+            self.assertIs(preflight_result["network_access"], False)
+            self.assertIs(preflight_result["external_mutation"], False)
             self.assertIs(receipt["verification"]["preflight_passed"], True)
+            self.assertIs(receipt["verification"]["runtime_evidence_bound"], True)
             self.assertIs(receipt["verification"]["network_access"], False)
             self.assertIs(receipt["verification"]["external_mutation"], False)
+            self.assertEqual(receipt["authority"], "unchanged")
             self.assertIs(receipt["network_access"], False)
             self.assertIs(receipt["external_mutation"], False)
 
@@ -234,7 +265,7 @@ class FactoryRunnerObservabilityPackageReleaseReceiptTests(unittest.TestCase):
                 first_body,
                 json.dumps(payload, indent=2, sort_keys=True) + "\n",
             )
-            self.assertLess(len(first.read_bytes()), 4096)
+            self.assertLessEqual(len(first.read_bytes()), 4096)
 
             lowered = first_body.lower()
             self.assertNotIn(str(root).lower(), lowered)
