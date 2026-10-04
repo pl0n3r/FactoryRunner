@@ -141,13 +141,10 @@ function parseTarball(compressed: Buffer): Map<string, Buffer> {
     const dataEnd = dataStart + size;
     if (dataEnd > archive.length) fail('Tarball truncado.');
 
-    if (typeFlag === '0') {
-      const path = canonicalArchivePath(rawPath);
-      if (files.has(path)) fail('Archivo duplicado en tarball.');
-      files.set(path, Buffer.from(archive.subarray(dataStart, dataEnd)));
-    } else if (typeFlag !== '5') {
-      fail('Tipo de entrada tar no permitido.');
-    }
+    if (typeFlag !== '0') fail('Tipo de entrada tar no permitido.');
+    const path = canonicalArchivePath(rawPath);
+    if (files.has(path)) fail('Archivo duplicado en tarball.');
+    files.set(path, Buffer.from(archive.subarray(dataStart, dataEnd)));
 
     offset = dataStart + Math.ceil(size / 512) * 512;
   }
