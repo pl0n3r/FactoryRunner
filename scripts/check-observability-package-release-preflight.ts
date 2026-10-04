@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, posix, resolve } from 'node:path';
 import process from 'node:process';
+import { gunzipSync } from 'node:zlib';
 
 type Obj = Record<string, unknown>;
 type PackageCore = Readonly<{
@@ -15,7 +16,7 @@ type LocalFile = Readonly<{ path: string; sha256: string; size: number }>;
 const SHA = /^[a-f0-9]{64}$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
 const PACKAGE = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
-const LIMITS = Object.freeze({ artifact: 32 * 1024 * 1024, evidence: 4 * 1024 * 1024 });
+const LIMITS = Object.freeze({ artifact: 32 * 1024 * 1024, archive: 16 * 1024 * 1024, evidence: 4 * 1024 * 1024 });
 
 function reject(message: string): never {
   throw new Error(message);
@@ -39,6 +40,87 @@ function shape(value: unknown, label: string, expected: readonly string[]): Obj 
 
 function digest(body: Uint8Array): string {
   return createHash('sha256').update(body).digest('hex');
+}
+
+function cString(block: Buffer, start: number, length: number): string {
+  const raw = block.subarray(start, start + length);
+  const end = raw.indexOf(0);
+  return raw.subarray(0, end === -1 ? raw.length : end).toString('utf8');
+}
+
+function octal(block: Buffer, start: number, length: number): number {
+  const raw = cString(block, start, length).trim();
+  if (raw === '') return 0;
+  if (!/^[0-7]+$/.test(raw)) reject('Header tar inválido.');
+  const value = Number.parseInt(raw, 8);
+  if (!Number.isSafeInteger(value) || value < 0) reject('Tamaño tar inválido.');
+  return value;
+}
+
+function validateTarHeaderChecksum(header: Buffer): void {
+  const expected = octal(header, 148, 8);
+  let actual = 0;
+  for (let index = 0; index < header.length; index += 1) {
+    actual += index >= 148 && index < 156 ? 0x20 : header[index];
+  }
+  if (actual !== expected) reject('Checksum tar inválido.');
+}
+
+function canonicalArchivePath(raw: string): string {
+  if (!raw.startsWith('package/')) reject('Entrada tar fuera de package/.');
+  const path = raw.slice('package/'.length);
+  if (
+    path === ''
+    || path.includes('\\')
+    || path.startsWith('/')
+    || posix.normalize(path) !== path
+    || path.split('/').some((part) => part === '' || part === '.' || part === '..')
+  ) {
+    reject('Ruta no canónica en tarball.');
+  }
+  return path;
+}
+
+function parseArtifact(compressed: Buffer): Map<string, Buffer> {
+  let archive: Buffer;
+  try {
+    archive = gunzipSync(compressed, { maxOutputLength: LIMITS.archive });
+  } catch {
+    reject('Tarball gzip inválido.');
+  }
+
+  const files = new Map<string, Buffer>();
+  let offset = 0;
+  let sawTerminator = false;
+
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) {
+      sawTerminator = true;
+      break;
+    }
+
+    validateTarHeaderChecksum(header);
+    const name = cString(header, 0, 100);
+    const prefix = cString(header, 345, 155);
+    const rawPath = prefix === '' ? name : prefix + '/' + name;
+    const size = octal(header, 124, 12);
+    const typeFlag = header[156] === 0 ? '0' : String.fromCharCode(header[156]);
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (dataEnd > archive.length) reject('Tarball truncado.');
+    if (typeFlag !== '0') reject('Tipo de entrada tar no permitido.');
+
+    const path = canonicalArchivePath(rawPath);
+    if (files.has(path)) reject('Archivo duplicado en tarball.');
+    files.set(path, Buffer.from(archive.subarray(dataStart, dataEnd)));
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+
+  if (!sawTerminator || files.size === 0) {
+    reject('Tarball sin terminador o sin archivos.');
+  }
+  return files;
 }
 
 function shaField(value: unknown, label: string): string {
@@ -114,6 +196,32 @@ function packageCore(value: unknown, label: string, withExports: boolean): Packa
   });
 }
 
+function exportMap(value: unknown, label: string): Readonly<Record<string, string>> {
+  const object = shape(value, label, Object.keys(asObjectForExports(value, label)));
+  const keys = Object.keys(object).sort();
+  if (
+    keys.length === 0
+    || keys.some((key) => (
+      key.trim() === ''
+      || typeof object[key] !== 'string'
+      || !(object[key] as string).startsWith('./')
+      || (object[key] as string).includes('://')
+    ))
+  ) {
+    reject(label + ': mapping local inválido.');
+  }
+  const result: Record<string, string> = {};
+  for (const key of keys) result[key] = object[key] as string;
+  return Object.freeze(result);
+}
+
+function asObjectForExports(value: unknown, label: string): Obj {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    reject(label + ': objeto requerido.');
+  }
+  return value as Obj;
+}
+
 function decode(body: Buffer, label: string): unknown {
   try {
     return JSON.parse(body.toString('utf8')) as unknown;
@@ -167,6 +275,9 @@ async function localBytes(path: string, limit: number, label: string): Promise<B
 function inspectProvenance(value: unknown): Readonly<{
   artifact: Readonly<{ filename: string; sha256: string; size: number }>;
   package: PackageCore;
+  exports: Readonly<Record<string, string>>;
+  allowlist: readonly string[];
+  files: readonly LocalFile[];
   packageJsonSha256: string;
 }> {
   const root = shape(value, 'provenance', [
@@ -192,7 +303,16 @@ function inspectProvenance(value: unknown): Readonly<{
     reject('provenance.artifact: filename inválido.');
   }
 
-  const packageValue = packageCore(root.package, 'provenance.package', true);
+  const packageObject = shape(
+    root.package,
+    'provenance.package',
+    ['name', 'version', 'private', 'type', 'exports'],
+  );
+  const packageValue = packageCore(packageObject, 'provenance.package', true);
+  const packageExports = exportMap(
+    packageObject.exports,
+    'provenance.package.exports',
+  );
 
   if (!Array.isArray(root.allowlist) || root.allowlist.length === 0) {
     reject('provenance.allowlist: lista requerida.');
@@ -240,8 +360,89 @@ function inspectProvenance(value: unknown): Readonly<{
       size: countField(artifact.size, 'provenance.artifact.size'),
     }),
     package: packageValue,
+    exports: packageExports,
+    allowlist: Object.freeze(allowlist),
+    files: Object.freeze(files),
     packageJsonSha256: manifest.sha256,
   });
+}
+
+function sameExports(
+  value: unknown,
+  expected: Readonly<Record<string, string>>,
+): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const actual = value as Obj;
+  const keys = Object.keys(actual).sort();
+  const expectedKeys = Object.keys(expected).sort();
+  return (
+    keys.length === expectedKeys.length
+    && keys.every((key, index) => (
+      key === expectedKeys[index]
+      && actual[key] === expected[key]
+    ))
+  );
+}
+
+function verifyArtifactContents(
+  artifactBody: Buffer,
+  provenance: Readonly<{
+    package: PackageCore;
+    exports: Readonly<Record<string, string>>;
+    allowlist: readonly string[];
+    files: readonly LocalFile[];
+  }>,
+): string {
+  const archive = parseArtifact(artifactBody);
+  const expectedPaths = ['README.md', 'package.json', ...provenance.allowlist].sort();
+  const actualPaths = [...archive.keys()].sort();
+
+  if (
+    actualPaths.length !== expectedPaths.length
+    || actualPaths.some((path, index) => path !== expectedPaths[index])
+    || provenance.files.length !== expectedPaths.length
+  ) {
+    reject('File-list real del tarball diverge de provenance.');
+  }
+
+  for (let index = 0; index < provenance.files.length; index += 1) {
+    const expected = provenance.files[index];
+    if (expected.path !== expectedPaths[index]) {
+      reject('Orden de provenance.files diverge del artefacto real.');
+    }
+    const body = archive.get(expected.path);
+    if (
+      body === undefined
+      || expected.size !== body.length
+      || expected.sha256 !== digest(body)
+    ) {
+      reject('Hash o tamaño interno diverge del artefacto real.');
+    }
+  }
+
+  const packageBody = archive.get('package.json');
+  if (packageBody === undefined) reject('Falta package.json en el tarball.');
+  const actualPackage = shape(
+    decode(packageBody, 'package.json del tarball'),
+    'package.json del tarball',
+    Object.keys(
+      asObjectForExports(
+        decode(packageBody, 'package.json del tarball'),
+        'package.json del tarball',
+      ),
+    ),
+  );
+  if (
+    actualPackage.name !== provenance.package.name
+    || actualPackage.version !== provenance.package.version
+    || actualPackage.private !== provenance.package.private
+    || actualPackage.type !== provenance.package.type
+    || !sameExports(actualPackage.exports, provenance.exports)
+  ) {
+    reject('Metadata real del paquete diverge de provenance.');
+  }
+
+  return digest(packageBody);
 }
 
 function inspectDependencies(value: unknown): Readonly<{
@@ -331,11 +532,18 @@ async function main(): Promise<void> {
   ) {
     reject('artifact: no coincide exactamente con provenance.');
   }
+  const actualPackageJsonSha256 = verifyArtifactContents(
+    artifactBody,
+    provenance,
+  );
   if (!samePackage(provenance.package, dependencies.package)) {
     reject('package: metadata divergente entre evidencias.');
   }
-  if (provenance.packageJsonSha256 !== dependencies.manifestSha256) {
-    reject('package.json: hash divergente entre evidencias.');
+  if (
+    provenance.packageJsonSha256 !== actualPackageJsonSha256
+    || dependencies.manifestSha256 !== actualPackageJsonSha256
+  ) {
+    reject('package.json: hash real divergente entre evidencias.');
   }
 
   process.stdout.write(JSON.stringify({
