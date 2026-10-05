@@ -11,6 +11,7 @@ BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 PACKAGE_NAME = "@pl0n3r/factoryrunner"
 EXPECTED_EXPORTS = {
     ".": "./src/browser-remote-observability-public.js",
+    "./controlbot-http": "./src/controlbot-http-public.js",
     "./execution-admission": "./src/execution-admission-public.js",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
 }

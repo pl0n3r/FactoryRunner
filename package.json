@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/browser-remote-observability-public.ts",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.ts",
-    "./execution-admission": "./src/execution-admission-public.ts"
+    "./execution-admission": "./src/execution-admission-public.ts",
+    "./controlbot-http": "./src/controlbot-http-public.ts"
   },
   "files": [
     "src/adapters/browser.ts",
@@ -29,6 +30,10 @@
     "src/browser-remote-observability-public.ts",
     "src/browser-remote-profile.ts",
     "src/capability-manifest.ts",
+    "src/controlbot-http-public.ts",
+    "src/controlbot/fenced-execution-binding.ts",
+    "src/controlbot/http-protocol-v1.ts",
+    "src/controlbot/http-session-client.ts",
     "src/controlbot/transport.ts",
     "src/event.ts",
     "src/execution-admission-public.ts",

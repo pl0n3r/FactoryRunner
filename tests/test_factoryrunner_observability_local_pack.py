@@ -16,11 +16,13 @@ BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 
 EXPECTED_SOURCE_EXPORTS = {
     ".": "./src/browser-remote-observability-public.ts",
+    "./controlbot-http": "./src/controlbot-http-public.ts",
     "./execution-admission": "./src/execution-admission-public.ts",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.ts",
 }
 EXPECTED_STAGED_EXPORTS = {
     ".": "./src/browser-remote-observability-public.js",
+    "./controlbot-http": "./src/controlbot-http-public.js",
     "./execution-admission": "./src/execution-admission-public.js",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
 }

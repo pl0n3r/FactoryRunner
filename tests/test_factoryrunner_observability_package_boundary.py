@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINTS = {
     ".": "src/browser-remote-observability-public.ts",
+    "./controlbot-http": "src/controlbot-http-public.ts",
     "./execution-admission": "src/execution-admission-public.ts",
     "./recovery-handoff": "src/execution-recovery-handoff-public.ts",
 }
@@ -115,7 +116,15 @@ class FactoryRunnerObservabilityPackageBoundaryTests(unittest.TestCase):
         controlbot_files = {
             path for path in files if path.startswith("src/controlbot/")
         }
-        self.assertEqual(controlbot_files, {"src/controlbot/transport.ts"})
+        self.assertEqual(
+            controlbot_files,
+            {
+                "src/controlbot/fenced-execution-binding.ts",
+                "src/controlbot/http-protocol-v1.ts",
+                "src/controlbot/http-session-client.ts",
+                "src/controlbot/transport.ts",
+            },
+        )
         self.assertFalse(any(path.startswith("src/recovery/") for path in files))
         for path in files:
             self.assertTrue(path.startswith("src/"))
