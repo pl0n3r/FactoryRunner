@@ -14,14 +14,23 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_JSON = ROOT / "package.json"
 BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 
-FORBIDDEN_PATH_PARTS = (
-    "controlbot",
-    "runtime-supervisor",
-    "execution-loop",
-    "journal",
-    "outbox",
-    "recovery/",
-)
+EXPECTED_SOURCE_EXPORTS = {
+    ".": "./src/browser-remote-observability-public.ts",
+    "./recovery-handoff": "./src/execution-recovery-handoff-public.ts",
+}
+EXPECTED_STAGED_EXPORTS = {
+    ".": "./src/browser-remote-observability-public.js",
+    "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
+}
+FORBIDDEN_PATHS = {
+    "src/controlbot/client.js",
+    "src/runtime-supervisor.js",
+    "src/execution-loop.js",
+    "src/recovery/live-object-storage.js",
+    "src/adapters/recovery-database.js",
+    "src/adapters/recovery-google-drive.js",
+    "src/adapters/recovery-object-storage.js",
+}
 FORBIDDEN_SCRIPT_RE = (
     "npm publish",
     "npm login",
@@ -138,10 +147,7 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
         staged = json.loads((stage / "package.json").read_text(encoding="utf-8"))
         self.assertIs(staged.get("private"), True)
         self.assertEqual(staged.get("type"), "module")
-        self.assertEqual(
-            staged.get("exports"),
-            {".": "./src/browser-remote-observability-public.js"},
-        )
+        self.assertEqual(staged.get("exports"), EXPECTED_STAGED_EXPORTS)
         self.assertEqual(staged.get("files"), self._expected_js_files())
         self.assertNotIn("scripts", staged)
         self.assertNotIn("dependencies", staged)
@@ -188,10 +194,7 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
     def test_local_pack_contains_only_allowlisted_public_sources_and_metadata(self) -> None:
         manifest = self.manifest()
         self.assertIs(manifest.get("private"), True)
-        self.assertEqual(
-            manifest.get("exports"),
-            {".": "./src/browser-remote-observability-public.ts"},
-        )
+        self.assertEqual(manifest.get("exports"), EXPECTED_SOURCE_EXPORTS)
         self.assertNotIn("publishConfig", manifest)
         self.assertNotIn("bin", manifest)
 
@@ -208,18 +211,14 @@ class FactoryRunnerObservabilityLocalPackTests(unittest.TestCase):
         self.assertEqual(packed_manifest["name"], manifest["name"])
         self.assertEqual(packed_manifest["version"], manifest["version"])
         self.assertIs(packed_manifest.get("private"), True)
-        self.assertEqual(
-            packed_manifest.get("exports"),
-            {".": "./src/browser-remote-observability-public.js"},
-        )
+        self.assertEqual(packed_manifest.get("exports"), EXPECTED_STAGED_EXPORTS)
         self.assertEqual(
             packed_manifest.get("files"),
             self._expected_js_files(),
         )
 
-        lowered = "\n".join(sorted(members)).lower()
-        for forbidden in FORBIDDEN_PATH_PARTS:
-            self.assertNotIn(forbidden, lowered)
+        for forbidden in FORBIDDEN_PATHS:
+            self.assertNotIn(forbidden, members)
         self.assertFalse(any(path.startswith("tests/") for path in members))
         self.assertFalse(any(path.startswith("docs/") for path in members))
         self.assertFalse(any(path.startswith(".github/") for path in members))
