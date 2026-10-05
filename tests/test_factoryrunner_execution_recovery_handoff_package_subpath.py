@@ -12,11 +12,13 @@ ROOT_ENTRYPOINT = "src/browser-remote-observability-public.ts"
 RECOVERY_ENTRYPOINT = "src/execution-recovery-handoff-public.ts"
 EXPECTED_EXPORTS = {
     ".": f"./{ROOT_ENTRYPOINT}",
+    "./controlbot-http": "./src/controlbot-http-public.ts",
     "./execution-admission": "./src/execution-admission-public.ts",
     "./recovery-handoff": f"./{RECOVERY_ENTRYPOINT}",
 }
 EXPECTED_STAGED_EXPORTS = {
     ".": "./src/browser-remote-observability-public.js",
+    "./controlbot-http": "./src/controlbot-http-public.js",
     "./execution-admission": "./src/execution-admission-public.js",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
 }
