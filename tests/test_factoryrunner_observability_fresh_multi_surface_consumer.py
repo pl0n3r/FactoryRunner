@@ -246,69 +246,46 @@ class FactoryRunnerObservabilityFreshMultiSurfaceConsumerTests(unittest.TestCase
                 dependencies,
             )
 
-            stale_root = root / "stale"
-            stale_root.mkdir()
-            handoff, fresh = self._evidence(stale_root, verified)
-            stale_payload = json.loads(fresh.read_text(encoding="utf-8"))
-            stale_payload["repository"]["commit_sha"] = "c" * 40
-            fresh.write_text(
-                json.dumps(stale_payload, separators=(",", ":")) + "\n",
-                encoding="utf-8",
+            cases = (
+                ("stale", "fresh", ("repository", "commit_sha"), "c" * 40),
+                ("mixed", "handoff", ("evidence", "artifact_sha256"), "8" * 64),
+                ("tampered", "receipt", ("artifact", "sha256"), "0" * 64),
             )
-            stale = self._run(
-                receipt,
-                artifact,
-                provenance,
-                dependencies,
-                handoff,
-                fresh,
-                check=False,
-            )
-            self.assertNotEqual(stale.returncode, 0)
-            self.assertEqual(stale.stdout, "")
+            for name, target, path_keys, replacement in cases:
+                with self.subTest(name=name):
+                    case_root = root / name
+                    case_root.mkdir()
+                    handoff, fresh = self._evidence(case_root, verified)
+                    receipt_for_run = receipt
 
-            mixed_root = root / "mixed"
-            mixed_root.mkdir()
-            handoff, fresh = self._evidence(mixed_root, verified)
-            mixed_payload = json.loads(handoff.read_text(encoding="utf-8"))
-            mixed_payload["evidence"]["artifact_sha256"] = "8" * 64
-            handoff.write_text(
-                json.dumps(mixed_payload, separators=(",", ":")) + "\n",
-                encoding="utf-8",
-            )
-            mixed = self._run(
-                receipt,
-                artifact,
-                provenance,
-                dependencies,
-                handoff,
-                fresh,
-                check=False,
-            )
-            self.assertNotEqual(mixed.returncode, 0)
-            self.assertEqual(mixed.stdout, "")
+                    if target == "receipt":
+                        target_path = case_root / "receipt.json"
+                        payload = json.loads(receipt.read_text(encoding="utf-8"))
+                        receipt_for_run = target_path
+                    else:
+                        target_path = fresh if target == "fresh" else handoff
+                        payload = json.loads(target_path.read_text(encoding="utf-8"))
 
-            tampered_root = root / "tampered"
-            tampered_root.mkdir()
-            handoff, fresh = self._evidence(tampered_root, verified)
-            tampered_receipt = tampered_root / "receipt.json"
-            tampered_payload = json.loads(receipt.read_text(encoding="utf-8"))
-            tampered_payload["artifact"]["sha256"] = "0" * 64
-            tampered_receipt.write_text(
-                json.dumps(tampered_payload, indent=2, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            tampered = self._run(
-                tampered_receipt,
-                artifact,
-                provenance,
-                dependencies,
-                handoff,
-                fresh,
-                check=False,
-            )
-            self.assertNotEqual(tampered.returncode, 0)
-            self.assertEqual(tampered.stdout, "")
+                    current = payload
+                    for key in path_keys[:-1]:
+                        current = current[key]
+                    current[path_keys[-1]] = replacement
+                    target_path.write_text(
+                        json.dumps(payload, separators=(",", ":")) + "\n",
+                        encoding="utf-8",
+                    )
+
+                    rejected = self._run(
+                        receipt_for_run,
+                        artifact,
+                        provenance,
+                        dependencies,
+                        handoff,
+                        fresh,
+                        check=False,
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertEqual(rejected.stdout, "")
 
 
 if __name__ == "__main__":
