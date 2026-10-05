@@ -154,7 +154,7 @@ function packageIdentity(value: unknown): Readonly<{ identity: PackageIdentity; 
 
   const exportsValue = asObject(manifest.exports, 'package.json exports');
   const exportKeys = Object.keys(exportsValue).sort(compareText);
-  const expectedExportKeys = Object.keys(RELEASE_EXPORTS).sort(compareText);
+  const expectedExportKeys = (Object.keys(RELEASE_EXPORTS) as Array<keyof typeof RELEASE_EXPORTS>).sort(compareText);
   if (
     exportKeys.length !== expectedExportKeys.length
     || exportKeys.some((key, index) => key !== expectedExportKeys[index])
