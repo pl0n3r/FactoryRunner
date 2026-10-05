@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINTS = {
     ".": "src/browser-remote-observability-public.ts",
+    "./execution-admission": "src/execution-admission-public.ts",
     "./recovery-handoff": "src/execution-recovery-handoff-public.ts",
 }
 ROOT_ENTRYPOINT = ENTRYPOINTS["."]
