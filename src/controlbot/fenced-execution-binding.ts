@@ -1,7 +1,4 @@
-import {
-  controlBotRunnerHttpRequest,
-  type ControlBotRunnerHttpEnvelope,
-} from './http-protocol-v1.ts';
+import { controlBotRunnerHttpRequest } from './http-protocol-v1.ts';
 import {
   orderFingerprint,
   parseExecutionOrder,
@@ -15,7 +12,6 @@ import {
   ref,
   stableSha256,
   uuid,
-  type JsonRecord,
 } from '../validation.ts';
 
 export type ControlBotExecutionOrderV1 = Readonly<{
@@ -124,6 +120,13 @@ const SAFETY = Object.freeze({
   external_mutation: false as const,
 });
 
+function sha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !HASH_RE.test(value)) {
+    throw new TypeError(`${label} inválido.`);
+  }
+  return value;
+}
+
 function parseControlBotExecutionOrder(input: unknown): ControlBotExecutionOrderV1 {
   const record = asRecord(input, 'ControlBotExecutionOrderV1');
   exactKeys(record, ORDER_FIELDS, 'ControlBotExecutionOrderV1');
@@ -223,14 +226,10 @@ function parseBinding(input: unknown): FencedExecutionBinding {
     runner_id: uuid(record.runner_id, 'runner_id'),
     order_id: uuid(record.order_id, 'order_id'),
     work_item_id: ref(record.work_item_id, 'work_item_id', 160),
-    internal_order_fingerprint: String(record.internal_order_fingerprint),
+    internal_order_fingerprint: sha256(record.internal_order_fingerprint, 'internal_order_fingerprint'),
   };
-  if (!HASH_RE.test(parsedCore.internal_order_fingerprint)) {
-    throw new TypeError('internal_order_fingerprint inválido.');
-  }
 
-  const bindingFingerprint = String(record.binding_fingerprint);
-  if (!HASH_RE.test(bindingFingerprint)) throw new TypeError('binding_fingerprint inválido.');
+  const bindingFingerprint = sha256(record.binding_fingerprint, 'binding_fingerprint');
 
   const expectedFingerprint = stableSha256(parsedCore);
   if (bindingFingerprint !== expectedFingerprint) {
@@ -277,7 +276,7 @@ function assertInternalOrderMatches(
 
 export function bindFencedExecution(
   sessionInput: unknown,
-  pollEnvelopeInput: ControlBotRunnerHttpEnvelope | unknown,
+  pollEnvelopeInput: unknown,
   controlBotOrderInput: unknown,
   internalOrderInput: unknown,
 ): FencedExecutionBinding {
@@ -313,7 +312,7 @@ export function bindFencedExecution(
 
 function outcome(
   bindingInput: unknown,
-  envelopeInput: ControlBotRunnerHttpEnvelope | unknown,
+  envelopeInput: unknown,
   kind: 'ack' | 'event',
 ): FencedExecutionOutcome {
   const binding = parseBinding(bindingInput);
@@ -354,14 +353,14 @@ function outcome(
 
 export function assertFencedAck(
   bindingInput: unknown,
-  ackEnvelopeInput: ControlBotRunnerHttpEnvelope | unknown,
+  ackEnvelopeInput: unknown,
 ): FencedExecutionOutcome {
   return outcome(bindingInput, ackEnvelopeInput, 'ack');
 }
 
 export function assertFencedEvent(
   bindingInput: unknown,
-  eventEnvelopeInput: ControlBotRunnerHttpEnvelope | unknown,
+  eventEnvelopeInput: unknown,
 ): FencedExecutionOutcome {
   return outcome(bindingInput, eventEnvelopeInput, 'event');
 }
