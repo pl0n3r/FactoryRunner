@@ -71,7 +71,7 @@ type ConsumerResult = Readonly<{
   packet_authority: 'unchanged';
   recovery_compatibility_status: 'COMPATIBLE';
   recovery_compatibility_authority: 'unchanged';
-  recovery_compatibility_reasons: readonly [];
+  recovery_compatibility_reasons: readonly never[];
   authority: 'unchanged';
   execution: false;
   network_access: false;
