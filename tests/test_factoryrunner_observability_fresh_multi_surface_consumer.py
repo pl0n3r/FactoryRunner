@@ -171,12 +171,12 @@ class FactoryRunnerObservabilityFreshMultiSurfaceConsumerTests(unittest.TestCase
     ) -> None:
         source = SMOKE.read_text(encoding="utf-8")
         self.assertLess(
-            source.index("const verifiedReceipt = receiptVerification("),
-            source.index("const binding = await readFreshBinding(bindingPath);"),
+            source.index("const receipt = receiptProof("),
+            source.index("const binding = await freshProof(bindingPath);"),
         )
         self.assertLess(
-            source.index("const binding = await readFreshBinding(bindingPath);"),
-            source.index("const consumed = consumerResult("),
+            source.index("const binding = await freshProof(bindingPath);"),
+            source.index("const consumer = json("),
         )
         for forbidden in (
             "node:http",
