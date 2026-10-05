@@ -22,12 +22,28 @@ type Verification = Readonly<{
   external_mutation: false;
 }>;
 
+type ConsumedSurfaces = Readonly<{
+  packet_status: 'READY';
+  packet_authority: 'unchanged';
+  recovery_manifest_authority: 'unchanged';
+  recovery_manifest_execution: false;
+  recovery_manifest_network_access: false;
+  recovery_manifest_external_mutation: false;
+  recovery_compatibility_status: 'COMPATIBLE';
+  recovery_compatibility_authority: 'unchanged';
+  recovery_compatibility_reasons: readonly [];
+  recovery_compatibility_execution: false;
+  recovery_compatibility_network_access: false;
+  recovery_compatibility_external_mutation: false;
+}>;
+
 const VERIFIER = resolve(
   process.cwd(),
   'scripts',
   'check-observability-package-release-receipt.ts',
 );
 const EXPECTED_PACKAGE = '@pl0n3r/factoryrunner';
+const RECOVERY_HANDOFF_SUBPATH = EXPECTED_PACKAGE + '/recovery-handoff';
 const NPM_CLI = resolve(
   dirname(process.execPath),
   '..',
@@ -166,7 +182,7 @@ function npmEnvironment(cache: string): NodeJS.ProcessEnv {
 async function consumeVerifiedArtifact(
   options: Options,
   verification: Verification,
-): Promise<Readonly<{ packet_status: string; packet_authority: string }>> {
+): Promise<ConsumedSurfaces> {
   const npmCliMetadata = await lstat(NPM_CLI);
   if (!npmCliMetadata.isFile()) {
     fail('npm CLI canónico no disponible.');
@@ -213,6 +229,10 @@ async function consumeVerifiedArtifact(
 
     const script = join(directory, 'consumer.mjs');
     await writeFile(script, `import { browserRemoteObservabilityPublicPacket } from '@pl0n3r/factoryrunner';
+import {
+  executionRecoveryHandoffPublicCompatibility,
+  executionRecoveryHandoffPublicManifest,
+} from '@pl0n3r/factoryrunner/recovery-handoff';
 
 const health = Object.freeze({
   version: 1,
@@ -228,11 +248,32 @@ const health = Object.freeze({
   fingerprint: '448d8b7d0482096707e346cce6df6cb6fa0b58a4049006a4cd350949315c1fb6',
 });
 const packet = browserRemoteObservabilityPublicPacket(health);
+
+const recoveryManifest = executionRecoveryHandoffPublicManifest();
+const recoveryRequirements = recoveryManifest.exports.map((entry) => ({
+  export_name: entry.export_name,
+  contract_version: entry.contract_version,
+}));
+const recoveryCompatibility = executionRecoveryHandoffPublicCompatibility(
+  recoveryManifest,
+  recoveryRequirements,
+);
+
 process.stdout.write(JSON.stringify({
   packet_status: packet.status,
   packet_authority: packet.authority,
   packet_network_access: packet.network_access,
   packet_external_mutation: packet.external_mutation,
+  recovery_manifest_authority: recoveryManifest.authority,
+  recovery_manifest_execution: recoveryManifest.execution,
+  recovery_manifest_network_access: recoveryManifest.network_access,
+  recovery_manifest_external_mutation: recoveryManifest.external_mutation,
+  recovery_compatibility_status: recoveryCompatibility.status,
+  recovery_compatibility_authority: recoveryCompatibility.authority,
+  recovery_compatibility_reasons: recoveryCompatibility.reasons,
+  recovery_compatibility_execution: recoveryCompatibility.execution,
+  recovery_compatibility_network_access: recoveryCompatibility.network_access,
+  recovery_compatibility_external_mutation: recoveryCompatibility.external_mutation,
 }));
 `, 'utf8');
 
@@ -256,18 +297,39 @@ process.stdout.write(JSON.stringify({
     if (typeof result !== 'object' || result === null || Array.isArray(result)) {
       fail('Consumidor produjo salida inválida.');
     }
-    const packet = result as Record<string, unknown>;
+    const surfaces = result as Record<string, unknown>;
     if (
-      packet.packet_status !== 'READY'
-      || packet.packet_authority !== 'unchanged'
-      || packet.packet_network_access !== false
-      || packet.packet_external_mutation !== false
+      surfaces.packet_status !== 'READY'
+      || surfaces.packet_authority !== 'unchanged'
+      || surfaces.packet_network_access !== false
+      || surfaces.packet_external_mutation !== false
+      || surfaces.recovery_manifest_authority !== 'unchanged'
+      || surfaces.recovery_manifest_execution !== false
+      || surfaces.recovery_manifest_network_access !== false
+      || surfaces.recovery_manifest_external_mutation !== false
+      || surfaces.recovery_compatibility_status !== 'COMPATIBLE'
+      || surfaces.recovery_compatibility_authority !== 'unchanged'
+      || !Array.isArray(surfaces.recovery_compatibility_reasons)
+      || surfaces.recovery_compatibility_reasons.length !== 0
+      || surfaces.recovery_compatibility_execution !== false
+      || surfaces.recovery_compatibility_network_access !== false
+      || surfaces.recovery_compatibility_external_mutation !== false
     ) {
-      fail('API pública no conservó autoridad local esperada.');
+      fail('APIs públicas no conservaron autoridad local esperada.');
     }
     return Object.freeze({
       packet_status: 'READY',
       packet_authority: 'unchanged',
+      recovery_manifest_authority: 'unchanged',
+      recovery_manifest_execution: false,
+      recovery_manifest_network_access: false,
+      recovery_manifest_external_mutation: false,
+      recovery_compatibility_status: 'COMPATIBLE',
+      recovery_compatibility_authority: 'unchanged',
+      recovery_compatibility_reasons: Object.freeze([]),
+      recovery_compatibility_execution: false,
+      recovery_compatibility_network_access: false,
+      recovery_compatibility_external_mutation: false,
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -282,12 +344,27 @@ async function main(): Promise<void> {
     verified: true,
     installed_from_local_artifact: true,
     public_api_consumed: true,
+    public_surfaces_consumed: Object.freeze([
+      EXPECTED_PACKAGE,
+      RECOVERY_HANDOFF_SUBPATH,
+    ]),
     receipt_sha256: verification.receipt_sha256,
     artifact_sha256: verification.artifact_sha256,
     package: verification.package,
     packet_status: consumed.packet_status,
     packet_authority: consumed.packet_authority,
+    recovery_manifest_authority: consumed.recovery_manifest_authority,
+    recovery_manifest_execution: consumed.recovery_manifest_execution,
+    recovery_manifest_network_access: consumed.recovery_manifest_network_access,
+    recovery_manifest_external_mutation: consumed.recovery_manifest_external_mutation,
+    recovery_compatibility_status: consumed.recovery_compatibility_status,
+    recovery_compatibility_authority: consumed.recovery_compatibility_authority,
+    recovery_compatibility_reasons: consumed.recovery_compatibility_reasons,
+    recovery_compatibility_execution: consumed.recovery_compatibility_execution,
+    recovery_compatibility_network_access: consumed.recovery_compatibility_network_access,
+    recovery_compatibility_external_mutation: consumed.recovery_compatibility_external_mutation,
     authority: 'unchanged',
+    execution: false,
     network_access: false,
     external_mutation: false,
   }) + '\n');
