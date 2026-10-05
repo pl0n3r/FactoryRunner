@@ -120,6 +120,10 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
         self.assertNotIn("process.argv.slice", source)
         self.assertIn("process.argv.length !== 2", source)
         self.assertIn("entry !== package_source_paths[index]", source)
+        self.assertIn(
+            "'./execution-admission': './src/execution-admission-public.ts'",
+            source,
+        )
         for forbidden in (
             "node:http",
             "node:https",
@@ -234,6 +238,24 @@ class FactoryRunnerObservabilityExactMainSourceSnapshotTests(unittest.TestCase):
             detached = self._run_snapshot(detached_repo, check=False)
             self.assertNotEqual(detached.returncode, 0)
             self.assertFalse(self._snapshot_path(detached_repo).exists())
+
+            export_drift_repo = root / "export-drift" / "repo"
+            export_drift_repo.mkdir(parents=True)
+            self._seed_repo(export_drift_repo)
+            export_manifest_path = export_drift_repo / "package.json"
+            export_manifest = json.loads(
+                export_manifest_path.read_text(encoding="utf-8")
+            )
+            export_manifest["exports"]["./unexpected"] = "./src/browser-plan.ts"
+            export_manifest_path.write_text(
+                json.dumps(export_manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            self._git(export_drift_repo, "add", "--all")
+            self._git(export_drift_repo, "commit", "-m", "fixture: export drift")
+            export_drift = self._run_snapshot(export_drift_repo, check=False)
+            self.assertNotEqual(export_drift.returncode, 0)
+            self.assertFalse(self._snapshot_path(export_drift_repo).exists())
 
             sensitive_repo = root / "sensitive" / "repo"
             sensitive_repo.mkdir(parents=True)

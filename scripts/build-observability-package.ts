@@ -16,6 +16,7 @@ type PackageManifest = Readonly<{
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const PUBLIC_ENTRYPOINTS = Object.freeze({
   '.': 'src/browser-remote-observability-public.ts',
+  './execution-admission': 'src/execution-admission-public.ts',
   './recovery-handoff': 'src/execution-recovery-handoff-public.ts',
 }) satisfies Readonly<Record<string, string>>;
 

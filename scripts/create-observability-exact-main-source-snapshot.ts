@@ -43,6 +43,12 @@ const RELEASE_SUPPORT_PATHS = Object.freeze([
   'scripts/create-observability-package-release-receipt.ts',
 ]);
 
+const RELEASE_EXPORTS = Object.freeze({
+  '.': './src/browser-remote-observability-public.ts',
+  './execution-admission': './src/execution-admission-public.ts',
+  './recovery-handoff': './src/execution-recovery-handoff-public.ts',
+}) satisfies Readonly<Record<string, string>>;
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -148,12 +154,11 @@ function packageIdentity(value: unknown): Readonly<{ identity: PackageIdentity; 
 
   const exportsValue = asObject(manifest.exports, 'package.json exports');
   const exportKeys = Object.keys(exportsValue).sort(compareText);
+  const expectedExportKeys = (Object.keys(RELEASE_EXPORTS) as Array<keyof typeof RELEASE_EXPORTS>).sort(compareText);
   if (
-    exportKeys.length !== 2
-    || exportKeys[0] !== '.'
-    || exportKeys[1] !== './recovery-handoff'
-    || exportsValue['.'] !== './src/browser-remote-observability-public.ts'
-    || exportsValue['./recovery-handoff'] !== './src/execution-recovery-handoff-public.ts'
+    exportKeys.length !== expectedExportKeys.length
+    || exportKeys.some((key, index) => key !== expectedExportKeys[index])
+    || expectedExportKeys.some((key) => exportsValue[key] !== RELEASE_EXPORTS[key])
   ) {
     fail('package.json: exports de release inválidos.');
   }

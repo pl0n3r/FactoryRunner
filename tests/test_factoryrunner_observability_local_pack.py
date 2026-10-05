@@ -16,10 +16,12 @@ BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 
 EXPECTED_SOURCE_EXPORTS = {
     ".": "./src/browser-remote-observability-public.ts",
+    "./execution-admission": "./src/execution-admission-public.ts",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.ts",
 }
 EXPECTED_STAGED_EXPORTS = {
     ".": "./src/browser-remote-observability-public.js",
+    "./execution-admission": "./src/execution-admission-public.js",
     "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
 }
 FORBIDDEN_PATHS = {
