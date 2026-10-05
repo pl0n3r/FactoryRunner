@@ -1,11 +1,15 @@
 import { stableSha256 } from './validation.ts';
 
+export const EXECUTION_ADMISSION_PUBLIC_EXPORTS = Object.freeze([
+  'executionAdmissionDecision',
+  'ExecutionAdmissionDecision',
+  'ExecutionAdmissionState',
+  'admissionEvidence',
+  'AdmissionEvidence',
+] as const);
+
 export type ExecutionAdmissionPublicExportName =
-  | 'executionAdmissionDecision'
-  | 'ExecutionAdmissionDecision'
-  | 'ExecutionAdmissionState'
-  | 'admissionEvidence'
-  | 'AdmissionEvidence';
+  (typeof EXECUTION_ADMISSION_PUBLIC_EXPORTS)[number];
 
 export type ExecutionAdmissionPublicManifestEntry = Readonly<{
   export_name: ExecutionAdmissionPublicExportName;
@@ -22,39 +26,24 @@ export type ExecutionAdmissionPublicManifest = Readonly<{
   fingerprint: string;
 }>;
 
-type ManifestCore = Omit<ExecutionAdmissionPublicManifest, 'fingerprint'>;
-
-const EXPORT_NAMES: readonly ExecutionAdmissionPublicExportName[] = Object.freeze([
-  'executionAdmissionDecision',
-  'ExecutionAdmissionDecision',
-  'ExecutionAdmissionState',
-  'admissionEvidence',
-  'AdmissionEvidence',
-]);
-
-function entries(): readonly ExecutionAdmissionPublicManifestEntry[] {
-  return Object.freeze(
-    EXPORT_NAMES.map((exportName) =>
-      Object.freeze({
-        export_name: exportName,
-        contract_version: 1 as const,
-      }),
-    ),
-  );
-}
+const SAFETY = Object.freeze({
+  authority: 'unchanged' as const,
+  execution: false as const,
+  network_access: false as const,
+  external_mutation: false as const,
+});
 
 export function executionAdmissionPublicManifest(): ExecutionAdmissionPublicManifest {
-  const core: ManifestCore = Object.freeze({
-    version: 1,
-    authority: 'unchanged',
-    exports: entries(),
-    execution: false,
-    network_access: false,
-    external_mutation: false,
+  const exportedContracts = Object.freeze(
+    EXECUTION_ADMISSION_PUBLIC_EXPORTS.map((export_name) =>
+      Object.freeze({ export_name, contract_version: 1 as const }),
+    ),
+  );
+  const core = Object.freeze({
+    version: 1 as const,
+    ...SAFETY,
+    exports: exportedContracts,
   });
 
-  return Object.freeze({
-    ...core,
-    fingerprint: stableSha256(core),
-  });
+  return Object.freeze({ ...core, fingerprint: stableSha256(core) });
 }
