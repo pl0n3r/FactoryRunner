@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "src" / "controlbot-http-public.ts"
 PACKAGE = ROOT / "package.json"
+BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 
 
 def observe() -> dict[str, object]:
@@ -92,6 +93,7 @@ class FactoryRunnerControlBotHttpPublicApiTests(unittest.TestCase):
         cls.observed = observe()
         cls.source = ENTRYPOINT.read_text(encoding="utf-8")
         cls.manifest = json.loads(PACKAGE.read_text(encoding="utf-8"))
+        cls.builder = BUILDER.read_text(encoding="utf-8")
 
     def test_public_subpath_exports_only_protocol_binding_and_session_client_surface(self):
         self.assertEqual(
@@ -148,6 +150,10 @@ class FactoryRunnerControlBotHttpPublicApiTests(unittest.TestCase):
             self.assertNotIn(unrelated_internal, self.manifest["files"])
 
         self.assertEqual(self.manifest["files"], sorted(set(self.manifest["files"])))
+        self.assertIn(
+            "'./controlbot-http': 'src/controlbot-http-public.ts'",
+            self.builder,
+        )
 
     def test_public_surface_preserves_fail_closed_authority_and_disabled_network_defaults(self):
         poll = self.observed["poll"]
