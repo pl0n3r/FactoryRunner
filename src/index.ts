@@ -144,3 +144,27 @@ export type { RecoveryLiveObjectStorageInput } from './recovery/live-object-stor
 export { RecoveryConnectionError, resolveRecoveryS3Connection } from './recovery/connection-resolver.ts';
 export type { RecoveryS3Connection } from './recovery/connection-resolver.ts';
 
+export {
+  executionRecoveryHandoffPacket,
+  type ExecutionRecoveryHandoffPacket,
+} from './execution-recovery-handoff-packet.ts';
+export {
+  executionRecoveryHandoffVerify,
+  type ExecutionRecoveryHandoffVerification,
+} from './execution-recovery-handoff-verify.ts';
+export {
+  executionRecoveryHandoffPreview,
+  type ExecutionRecoveryHandoffPreview,
+} from './execution-recovery-handoff-preview.ts';
+export {
+  executionRecoveryHandoffManifest,
+  type ExecutionRecoveryHandoffManifest,
+} from './execution-recovery-handoff-manifest.ts';
+export {
+  executionRecoveryHandoffManifestVerify,
+  type ExecutionRecoveryHandoffManifestVerification,
+} from './execution-recovery-handoff-manifest-verify.ts';
+export {
+  executionRecoveryHandoffManifestPreview,
+  type ExecutionRecoveryHandoffManifestPreview,
+} from './execution-recovery-handoff-manifest-preview.ts';
