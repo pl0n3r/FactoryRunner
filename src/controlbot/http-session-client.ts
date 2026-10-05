@@ -2,7 +2,6 @@ import { controlBotRunnerHttpRequest, type ControlBotRunnerHttpPath } from './ht
 import {
   assertFencedAck,
   assertFencedEvent,
-  type FencedExecutionBinding,
 } from './fenced-execution-binding.ts';
 import {
   asRecord,
@@ -236,11 +235,11 @@ export class ControlBotHttpSessionClient {
     return this.#send('/v1/runner/poll', payloadInput);
   }
 
-  ack(bindingInput: FencedExecutionBinding | unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
+  ack(bindingInput: unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
     return this.#send('/v1/runner/ack', payloadInput, bindingInput);
   }
 
-  event(bindingInput: FencedExecutionBinding | unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
+  event(bindingInput: unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
     return this.#send('/v1/runner/event', payloadInput, bindingInput);
   }
 
