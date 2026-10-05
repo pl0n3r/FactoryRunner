@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 type JsonObject = Record<string, unknown>;
@@ -78,7 +79,7 @@ type ConsumerResult = Readonly<{
   external_mutation: false;
 }>;
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const RECEIPT_VERIFIER = resolve(
   ROOT,
   'scripts',
