@@ -9,6 +9,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build-observability-package.ts"
 PACKAGE_NAME = "@pl0n3r/factoryrunner"
+EXPECTED_EXPORTS = {
+    ".": "./src/browser-remote-observability-public.js",
+    "./recovery-handoff": "./src/execution-recovery-handoff-public.js",
+}
 
 
 class FactoryRunnerObservabilityPackageConsumerTests(unittest.TestCase):
@@ -47,10 +51,7 @@ class FactoryRunnerObservabilityPackageConsumerTests(unittest.TestCase):
         staged_manifest = json.loads(
             (stage / "package.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(
-            staged_manifest.get("exports"),
-            {".": "./src/browser-remote-observability-public.js"},
-        )
+        self.assertEqual(staged_manifest.get("exports"), EXPECTED_EXPORTS)
         self.assertNotIn("dependencies", staged_manifest)
         self.assertNotIn("scripts", staged_manifest)
 

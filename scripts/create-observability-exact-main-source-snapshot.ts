@@ -30,29 +30,6 @@ const GIT_BINARY = '/usr/bin/git';
 const TRUSTED_PATH = '/usr/bin:/bin';
 const SNAPSHOT_FILENAME = '.factoryrunner-exact-main-source-snapshot.json';
 
-const PACKAGE_SOURCE_PATHS = Object.freeze([
-  'src/adapters/browser.ts',
-  'src/browser-plan.ts',
-  'src/browser-remote-directory-doctor.ts',
-  'src/browser-remote-directory-health-bundle.ts',
-  'src/browser-remote-directory-health.ts',
-  'src/browser-remote-directory-metrics.ts',
-  'src/browser-remote-directory-readiness.ts',
-  'src/browser-remote-directory-snapshot.ts',
-  'src/browser-remote-directory.ts',
-  'src/browser-remote-driver.ts',
-  'src/browser-remote-observability-compatibility.ts',
-  'src/browser-remote-observability-consumer-packet-compatibility.ts',
-  'src/browser-remote-observability-consumer-packet.ts',
-  'src/browser-remote-observability-manifest.ts',
-  'src/browser-remote-observability-public-consumer-compatibility.ts',
-  'src/browser-remote-observability-public-packet.ts',
-  'src/browser-remote-observability-public.ts',
-  'src/browser-remote-profile.ts',
-  'src/runner.ts',
-  'src/validation.ts',
-]);
-
 const RELEASE_SUPPORT_PATHS = Object.freeze([
   'README.md',
   'package-lock.json',
@@ -65,10 +42,6 @@ const RELEASE_SUPPORT_PATHS = Object.freeze([
   'scripts/check-observability-package-verified-consumer.ts',
   'scripts/create-observability-package-release-receipt.ts',
 ]);
-
-const RELEASE_SOURCE_PATHS = Object.freeze(
-  [...RELEASE_SUPPORT_PATHS, ...PACKAGE_SOURCE_PATHS].sort(compareText),
-);
 
 function fail(message: string): never {
   throw new Error(message);
@@ -157,7 +130,7 @@ function rejectSensitivePath(path: string): void {
   }
 }
 
-function packageIdentity(value: unknown): PackageIdentity {
+function packageIdentity(value: unknown): Readonly<{ identity: PackageIdentity; sourcePaths: readonly string[] }> {
   const manifest = asObject(value, 'package.json');
   if (
     typeof manifest.name !== 'string'
@@ -168,17 +141,47 @@ function packageIdentity(value: unknown): PackageIdentity {
     || manifest.private !== true
     || manifest.type !== 'module'
     || !Array.isArray(manifest.files)
-    || manifest.files.length !== PACKAGE_SOURCE_PATHS.length
-    || manifest.files.some((entry, index) => entry !== PACKAGE_SOURCE_PATHS[index])
+    || manifest.files.length === 0
   ) {
     fail('package.json: contrato de release inválido.');
   }
 
+  const exportsValue = asObject(manifest.exports, 'package.json exports');
+  const exportKeys = Object.keys(exportsValue).sort(compareText);
+  if (
+    exportKeys.length !== 2
+    || exportKeys[0] !== '.'
+    || exportKeys[1] !== './recovery-handoff'
+    || exportsValue['.'] !== './src/browser-remote-observability-public.ts'
+    || exportsValue['./recovery-handoff'] !== './src/execution-recovery-handoff-public.ts'
+  ) {
+    fail('package.json: exports de release inválidos.');
+  }
+
+  const PACKAGE_SOURCE_PATHS = manifest.files.map((entry) => {
+    if (typeof entry !== 'string') fail('package.json: files inválido.');
+    const path = canonicalPath(entry);
+    rejectSensitivePath(path);
+    if (!path.startsWith('src/') || !path.endsWith('.ts')) {
+      fail('package.json: source fuera de src/ o no TypeScript.');
+    }
+    return path;
+  }).sort(compareText);
+  if (
+    new Set(PACKAGE_SOURCE_PATHS).size !== PACKAGE_SOURCE_PATHS.length
+    || manifest.files.some((entry, index) => entry !== PACKAGE_SOURCE_PATHS[index])
+  ) {
+    fail('package.json: files debe ser único y ordenado.');
+  }
+
   return Object.freeze({
-    name: manifest.name,
-    version: manifest.version,
-    private: true,
-    type: 'module',
+    identity: Object.freeze({
+      name: manifest.name,
+      version: manifest.version,
+      private: true,
+      type: 'module',
+    }),
+    sourcePaths: Object.freeze(PACKAGE_SOURCE_PATHS),
   });
 }
 
@@ -239,15 +242,15 @@ function exactMain(repo: string): Readonly<{ commit: string; tree: string }> {
   return Object.freeze({ commit, tree });
 }
 
-async function sourceFiles(repo: string): Promise<readonly SourceFile[]> {
+async function sourceFiles(repo: string, releaseSourcePaths: readonly string[]): Promise<readonly SourceFile[]> {
   const status = git(
     repo,
-    ['status', '--porcelain=v1', '--untracked-files=all', '--', ...RELEASE_SOURCE_PATHS],
+    ['status', '--porcelain=v1', '--untracked-files=all', '--', ...releaseSourcePaths],
     'worktree status',
   );
   if (status !== '') fail('Worktree dirty en paths de release.');
 
-  const entries = await Promise.all(RELEASE_SOURCE_PATHS.map(async (path) => {
+  const entries = await Promise.all(releaseSourcePaths.map(async (path) => {
     canonicalPath(path);
     rejectSensitivePath(path);
     const absolute = resolve(repo, ...path.split('/'));
@@ -287,9 +290,13 @@ async function main(): Promise<void> {
   const repo = process.cwd();
   const output = resolve(repo, '..', SNAPSHOT_FILENAME);
   const packageBody = await readFile(resolve(repo, 'package.json'), 'utf8');
-  const identity = packageIdentity(parseJson(packageBody, 'package.json'));
+  const packageContract = packageIdentity(parseJson(packageBody, 'package.json'));
+  const identity = packageContract.identity;
+  const releaseSourcePaths = Object.freeze(
+    [...RELEASE_SUPPORT_PATHS, ...packageContract.sourcePaths].sort(compareText),
+  );
   const sourceIdentity = exactMain(repo);
-  const files = await sourceFiles(repo);
+  const files = await sourceFiles(repo, releaseSourcePaths);
   const sourceFingerprintBody = JSON.stringify(canonicalValue(files), null, 2) + '\n';
   const sourceSha256 = sha256(sourceFingerprintBody);
 
