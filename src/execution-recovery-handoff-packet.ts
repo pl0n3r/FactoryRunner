@@ -102,17 +102,27 @@ function parseReadiness(input: unknown): ExecutionRecoveryReadiness {
 export function executionRecoveryHandoffPacket(
   executionIdInput: unknown,
   readinessInput: unknown,
+  snapshotFingerprintInput: unknown,
+  planFingerprintInput: unknown,
 ): ExecutionRecoveryHandoffPacket {
   const executionId = ref(executionIdInput, 'execution_id', 160);
   const readiness = parseReadiness(readinessInput);
+  const snapshotFingerprint = sha256(snapshotFingerprintInput, 'snapshot_fingerprint');
+  const planFingerprint = sha256(planFingerprintInput, 'plan_fingerprint');
+  if (
+    readiness.snapshot_fingerprint !== snapshotFingerprint
+    || readiness.plan_fingerprint !== planFingerprint
+  ) {
+    throw new TypeError('Recovery handoff mezcla evidencia de snapshot o plan.');
+  }
 
   const core = Object.freeze({
     version: 1 as const,
     authority: 'unchanged' as const,
     execution_id: executionId,
     readiness_fingerprint: readiness.fingerprint,
-    snapshot_fingerprint: readiness.snapshot_fingerprint as string,
-    plan_fingerprint: readiness.plan_fingerprint as string,
+    snapshot_fingerprint: snapshotFingerprint,
+    plan_fingerprint: planFingerprint,
     execution: false as const,
     network_access: false as const,
     external_mutation: false as const,
