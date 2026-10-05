@@ -33,6 +33,14 @@ export type ControlBotExecutionOrderV1 = Readonly<{
   instruction_ref: string;
 }>;
 
+export type FencedExecutionSessionV1 = Readonly<{
+  version: 1;
+  session_id: string;
+  runner_id: string;
+  generation: number;
+  scope: string;
+}>;
+
 export type FencedExecutionBinding = Readonly<{
   version: 1;
   session_id: string;
@@ -82,6 +90,14 @@ const ORDER_FIELDS = Object.freeze([
   'issued_at',
   'expires_at',
   'instruction_ref',
+]);
+
+const SESSION_FIELDS = Object.freeze([
+  'version',
+  'session_id',
+  'runner_id',
+  'generation',
+  'scope',
 ]);
 
 const BINDING_FIELDS = Object.freeze([
@@ -138,6 +154,20 @@ function parseControlBotExecutionOrder(input: unknown): ControlBotExecutionOrder
   });
 }
 
+function parseSession(input: unknown): FencedExecutionSessionV1 {
+  const record = asRecord(input, 'FencedExecutionSessionV1');
+  exactKeys(record, SESSION_FIELDS, 'FencedExecutionSessionV1');
+  if (record.version !== 1) throw new TypeError('FencedExecutionSessionV1 version inválida.');
+
+  return Object.freeze({
+    version: 1,
+    session_id: ref(record.session_id, 'session_id', 160),
+    runner_id: uuid(record.runner_id, 'runner_id'),
+    generation: integer(record.generation, 'generation', 1, MAX_GENERATION),
+    scope: ref(record.scope, 'scope', 160),
+  });
+}
+
 function internalProjection(order: ControlBotExecutionOrderV1): ExecutionOrder {
   return {
     version: 1,
@@ -153,16 +183,16 @@ function internalProjection(order: ControlBotExecutionOrderV1): ExecutionOrder {
 }
 
 function bindingCore(
-  sessionId: string,
+  session: FencedExecutionSessionV1,
   order: ControlBotExecutionOrderV1,
   internalFingerprint: string,
 ): Omit<FencedExecutionBinding, 'binding_fingerprint' | keyof typeof SAFETY> {
   return {
     version: 1,
-    session_id: sessionId,
-    generation: order.generation,
+    session_id: session.session_id,
+    generation: session.generation,
     attempt_id: order.attempt_id,
-    scope: order.scope,
+    scope: session.scope,
     runner_id: order.runner_id,
     order_id: order.order_id,
     work_item_id: order.work_item_id,
@@ -246,22 +276,33 @@ function assertInternalOrderMatches(
 }
 
 export function bindFencedExecution(
+  sessionInput: unknown,
   pollEnvelopeInput: ControlBotRunnerHttpEnvelope | unknown,
   controlBotOrderInput: unknown,
   internalOrderInput: unknown,
 ): FencedExecutionBinding {
+  const session = parseSession(sessionInput);
   const poll = pollContext(pollEnvelopeInput);
   const controlBotOrder = parseControlBotExecutionOrder(controlBotOrderInput);
 
   if (
-    poll.runner_id !== controlBotOrder.runner_id
-    || poll.generation !== controlBotOrder.generation
+    poll.session_id !== session.session_id
+    || poll.runner_id !== session.runner_id
+    || poll.generation !== session.generation
   ) {
-    throw new TypeError('Runner/generation fence mismatch.');
+    throw new TypeError('Session/poll fence mismatch.');
+  }
+
+  if (
+    controlBotOrder.runner_id !== session.runner_id
+    || controlBotOrder.generation !== session.generation
+    || controlBotOrder.scope !== session.scope
+  ) {
+    throw new TypeError('Order/session fence mismatch.');
   }
 
   const internalFingerprint = assertInternalOrderMatches(controlBotOrder, internalOrderInput);
-  const core = bindingCore(poll.session_id, controlBotOrder, internalFingerprint);
+  const core = bindingCore(session, controlBotOrder, internalFingerprint);
 
   return Object.freeze({
     ...core,
