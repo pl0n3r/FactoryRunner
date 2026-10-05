@@ -14,7 +14,10 @@ type PackageManifest = Readonly<{
 }>;
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
-const PUBLIC_ENTRYPOINT = 'src/browser-remote-observability-public.ts';
+const PUBLIC_ENTRYPOINTS = Object.freeze({
+  '.': 'src/browser-remote-observability-public.ts',
+  './recovery-handoff': 'src/execution-recovery-handoff-public.ts',
+}) satisfies Readonly<Record<string, string>>;
 
 function fail(message: string): never {
   throw new Error(message);
@@ -31,6 +34,17 @@ function outputFromArgs(argv: readonly string[]): string {
     fail('El staging debe vivir fuera del repositorio.');
   }
   return output;
+}
+
+function expectedExports(): Readonly<Record<string, string>> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(PUBLIC_ENTRYPOINTS).map(([key, entrypoint]) => [
+        key,
+        './' + entrypoint,
+      ]),
+    ),
+  );
 }
 
 function packageManifest(input: unknown): PackageManifest {
@@ -50,14 +64,23 @@ function packageManifest(input: unknown): PackageManifest {
   }
 
   const exportsValue = manifest.exports;
+  const expected = expectedExports();
   if (
     typeof exportsValue !== 'object'
     || exportsValue === null
     || Array.isArray(exportsValue)
-    || Object.keys(exportsValue).length !== 1
-    || (exportsValue as Record<string, unknown>)['.'] !== './' + PUBLIC_ENTRYPOINT
   ) {
-    fail('Entrypoint público base inválido.');
+    fail('Exports públicos inválidos.');
+  }
+  const actualExports = exportsValue as Record<string, unknown>;
+  const actualKeys = Object.keys(actualExports).sort((left, right) => left.localeCompare(right, 'en'));
+  const expectedKeys = Object.keys(expected).sort((left, right) => left.localeCompare(right, 'en'));
+  if (
+    actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])
+    || expectedKeys.some((key) => actualExports[key] !== expected[key])
+  ) {
+    fail('Entrypoints públicos inválidos.');
   }
 
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
@@ -82,7 +105,9 @@ function packageManifest(input: unknown): PackageManifest {
   if (files.some((value, index) => value !== sorted[index])) {
     fail('files debe estar ordenado.');
   }
-  if (!files.includes(PUBLIC_ENTRYPOINT)) fail('Falta el entrypoint público.');
+  for (const entrypoint of Object.values(PUBLIC_ENTRYPOINTS)) {
+    if (!files.includes(entrypoint)) fail('Falta un entrypoint público.');
+  }
 
   const engines = manifest.engines;
   if (
@@ -102,7 +127,7 @@ function packageManifest(input: unknown): PackageManifest {
     version: manifest.version,
     private: true,
     type: 'module',
-    exports: { '.': './' + PUBLIC_ENTRYPOINT },
+    exports: expected,
     files: Object.freeze(files),
     ...(engines === undefined
       ? {}
@@ -171,14 +196,21 @@ async function main(): Promise<void> {
     JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8')) as unknown,
   );
   const emitted = await transpileAllowlist(manifest, outputRoot);
-  const publicJs = './' + PUBLIC_ENTRYPOINT.replace(/\.ts$/, '.js');
+  const stagedExports = Object.freeze(
+    Object.fromEntries(
+      Object.entries(manifest.exports).map(([key, source]) => [
+        key,
+        source.replace(/\.ts$/, '.js'),
+      ]),
+    ),
+  );
 
   const staged = {
     name: manifest.name,
     version: manifest.version,
     private: true,
     type: 'module',
-    exports: { '.': publicJs },
+    exports: stagedExports,
     files: emitted,
     ...(manifest.engines === undefined ? {} : { engines: manifest.engines }),
   } as const;
