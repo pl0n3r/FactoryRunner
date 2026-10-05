@@ -63,10 +63,8 @@ type ConsumerResult = Readonly<{
   verified: true;
   installed_from_local_artifact: true;
   public_api_consumed: true;
-  public_surfaces_consumed: readonly [
-    '@pl0n3r/factoryrunner',
-    '@pl0n3r/factoryrunner/recovery-handoff',
-  ];
+  public_surfaces_consumed: readonly string[];
+  package_version: string;
   receipt_sha256: string;
   artifact_sha256: string;
   packet_status: 'READY';
@@ -235,6 +233,24 @@ function packageIdentity(value: unknown, label: string): ReceiptVerification['pa
     version: object.version,
     private: true,
     type: 'module',
+  });
+}
+
+function consumerPackage(value: unknown, label: string): Readonly<{
+  name: typeof ROOT_PACKAGE;
+  version: string;
+}> {
+  const object = exactObject(value, label, ['name', 'version']);
+  if (
+    object.name !== ROOT_PACKAGE
+    || typeof object.version !== 'string'
+    || !VERSION_RE.test(object.version)
+  ) {
+    fail(label + ': identidad de package inválida.');
+  }
+  return Object.freeze({
+    name: ROOT_PACKAGE,
+    version: object.version,
   });
 }
 
@@ -435,7 +451,10 @@ function consumerResult(value: JsonObject): ConsumerResult {
   ) {
     fail('verified consumer: superficies o autoridad inválidas.');
   }
-  packageIdentity(object.package, 'verified consumer.package');
+  const consumerPackageValue = consumerPackage(
+    object.package,
+    'verified consumer.package',
+  );
   return Object.freeze({
     verified: true,
     installed_from_local_artifact: true,
@@ -444,6 +463,7 @@ function consumerResult(value: JsonObject): ConsumerResult {
       ROOT_PACKAGE,
       RECOVERY_SUBPATH,
     ]),
+    package_version: consumerPackageValue.version,
     receipt_sha256: sha256(object.receipt_sha256, 'verified consumer.receipt_sha256'),
     artifact_sha256: sha256(object.artifact_sha256, 'verified consumer.artifact_sha256'),
     packet_status: 'READY',
@@ -537,6 +557,7 @@ async function main(): Promise<void> {
     if (
       consumed.artifact_sha256 !== binding.evidence.artifact_sha256
       || consumed.receipt_sha256 !== binding.evidence.receipt_sha256
+      || consumed.package_version !== binding.package.version
     ) {
       fail('verified consumer: artifact/receipt no coincide con fresh binding.');
     }
