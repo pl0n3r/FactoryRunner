@@ -73,8 +73,18 @@ class FactoryRunnerExecutionRecoveryHandoffPacketTests(unittest.TestCase):
             NODE_FIXTURE
             + r"""
             const input = readiness();
-            const first = executionRecoveryHandoffPacket(executionId, input);
-            const second = executionRecoveryHandoffPacket(executionId, input);
+            const first = executionRecoveryHandoffPacket(
+              executionId,
+              input,
+              snapshotFingerprint,
+              planFingerprint,
+            );
+            const second = executionRecoveryHandoffPacket(
+              executionId,
+              input,
+              snapshotFingerprint,
+              planFingerprint,
+            );
 
             assert.deepEqual(first, second);
             assert.equal(first.version, 1);
@@ -120,20 +130,6 @@ class FactoryRunnerExecutionRecoveryHandoffPacketTests(unittest.TestCase):
             const stale = readiness();
             stale.fingerprint = '0'.repeat(64);
 
-            const mixed = readiness({ snapshot_fingerprint: 'c'.repeat(64) });
-            mixed.fingerprint = stableSha256({
-              version: mixed.version,
-              authority: mixed.authority,
-              ready: mixed.ready,
-              reason: mixed.reason,
-              snapshot_fingerprint: mixed.snapshot_fingerprint,
-              plan_fingerprint: mixed.plan_fingerprint,
-              execution: mixed.execution,
-              network_access: mixed.network_access,
-              external_mutation: mixed.external_mutation,
-              counts: mixed.counts,
-            });
-
             const extra = { ...readiness(), unexpected: true };
             const authority = readiness({ authority: 'elevated' });
             const blocked = readiness({
@@ -148,17 +144,34 @@ class FactoryRunnerExecutionRecoveryHandoffPacketTests(unittest.TestCase):
             const badExecutionIds = ['', 'secret=abc', 'has space'];
 
             for (const input of [stale, extra, authority, blocked, invalidCounts, badSnapshot]) {
-              assert.throws(() => executionRecoveryHandoffPacket(executionId, input));
+              assert.throws(() => executionRecoveryHandoffPacket(
+                executionId,
+                input,
+                snapshotFingerprint,
+                planFingerprint,
+              ));
             }
             for (const id of badExecutionIds) {
-              assert.throws(() => executionRecoveryHandoffPacket(id, readiness()));
+              assert.throws(() => executionRecoveryHandoffPacket(
+                id,
+                readiness(),
+                snapshotFingerprint,
+                planFingerprint,
+              ));
             }
 
-            const mixedPacket = executionRecoveryHandoffPacket(executionId, mixed);
-            assert.equal(mixedPacket.snapshot_fingerprint, 'c'.repeat(64));
-            assert.equal(mixedPacket.execution, false);
-            assert.equal(mixedPacket.network_access, false);
-            assert.equal(mixedPacket.external_mutation, false);
+            assert.throws(() => executionRecoveryHandoffPacket(
+              executionId,
+              readiness(),
+              'c'.repeat(64),
+              planFingerprint,
+            ));
+            assert.throws(() => executionRecoveryHandoffPacket(
+              executionId,
+              readiness(),
+              snapshotFingerprint,
+              'd'.repeat(64),
+            ));
             """
         )
 
