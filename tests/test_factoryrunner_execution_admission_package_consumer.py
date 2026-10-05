@@ -35,8 +35,9 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
         self,
         root: Path,
         requirements: tuple[dict[str, object], ...] = REQUIREMENTS,
+        filename: str = "execution-admission-requirements.json",
     ) -> Path:
-        path = root / "execution-admission-requirements.json"
+        path = root / filename
         path.write_text(
             json.dumps(list(requirements), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -51,6 +52,7 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
         dependencies: Path,
         requirements: Path,
         *,
+        preflight: Path = PREFLIGHT,
         check: bool = True,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
@@ -68,7 +70,7 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
                 "--dependencies",
                 str(dependencies),
                 "--preflight",
-                str(PREFLIGHT),
+                str(preflight),
                 "--requirements",
                 str(requirements),
             ],
@@ -181,12 +183,7 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            bundle_a = root / "a"
-            bundle_b = root / "b"
-            bundle_a.mkdir()
-            bundle_b.mkdir()
-            artifact_a, provenance_a, dependencies_a, receipt_a = self._bundle(bundle_a)
-            artifact_b, provenance_b, dependencies_b, _receipt_b = self._bundle(bundle_b)
+            artifact, provenance, dependencies, receipt = self._bundle(root)
             requirements = self._requirements(root)
 
             temp_root = root / "consumer-tmp"
@@ -194,41 +191,26 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
             env = os.environ.copy()
             env["TMPDIR"] = str(temp_root)
 
-            cases: list[tuple[str, Path, Path, Path, Path, Path]] = [
-                (
-                    "mixed_artifact",
-                    receipt_a,
-                    artifact_b,
-                    provenance_a,
-                    dependencies_a,
-                    requirements,
-                ),
-                (
-                    "stale_provenance",
-                    receipt_a,
-                    artifact_a,
-                    provenance_b,
-                    dependencies_a,
-                    requirements,
-                ),
-            ]
+            substituted = root / "mixed-artifact.tgz"
+            substituted.write_bytes(artifact.read_bytes() + b"tamper")
 
-            payload = json.loads(receipt_a.read_text(encoding="utf-8"))
+            mixed_payload = json.loads(dependencies.read_text(encoding="utf-8"))
+            mixed_payload["package"]["version"] = "9.9.9"
+            mixed_dependencies = root / "mixed-dependencies.json"
+            mixed_dependencies.write_text(
+                json.dumps(mixed_payload, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            copied_preflight = root / PREFLIGHT.name
+            copied_preflight.write_bytes(PREFLIGHT.read_bytes())
+
+            payload = json.loads(receipt.read_text(encoding="utf-8"))
             payload["artifact"]["sha256"] = "0" * 64
             tampered = root / "tampered-receipt.json"
             tampered.write_text(
                 json.dumps(payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
-            )
-            cases.append(
-                (
-                    "tampered_receipt",
-                    tampered,
-                    artifact_a,
-                    provenance_a,
-                    dependencies_a,
-                    requirements,
-                )
             )
 
             incompatible = self._requirements(
@@ -239,33 +221,76 @@ class FactoryRunnerExecutionAdmissionPackageConsumerTests(unittest.TestCase):
                     else dict(item)
                     for item in REQUIREMENTS
                 ),
+                "incompatible-requirements.json",
             )
-            cases.append(
+
+            cases: list[
+                tuple[str, Path, Path, Path, Path, Path, Path]
+            ] = [
+                (
+                    "mixed_artifact",
+                    receipt,
+                    substituted,
+                    provenance,
+                    dependencies,
+                    requirements,
+                    PREFLIGHT,
+                ),
+                (
+                    "mixed_dependencies",
+                    receipt,
+                    artifact,
+                    provenance,
+                    mixed_dependencies,
+                    requirements,
+                    PREFLIGHT,
+                ),
+                (
+                    "stale_preflight",
+                    receipt,
+                    artifact,
+                    provenance,
+                    dependencies,
+                    requirements,
+                    copied_preflight,
+                ),
+                (
+                    "tampered_receipt",
+                    tampered,
+                    artifact,
+                    provenance,
+                    dependencies,
+                    requirements,
+                    PREFLIGHT,
+                ),
                 (
                     "incompatible_contract",
-                    receipt_a,
-                    artifact_a,
-                    provenance_a,
-                    dependencies_a,
+                    receipt,
+                    artifact,
+                    provenance,
+                    dependencies,
                     incompatible,
-                )
-            )
+                    PREFLIGHT,
+                ),
+            ]
 
             for (
                 name,
-                receipt,
-                artifact,
-                provenance,
-                dependencies,
+                receipt_path,
+                artifact_path,
+                provenance_path,
+                dependencies_path,
                 requirement_file,
+                preflight_path,
             ) in cases:
                 with self.subTest(name=name):
                     rejected = self._run(
-                        receipt,
-                        artifact,
-                        provenance,
-                        dependencies,
+                        receipt_path,
+                        artifact_path,
+                        provenance_path,
+                        dependencies_path,
                         requirement_file,
+                        preflight=preflight_path,
                         check=False,
                         env=env,
                     )
