@@ -86,7 +86,19 @@ function evidence() {
     snapshotFingerprint,
     planFingerprint,
   );
-  return { packet, verification, preview };
+  return { ready, packet, verification, preview };
+}
+
+function manifest(packet, verification, preview, ready = readiness()) {
+  return executionRecoveryHandoffManifest(
+    packet,
+    verification,
+    preview,
+    executionId,
+    ready,
+    snapshotFingerprint,
+    planFingerprint,
+  );
 }
 """
 
@@ -97,8 +109,8 @@ class FactoryRunnerExecutionRecoveryHandoffManifestTests(unittest.TestCase):
             NODE_FIXTURE
             + r"""
             const { packet, verification, preview } = evidence();
-            const first = executionRecoveryHandoffManifest(packet, verification, preview);
-            const second = executionRecoveryHandoffManifest(packet, verification, preview);
+            const first = manifest(packet, verification, preview);
+            const second = manifest(packet, verification, preview);
 
             assert.deepEqual(first, second);
             assert.equal(first.version, 1);
@@ -186,11 +198,7 @@ class FactoryRunnerExecutionRecoveryHandoffManifestTests(unittest.TestCase):
               [packet, verification, badPreview],
               [packet, verification, extraPreview],
             ]) {
-              assert.throws(() => executionRecoveryHandoffManifest(
-                candidatePacket,
-                candidateVerification,
-                candidatePreview,
-              ));
+              assert.throws(() => manifest(candidatePacket, candidateVerification, candidatePreview));
             }
 
             const otherExecution = 'execution:recovery:handoff:beta';
@@ -216,15 +224,21 @@ class FactoryRunnerExecutionRecoveryHandoffManifestTests(unittest.TestCase):
               planFingerprint,
             );
 
-            assert.throws(() => executionRecoveryHandoffManifest(
-              packet,
-              otherVerification,
-              preview,
-            ));
+            assert.throws(() => manifest(packet, otherVerification, preview));
+            assert.throws(() => manifest(packet, verification, otherPreview));
+
+            const stale = readiness();
+            stale.fingerprint = 'e'.repeat(64);
+            assert.throws(() => manifest(packet, verification, preview, stale));
+
             assert.throws(() => executionRecoveryHandoffManifest(
               packet,
               verification,
-              otherPreview,
+              preview,
+              executionId,
+              readiness(),
+              'c'.repeat(64),
+              planFingerprint,
             ));
             """
         )
