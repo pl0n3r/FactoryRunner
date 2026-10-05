@@ -5,10 +5,12 @@
   "type": "module",
   "exports": {
     ".": "./src/browser-remote-observability-public.ts",
-    "./recovery-handoff": "./src/execution-recovery-handoff-public.ts"
+    "./recovery-handoff": "./src/execution-recovery-handoff-public.ts",
+    "./execution-admission": "./src/execution-admission-public.ts"
   },
   "files": [
     "src/adapters/browser.ts",
+    "src/admission-evidence.ts",
     "src/browser-plan.ts",
     "src/browser-remote-directory-doctor.ts",
     "src/browser-remote-directory-health-bundle.ts",
@@ -26,8 +28,11 @@
     "src/browser-remote-observability-public-packet.ts",
     "src/browser-remote-observability-public.ts",
     "src/browser-remote-profile.ts",
+    "src/capability-manifest.ts",
     "src/controlbot/transport.ts",
     "src/event.ts",
+    "src/execution-admission-public.ts",
+    "src/execution-admission.ts",
     "src/execution-recovery-handoff-manifest-preview.ts",
     "src/execution-recovery-handoff-manifest-verify.ts",
     "src/execution-recovery-handoff-manifest.ts",
