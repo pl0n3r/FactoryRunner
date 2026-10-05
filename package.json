@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/browser-remote-observability-public.ts"
+    ".": "./src/browser-remote-observability-public.ts",
+    "./recovery-handoff": "./src/execution-recovery-handoff-public.ts"
   },
   "files": [
     "src/adapters/browser.ts",
@@ -25,6 +26,23 @@
     "src/browser-remote-observability-public-packet.ts",
     "src/browser-remote-observability-public.ts",
     "src/browser-remote-profile.ts",
+    "src/controlbot/transport.ts",
+    "src/event.ts",
+    "src/execution-recovery-handoff-manifest-preview.ts",
+    "src/execution-recovery-handoff-manifest-verify.ts",
+    "src/execution-recovery-handoff-manifest.ts",
+    "src/execution-recovery-handoff-packet.ts",
+    "src/execution-recovery-handoff-preview.ts",
+    "src/execution-recovery-handoff-public-compatibility.ts",
+    "src/execution-recovery-handoff-public-manifest.ts",
+    "src/execution-recovery-handoff-public.ts",
+    "src/execution-recovery-handoff-verify.ts",
+    "src/execution-recovery-plan.ts",
+    "src/execution-recovery-readiness.ts",
+    "src/execution-recovery-snapshot.ts",
+    "src/journal.ts",
+    "src/order.ts",
+    "src/outbox.ts",
     "src/runner.ts",
     "src/validation.ts"
   ],
