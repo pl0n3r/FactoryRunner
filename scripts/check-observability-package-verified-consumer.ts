@@ -326,7 +326,7 @@ process.stdout.write(JSON.stringify({
       recovery_manifest_external_mutation: false,
       recovery_compatibility_status: 'COMPATIBLE',
       recovery_compatibility_authority: 'unchanged',
-      recovery_compatibility_reasons: Object.freeze([]),
+      recovery_compatibility_reasons: Object.freeze([] as const),
       recovery_compatibility_execution: false,
       recovery_compatibility_network_access: false,
       recovery_compatibility_external_mutation: false,
