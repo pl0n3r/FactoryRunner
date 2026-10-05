@@ -2,9 +2,7 @@ import {
   executionRecoveryHandoffManifest,
   type ExecutionRecoveryHandoffManifest,
 } from './execution-recovery-handoff-manifest.ts';
-import { asRecord, exactKeys, ref, stableSha256 } from './validation.ts';
-
-const SHA256_RE = /^[0-9a-f]{64}$/;
+import { asRecord, exactKeys, stableSha256 } from './validation.ts';
 
 export type ExecutionRecoveryHandoffManifestVerification = Readonly<{
   version: 1;
@@ -21,13 +19,7 @@ export type ExecutionRecoveryHandoffManifestVerification = Readonly<{
   fingerprint: string;
 }>;
 
-function sha256(input: unknown, label: string): string {
-  const value = ref(input, label, 64).toLowerCase();
-  if (!SHA256_RE.test(value)) throw new TypeError(`${label} inválido.`);
-  return value;
-}
-
-function parseManifest(input: unknown): ExecutionRecoveryHandoffManifest {
+function assertManifestShape(input: unknown): asserts input is ExecutionRecoveryHandoffManifest {
   const record = asRecord(input, 'ExecutionRecoveryHandoffManifest');
   exactKeys(record, [
     'version',
@@ -41,37 +33,6 @@ function parseManifest(input: unknown): ExecutionRecoveryHandoffManifest {
     'external_mutation',
     'fingerprint',
   ], 'ExecutionRecoveryHandoffManifest');
-
-  if (
-    record.version !== 1
-    || record.authority !== 'unchanged'
-    || record.execution !== false
-    || record.network_access !== false
-    || record.external_mutation !== false
-  ) {
-    throw new TypeError('ExecutionRecoveryHandoffManifest cambia schema, authority o effects.');
-  }
-
-  const core = Object.freeze({
-    version: 1 as const,
-    authority: 'unchanged' as const,
-    execution_id: ref(record.execution_id, 'manifest.execution_id', 160),
-    packet_fingerprint: sha256(record.packet_fingerprint, 'manifest.packet_fingerprint'),
-    verification_fingerprint: sha256(
-      record.verification_fingerprint,
-      'manifest.verification_fingerprint',
-    ),
-    preview_fingerprint: sha256(record.preview_fingerprint, 'manifest.preview_fingerprint'),
-    execution: false as const,
-    network_access: false as const,
-    external_mutation: false as const,
-  });
-  const fingerprint = sha256(record.fingerprint, 'manifest.fingerprint');
-  if (stableSha256(core) !== fingerprint) {
-    throw new TypeError('ExecutionRecoveryHandoffManifest fingerprint inválido.');
-  }
-
-  return Object.freeze({ ...core, fingerprint });
 }
 
 export function executionRecoveryHandoffManifestVerify(
@@ -84,7 +45,7 @@ export function executionRecoveryHandoffManifestVerify(
   snapshotFingerprintInput: unknown,
   planFingerprintInput: unknown,
 ): ExecutionRecoveryHandoffManifestVerification {
-  const manifest = parseManifest(manifestInput);
+  assertManifestShape(manifestInput);
   const expected = executionRecoveryHandoffManifest(
     packetInput,
     verificationInput,
@@ -95,7 +56,7 @@ export function executionRecoveryHandoffManifestVerify(
     planFingerprintInput,
   );
 
-  if (stableSha256(manifest) !== stableSha256(expected)) {
+  if (stableSha256(manifestInput) !== stableSha256(expected)) {
     throw new TypeError('Recovery handoff manifest no coincide con la evidencia exacta.');
   }
 
