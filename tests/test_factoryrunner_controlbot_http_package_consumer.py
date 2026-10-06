@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import test_factoryrunner_observability_package_release_receipt as receipt_builder_module
 from test_factoryrunner_observability_package_release_receipt_verify import (
     FactoryRunnerObservabilityPackageReleaseReceiptVerifyTests as ReceiptFixture,
 )
@@ -62,14 +63,24 @@ class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
         return path
 
     @classmethod
-    def _invoke(cls, requirements, *, check=True, env=None):
+    def _invoke(
+        cls,
+        requirements,
+        *,
+        check=True,
+        env=None,
+        receipt=None,
+        artifact=None,
+        provenance=None,
+        dependencies=None,
+    ):
         completed = subprocess.run(
             [
                 "node", "--experimental-strip-types", str(CONSUMER),
-                "--receipt", str(cls.receipt),
-                "--artifact", str(cls.artifact),
-                "--provenance", str(cls.provenance),
-                "--dependencies", str(cls.dependencies),
+                "--receipt", str(receipt or cls.receipt),
+                "--artifact", str(artifact or cls.artifact),
+                "--provenance", str(provenance or cls.provenance),
+                "--dependencies", str(dependencies or cls.dependencies),
                 "--preflight", str(PREFLIGHT),
                 "--requirements", str(requirements),
             ],
@@ -87,15 +98,73 @@ class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
             )
         return completed
 
+    @classmethod
+    def _coherent_incompatible_bundle(cls):
+        root = cls.root / "incompatible-installed-surface"
+        root.mkdir(exist_ok=True)
+        fixture = ReceiptFixture(
+            "test_verifier_accepts_only_exact_receipt_and_bound_local_artifacts"
+        )
+        builder = fixture._fixture()
+        stage, _, _, _ = builder._build_evidence(root)
+
+        manifest = stage / "src" / "controlbot-http-public-manifest.js"
+        source = manifest.read_text(encoding="utf-8")
+        lines = source.splitlines(keepends=True)
+        filtered = [
+            line for line in lines
+            if "export_name: 'HttpSessionClientError'" not in line
+        ]
+        if len(lines) - len(filtered) != 1:
+            raise AssertionError("No fue posible recortar exactamente un export del manifest staged")
+        manifest.write_text("".join(filtered), encoding="utf-8")
+
+        pack = root / "repacked"
+        pack.mkdir()
+        packed = subprocess.run(
+            [
+                "npm", "pack", "--json", "--offline", "--ignore-scripts",
+                "--pack-destination", str(pack), ".",
+            ],
+            cwd=stage,
+            env=builder._npm_env(root / "repack-cache"),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        pack_result = json.loads(packed.stdout)
+        if len(pack_result) != 1:
+            raise AssertionError("npm pack produjo una cantidad inesperada de artefactos")
+        artifact = pack / pack_result[0]["filename"]
+
+        provenance = root / "repacked-provenance.json"
+        builder._run_node(
+            receipt_builder_module.PROVENANCE,
+            "--tarball", str(artifact),
+            "--stage", str(stage),
+            "--output", str(provenance),
+        )
+        dependencies = root / "repacked-dependencies.json"
+        builder._run_node(
+            receipt_builder_module.DEPENDENCIES,
+            "--manifest", str(stage / "package.json"),
+            "--lockfile", str(receipt_builder_module.LOCKFILE),
+            "--output", str(dependencies),
+        )
+        receipt = root / "repacked-receipt.json"
+        builder._receipt(artifact, provenance, dependencies, receipt)
+        return artifact, provenance, dependencies, receipt
+
     def test_consumer_imports_only_controlbot_http_public_subpath_after_compatibility_check(self):
         lowered = self.source.lower()
         self.assertLess(
             lowered.index("const receipt = verifiedreceipt(value)"),
-            lowered.index("const compatibilityfingerprint = await compatiblerequirements(value.requirements)"),
+            lowered.index("const compatibilitybinding = await compatiblerequirements(value.requirements)"),
         )
         self.assertLess(
-            lowered.index("const compatibilityfingerprint = await compatiblerequirements(value.requirements)"),
-            lowered.index("const consumed = await consume(value.artifact)"),
+            lowered.index("const compatibilitybinding = await compatiblerequirements(value.requirements)"),
+            lowered.index("const consumed = await consume(value.artifact, compatibilitybinding)"),
         )
         self.assertIn("from '@pl0n3r/factoryrunner/controlbot-http';", self.source)
         self.assertNotIn("@pl0n3r/factoryrunner/src/", self.source)
@@ -103,6 +172,50 @@ class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
         self.assertEqual(self.result["compatibility_status"], "COMPATIBLE")
         self.assertEqual(self.result["protocol_path"], "/v1/runner/poll")
         self.assertEqual(self.result["binding_authority"], "unchanged")
+
+    def test_installed_manifest_is_checked_against_external_requirements(self):
+        self.assertIn(
+            "controlBotHttpPublicCompatibility(manifest, externalRequirement)",
+            self.source,
+        )
+        self.assertIn("const externalRequirement = ${binding.requirements_json};", self.source)
+        self.assertNotIn("required_exports: manifest.exports.map", self.source)
+        self.assertEqual(
+            self.result["manifest_fingerprint"],
+            self.result["installed_manifest_fingerprint"],
+        )
+
+    def test_installed_manifest_fingerprint_must_match_prechecked_surface(self):
+        self.assertIn(
+            "compatibility.manifest_fingerprint !== expectedManifestFingerprint",
+            self.source,
+        )
+        self.assertIn("manifest.fingerprint !== expectedManifestFingerprint", self.source)
+        self.assertEqual(
+            self.result["compatibility_fingerprint"],
+            self.result["installed_compatibility_fingerprint"],
+        )
+        for key in (
+            "manifest_fingerprint",
+            "installed_manifest_fingerprint",
+            "compatibility_fingerprint",
+            "installed_compatibility_fingerprint",
+        ):
+            self.assertRegex(self.result[key], r"^[a-f0-9]{64}$")
+
+    def test_receipt_valid_but_incompatible_installed_surface_fails_before_use(self):
+        artifact, provenance, dependencies, receipt = self._coherent_incompatible_bundle()
+        rejected = self._invoke(
+            self.requirements,
+            check=False,
+            artifact=artifact,
+            provenance=provenance,
+            dependencies=dependencies,
+            receipt=receipt,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Consumer ControlBot HTTP rechazado.", rejected.stderr)
+        self.assertNotIn("Release receipt rechazado.", rejected.stderr)
 
     def test_consumer_runs_offline_with_ignore_scripts_and_fake_transport_only(self):
         for marker in (

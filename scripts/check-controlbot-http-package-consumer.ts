@@ -14,6 +14,11 @@ type Inputs = Readonly<Record<
 >>;
 
 type JsonMap = Record<string, unknown>;
+type CompatibilityBinding = Readonly<{
+  fingerprint: string;
+  manifest_fingerprint: string;
+  requirements_json: string;
+}>;
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const VERIFY_RECEIPT = resolve(ROOT, 'scripts', 'check-observability-package-release-receipt.ts');
@@ -108,7 +113,7 @@ function verifiedReceipt(value: Inputs): Readonly<{
   });
 }
 
-async function compatibleRequirements(path: string): Promise<string> {
+async function compatibleRequirements(path: string): Promise<CompatibilityBinding> {
   let requirementInput: unknown;
   try {
     requirementInput = JSON.parse(await readFile(path, 'utf8')) as unknown;
@@ -128,7 +133,14 @@ async function compatibleRequirements(path: string): Promise<string> {
     || report.manifest_fingerprint !== manifest.fingerprint
   ) fail('Compatibilidad pública ControlBot HTTP rechazada.');
 
-  return report.fingerprint;
+  const requirementsJson = JSON.stringify(requirementInput);
+  if (requirementsJson === undefined) fail('Requirements no serializables.');
+
+  return Object.freeze({
+    fingerprint: report.fingerprint,
+    manifest_fingerprint: manifest.fingerprint,
+    requirements_json: requirementsJson,
+  });
 }
 
 function npmEnv(cache: string): NodeJS.ProcessEnv {
@@ -143,7 +155,9 @@ function npmEnv(cache: string): NodeJS.ProcessEnv {
   };
 }
 
-const CONSUMER_SOURCE = String.raw`
+function consumerSource(binding: CompatibilityBinding): string {
+  const expectedManifestFingerprint = JSON.stringify(binding.manifest_fingerprint);
+  return String.raw`
 import {
   ControlBotHttpSessionClient,
   bindFencedExecution,
@@ -152,23 +166,16 @@ import {
   controlBotRunnerHttpRequest,
 } from '@pl0n3r/factoryrunner/controlbot-http';
 
+const externalRequirement = ${binding.requirements_json};
+const expectedManifestFingerprint = ${expectedManifestFingerprint};
 const manifest = controlBotHttpPublicManifest();
-const requirement = {
-  version: 1,
-  subpath: './controlbot-http',
-  protocol_version: 1,
-  fencing: 'required',
-  session_transport: 'injected_test_only',
-  authority: 'unchanged',
-  execution: false,
-  network_access: false,
-  external_mutation: false,
-  required_exports: manifest.exports.map(({ export_name, contract_version, capability }) => ({
-    export_name, contract_version, capability,
-  })),
-};
-const compatibility = controlBotHttpPublicCompatibility(manifest, requirement);
-if (compatibility.status !== 'COMPATIBLE' || compatibility.reasons.length !== 0) {
+const compatibility = controlBotHttpPublicCompatibility(manifest, externalRequirement);
+if (
+  compatibility.status !== 'COMPATIBLE'
+  || compatibility.reasons.length !== 0
+  || compatibility.manifest_fingerprint !== expectedManifestFingerprint
+  || manifest.fingerprint !== expectedManifestFingerprint
+) {
   throw new Error('installed contract incompatible');
 }
 
@@ -222,6 +229,8 @@ const status = client.status();
 process.stdout.write(JSON.stringify({
   public_import: '@pl0n3r/factoryrunner/controlbot-http',
   compatibility_status: compatibility.status,
+  installed_manifest_fingerprint: compatibility.manifest_fingerprint,
+  installed_compatibility_fingerprint: compatibility.fingerprint,
   protocol_path: poll.path,
   binding_authority: binding.authority,
   transport_mode: status.transport_mode,
@@ -232,8 +241,9 @@ process.stdout.write(JSON.stringify({
   external_mutation: response.external_mutation,
 }));
 `;
+}
 
-async function consume(artifact: string): Promise<JsonMap> {
+async function consume(artifact: string, binding: CompatibilityBinding): Promise<JsonMap> {
   const root = await mkdtemp(join(tmpdir(), 'factoryrunner-cb-http-'));
   try {
     await writeFile(
@@ -259,17 +269,19 @@ async function consume(artifact: string): Promise<JsonMap> {
     if (install.error !== undefined || install.status !== 0) fail('Instalación local offline rechazada.');
 
     const consumer = join(root, 'consumer.mjs');
-    await writeFile(consumer, CONSUMER_SOURCE, 'utf8');
+    await writeFile(consumer, consumerSource(binding), 'utf8');
     return commandJson([consumer], 'Consumer ControlBot HTTP', root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 }
 
-function assertConsumed(result: JsonMap): void {
+function assertConsumed(result: JsonMap, binding: CompatibilityBinding): void {
   if (
     result.public_import !== PUBLIC_IMPORT
     || result.compatibility_status !== 'COMPATIBLE'
+    || result.installed_manifest_fingerprint !== binding.manifest_fingerprint
+    || result.installed_compatibility_fingerprint !== binding.fingerprint
     || result.protocol_path !== '/v1/runner/poll'
     || result.binding_authority !== 'unchanged'
     || result.transport_mode !== 'injected_test_only'
@@ -284,9 +296,9 @@ function assertConsumed(result: JsonMap): void {
 async function main(): Promise<void> {
   const value = inputs(process.argv.slice(2));
   const receipt = verifiedReceipt(value);
-  const compatibilityFingerprint = await compatibleRequirements(value.requirements);
-  const consumed = await consume(value.artifact);
-  assertConsumed(consumed);
+  const compatibilityBinding = await compatibleRequirements(value.requirements);
+  const consumed = await consume(value.artifact, compatibilityBinding);
+  assertConsumed(consumed, compatibilityBinding);
 
   process.stdout.write(JSON.stringify({
     version: 1,
@@ -298,7 +310,10 @@ async function main(): Promise<void> {
     receipt_sha256: receipt.receipt_sha256,
     artifact_sha256: receipt.artifact_sha256,
     compatibility_status: consumed.compatibility_status,
-    compatibility_fingerprint: compatibilityFingerprint,
+    compatibility_fingerprint: compatibilityBinding.fingerprint,
+    manifest_fingerprint: compatibilityBinding.manifest_fingerprint,
+    installed_manifest_fingerprint: consumed.installed_manifest_fingerprint,
+    installed_compatibility_fingerprint: consumed.installed_compatibility_fingerprint,
     protocol_path: consumed.protocol_path,
     binding_authority: consumed.binding_authority,
     transport_mode: consumed.transport_mode,
