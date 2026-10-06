@@ -89,6 +89,127 @@ console.log(JSON.stringify({
         self.assertIs(result["same_fingerprint"], True)
         self.assertRegex(result["entry_fingerprint"], r"^[0-9a-f]{64}$")
 
+    def test_dynamic_outcome_getter_is_read_once_before_allowlist_decision(self):
+        result = self._node("""
+import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
+import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
+import { HttpSessionEvidenceLedger } from './src/controlbot/http-session-evidence-ledger.ts';
+
+const canonical = httpSessionEvidence(new HttpSessionClientError('client_disabled'));
+const dynamic = { ...canonical };
+let outcomeReads = 0;
+Object.defineProperty(dynamic, 'outcome', {
+  enumerable: true,
+  configurable: true,
+  get() {
+    outcomeReads += 1;
+    return outcomeReads === 1 ? 'client_disabled' : 'http_success';
+  },
+});
+
+const ledger = new HttpSessionEvidenceLedger();
+const entry = ledger.append(1, dynamic);
+const snapshot = ledger.snapshot();
+console.log(JSON.stringify({
+  outcome_reads: outcomeReads,
+  entry_outcome: entry.evidence.outcome,
+  snapshot_outcome: snapshot.entries[0].evidence.outcome,
+  evidence_fingerprint: entry.evidence.evidence_fingerprint,
+  expected_fingerprint: canonical.evidence_fingerprint,
+}));
+""")
+        self.assertEqual(result["outcome_reads"], 1)
+        self.assertEqual(result["entry_outcome"], "client_disabled")
+        self.assertEqual(result["snapshot_outcome"], "client_disabled")
+        self.assertEqual(result["evidence_fingerprint"], result["expected_fingerprint"])
+
+    def test_dynamic_safety_getters_are_read_once_and_noncanonical_values_fail_closed(self):
+        result = self._node("""
+import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
+import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
+import { HttpSessionEvidenceLedger } from './src/controlbot/http-session-evidence-ledger.ts';
+
+const failed = (operation) => {
+  try {
+    operation();
+    return false;
+  } catch {
+    return true;
+  }
+};
+const canonical = httpSessionEvidence(new HttpSessionClientError('transport_failed'));
+const dynamic = { ...canonical };
+const reads = {
+  authority: 0,
+  execution: 0,
+  network_access: 0,
+  external_mutation: 0,
+};
+const values = {
+  authority: ['unchanged', 'expanded'],
+  execution: [false, true],
+  network_access: [false, true],
+  external_mutation: [false, true],
+};
+for (const key of Object.keys(values)) {
+  Object.defineProperty(dynamic, key, {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads[key] += 1;
+      return values[key][reads[key] === 1 ? 0 : 1];
+    },
+  });
+}
+
+const ledger = new HttpSessionEvidenceLedger();
+const entry = ledger.append(1, dynamic);
+
+const noncanonical = { ...canonical };
+let rejectedAuthorityReads = 0;
+Object.defineProperty(noncanonical, 'authority', {
+  enumerable: true,
+  configurable: true,
+  get() {
+    rejectedAuthorityReads += 1;
+    return 'expanded';
+  },
+});
+const rejected = failed(() => new HttpSessionEvidenceLedger().append(1, noncanonical));
+
+console.log(JSON.stringify({
+  reads,
+  entry_safety: {
+    authority: entry.evidence.authority,
+    execution: entry.evidence.execution,
+    network_access: entry.evidence.network_access,
+    external_mutation: entry.evidence.external_mutation,
+  },
+  rejected,
+  rejected_authority_reads: rejectedAuthorityReads,
+}));
+""")
+        self.assertEqual(
+            result["reads"],
+            {
+                "authority": 1,
+                "execution": 1,
+                "network_access": 1,
+                "external_mutation": 1,
+            },
+        )
+        self.assertEqual(
+            result["entry_safety"],
+            {
+                "authority": "unchanged",
+                "execution": False,
+                "network_access": False,
+                "external_mutation": False,
+            },
+        )
+        self.assertIs(result["rejected"], True)
+        self.assertEqual(result["rejected_authority_reads"], 1)
+
     def test_sequence_drift_reorder_overflow_or_mixed_evidence_fails_closed(self):
         result = self._node("""
 import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
