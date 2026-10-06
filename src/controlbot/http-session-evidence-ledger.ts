@@ -1,4 +1,5 @@
 import type {
+  HttpSessionAbortEvidence,
   HttpSessionErrorEvidence,
   HttpSessionEvidence,
   HttpSessionSuccessEvidence,
@@ -35,6 +36,17 @@ const SUCCESS_FIELDS = Object.freeze([
 const ERROR_FIELDS = Object.freeze([
   'version',
   'outcome',
+  'authority',
+  'execution',
+  'network_access',
+  'external_mutation',
+  'evidence_fingerprint',
+]);
+const ABORT_FIELDS = Object.freeze([
+  'version',
+  'outcome',
+  'path',
+  'request_fingerprint',
   'authority',
   'execution',
   'network_access',
@@ -147,6 +159,47 @@ function canonicalSuccessEvidence(
   });
 }
 
+function canonicalAbortEvidence(
+  record: Record<string, unknown>,
+  outcomeInput: unknown,
+): HttpSessionAbortEvidence {
+  exactKeys(record, ABORT_FIELDS, 'HttpSessionEvidence');
+
+  const version = record.version;
+  const pathInput = record.path;
+  const requestFingerprintInput = record.request_fingerprint;
+  const safety = captureSafety(record);
+  const evidenceFingerprintInput = record.evidence_fingerprint;
+
+  if (version !== 2 || outcomeInput !== 'transport_aborted') {
+    throw new TypeError('HttpSessionEvidence abort inválida.');
+  }
+  assertSafety(safety);
+
+  if (
+    typeof pathInput !== 'string'
+    || !HTTP_PATHS.has(pathInput as HttpSessionAbortEvidence['path'])
+  ) {
+    throw new TypeError('HttpSessionEvidence path inválido.');
+  }
+  const requestFingerprint = fingerprintValue(requestFingerprintInput, 'request_fingerprint');
+  const evidenceFingerprint = fingerprintValue(evidenceFingerprintInput, 'evidence_fingerprint');
+  const core = {
+    version: 2 as const,
+    outcome: 'transport_aborted' as const,
+    path: pathInput as HttpSessionAbortEvidence['path'],
+    request_fingerprint: requestFingerprint,
+    ...SAFETY,
+  };
+  if (stableSha256(core) !== evidenceFingerprint) {
+    throw new TypeError('HttpSessionEvidence fingerprint inconsistente.');
+  }
+  return Object.freeze({
+    ...core,
+    evidence_fingerprint: evidenceFingerprint,
+  });
+}
+
 function canonicalErrorEvidence(
   record: Record<string, unknown>,
   outcomeInput: unknown,
@@ -186,6 +239,7 @@ function canonicalEvidence(input: unknown): HttpSessionEvidence {
   const record = asRecord(input, 'HttpSessionEvidence');
   const outcome = record.outcome;
   if (outcome === 'http_success') return canonicalSuccessEvidence(record, outcome);
+  if (outcome === 'transport_aborted') return canonicalAbortEvidence(record, outcome);
   return canonicalErrorEvidence(record, outcome);
 }
 

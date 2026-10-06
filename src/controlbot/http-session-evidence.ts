@@ -6,7 +6,8 @@ export type HttpSessionEvidenceOutcome =
   | 'http_success'
   | 'client_disabled'
   | 'transport_timeout'
-  | 'transport_failed';
+  | 'transport_failed'
+  | 'transport_aborted';
 
 type EvidenceSafety = Readonly<{
   authority: 'unchanged';
@@ -27,11 +28,27 @@ export type HttpSessionSuccessEvidence = EvidenceSafety & Readonly<{
 
 export type HttpSessionErrorEvidence = EvidenceSafety & Readonly<{
   version: 1;
-  outcome: Exclude<HttpSessionEvidenceOutcome, 'http_success'>;
+  outcome: Exclude<HttpSessionEvidenceOutcome, 'http_success' | 'transport_aborted'>;
   evidence_fingerprint: string;
 }>;
 
-export type HttpSessionEvidence = HttpSessionSuccessEvidence | HttpSessionErrorEvidence;
+export type HttpSessionAbortEvidenceInput = Readonly<{
+  path: ControlBotRunnerHttpPath;
+  request_fingerprint: string;
+}>;
+
+export type HttpSessionAbortEvidence = EvidenceSafety & Readonly<{
+  version: 2;
+  outcome: 'transport_aborted';
+  path: ControlBotRunnerHttpPath;
+  request_fingerprint: string;
+  evidence_fingerprint: string;
+}>;
+
+export type HttpSessionEvidence =
+  | HttpSessionSuccessEvidence
+  | HttpSessionErrorEvidence
+  | HttpSessionAbortEvidence;
 
 const RESULT_FIELDS = Object.freeze([
   'version',
@@ -46,6 +63,7 @@ const RESULT_FIELDS = Object.freeze([
   'network_access',
   'external_mutation',
 ]);
+const ABORT_INPUT_FIELDS = Object.freeze(['path', 'request_fingerprint']);
 const HTTP_PATHS = new Set<ControlBotRunnerHttpPath>([
   '/v1/runner/heartbeat',
   '/v1/runner/poll',
@@ -128,6 +146,22 @@ function successEvidence(input: unknown): HttpSessionSuccessEvidence {
     status,
     request_fingerprint: requestFingerprint,
     response_fingerprint: responseFingerprint,
+    ...SAFETY,
+  });
+}
+
+export function httpSessionAbortEvidence(input: unknown): HttpSessionAbortEvidence {
+  const record = asRecord(input, 'HttpSessionAbortEvidenceInput');
+  exactKeys(record, ABORT_INPUT_FIELDS, 'HttpSessionAbortEvidenceInput');
+
+  const path = pathValue(record.path);
+  const requestFingerprint = fingerprintValue(record.request_fingerprint, 'request_fingerprint');
+
+  return boundedEvidence({
+    version: 2 as const,
+    outcome: 'transport_aborted' as const,
+    path,
+    request_fingerprint: requestFingerprint,
     ...SAFETY,
   });
 }
