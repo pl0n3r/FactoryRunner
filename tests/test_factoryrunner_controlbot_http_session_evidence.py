@@ -171,6 +171,28 @@ console.log(JSON.stringify(outcomes));
             ],
         )
 
+    def test_error_code_is_read_once_before_allowlist_decision(self):
+        result = self._node("""
+import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
+import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
+const error = new HttpSessionClientError('transport_failed');
+let reads = 0;
+Object.defineProperty(error, 'code', {
+  configurable: true,
+  get() {
+    reads += 1;
+    return reads === 1 ? 'transport_failed' : 'authorization=Bearer mutable-secret';
+  },
+});
+const evidence = httpSessionEvidence(error);
+console.log(JSON.stringify({ reads, outcome: evidence.outcome, evidence }));
+""")
+        self.assertEqual(result["reads"], 1)
+        self.assertEqual(result["outcome"], "transport_failed")
+        serialized = json.dumps(result["evidence"]).lower()
+        for forbidden in ("authorization", "bearer", "secret", "token"):
+            self.assertNotIn(forbidden, serialized)
+
     def test_evidence_is_deterministic_local_bounded_and_non_executing(self):
         result = self._node("""
 import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
