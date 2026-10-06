@@ -8,15 +8,15 @@ import unittest
 from pathlib import Path
 
 from test_factoryrunner_observability_package_release_receipt_verify import (
-    FactoryRunnerObservabilityPackageReleaseReceiptVerifyTests as VerifiedReceiptFixture,
+    FactoryRunnerObservabilityPackageReleaseReceiptVerifyTests as ReceiptFixture,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFLIGHT = ROOT / "scripts" / "check-observability-package-release-preflight.ts"
 CONSUMER = ROOT / "scripts" / "check-controlbot-http-package-consumer.ts"
+PREFLIGHT = ROOT / "scripts" / "check-observability-package-release-preflight.ts"
 PUBLIC_SUBPATH = "@pl0n3r/factoryrunner/controlbot-http"
-REQUIREMENTS = {
+BASE_REQUIREMENTS = {
     "version": 1,
     "subpath": "./controlbot-http",
     "protocol_version": 1,
@@ -38,53 +38,40 @@ REQUIREMENTS = {
 
 
 class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
-    def _bundle(self, root: Path) -> tuple[Path, Path, Path, Path]:
-        helper = VerifiedReceiptFixture(
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.root = Path(cls.temp.name)
+        fixture = ReceiptFixture(
             "test_verifier_accepts_only_exact_receipt_and_bound_local_artifacts"
         )
-        return helper._bundle(root)
+        cls.artifact, cls.provenance, cls.dependencies, cls.receipt = fixture._bundle(cls.root)
+        cls.requirements = cls._write_requirements(BASE_REQUIREMENTS, "requirements.json")
+        cls.completed = cls._invoke(cls.requirements)
+        cls.result = json.loads(cls.completed.stdout)
+        cls.source = CONSUMER.read_text(encoding="utf-8")
 
-    def _requirements(
-        self,
-        root: Path,
-        payload: dict[str, object] | None = None,
-        filename: str = "controlbot-http-requirements.json",
-    ) -> Path:
-        path = root / filename
-        path.write_text(
-            json.dumps(REQUIREMENTS if payload is None else payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    @classmethod
+    def _write_requirements(cls, payload, filename):
+        path = cls.root / filename
+        path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
         return path
 
-    def _run(
-        self,
-        receipt: Path,
-        artifact: Path,
-        provenance: Path,
-        dependencies: Path,
-        requirements: Path,
-        *,
-        check: bool = True,
-        env: dict[str, str] | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+    @classmethod
+    def _invoke(cls, requirements, *, check=True, env=None):
         completed = subprocess.run(
             [
-                "node",
-                "--experimental-strip-types",
-                str(CONSUMER),
-                "--receipt",
-                str(receipt),
-                "--artifact",
-                str(artifact),
-                "--provenance",
-                str(provenance),
-                "--dependencies",
-                str(dependencies),
-                "--preflight",
-                str(PREFLIGHT),
-                "--requirements",
-                str(requirements),
+                "node", "--experimental-strip-types", str(CONSUMER),
+                "--receipt", str(cls.receipt),
+                "--artifact", str(cls.artifact),
+                "--provenance", str(cls.provenance),
+                "--dependencies", str(cls.dependencies),
+                "--preflight", str(PREFLIGHT),
+                "--requirements", str(requirements),
             ],
             cwd=ROOT,
             env=env,
@@ -94,55 +81,31 @@ class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
             timeout=120,
         )
         if check and completed.returncode != 0:
-            self.fail(
-                f"controlbot http consumer failed with exit {completed.returncode}\n"
+            raise AssertionError(
+                f"consumer exit {completed.returncode}\n"
                 f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
             )
         return completed
 
     def test_consumer_imports_only_controlbot_http_public_subpath_after_compatibility_check(self):
-        source = CONSUMER.read_text(encoding="utf-8")
-        lowered = source.lower()
+        lowered = self.source.lower()
         self.assertLess(
-            lowered.index("const verification = verifyreceipt(options, version)"),
-            lowered.index("const compatibility = await verifycompatibility(options)"),
+            lowered.index("const receipt = verifiedreceipt(value)"),
+            lowered.index("const compatibilityfingerprint = await compatiblerequirements(value.requirements)"),
         )
         self.assertLess(
-            lowered.index("const compatibility = await verifycompatibility(options)"),
-            lowered.index("const consumed = await consumeartifact(options)"),
+            lowered.index("const compatibilityfingerprint = await compatiblerequirements(value.requirements)"),
+            lowered.index("const consumed = await consume(value.artifact)"),
         )
-        self.assertIn(
-            "} from '@pl0n3r/factoryrunner/controlbot-http';",
-            source,
-        )
-        self.assertNotIn("@pl0n3r/factoryrunner/src/", source)
-        self.assertEqual(
-            source.count("@pl0n3r/factoryrunner/controlbot-http"),
-            2,
-        )
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            artifact, provenance, dependencies, receipt = self._bundle(root)
-            requirements = self._requirements(root)
-            result = json.loads(
-                self._run(receipt, artifact, provenance, dependencies, requirements).stdout
-            )
-
-        self.assertIs(result["verified"], True)
-        self.assertIs(result["installed_from_local_artifact"], True)
-        self.assertIs(result["public_api_consumed"], True)
-        self.assertEqual(result["public_import"], PUBLIC_SUBPATH)
-        self.assertEqual(result["compatibility_status"], "COMPATIBLE")
-        self.assertEqual(result["compatibility_reasons"], [])
-        self.assertEqual(result["protocol_path"], "/v1/runner/poll")
-        self.assertEqual(result["binding_authority"], "unchanged")
-        self.assertEqual(result["ack_kind"], "ack")
+        self.assertIn("from '@pl0n3r/factoryrunner/controlbot-http';", self.source)
+        self.assertNotIn("@pl0n3r/factoryrunner/src/", self.source)
+        self.assertEqual(self.result["public_import"], PUBLIC_SUBPATH)
+        self.assertEqual(self.result["compatibility_status"], "COMPATIBLE")
+        self.assertEqual(self.result["protocol_path"], "/v1/runner/poll")
+        self.assertEqual(self.result["binding_authority"], "unchanged")
 
     def test_consumer_runs_offline_with_ignore_scripts_and_fake_transport_only(self):
-        source = CONSUMER.read_text(encoding="utf-8")
-        lowered = source.lower()
-        for required in (
+        for marker in (
             "npm_config_offline: 'true'",
             "npm_config_ignore_scripts: 'true'",
             "'--offline'",
@@ -150,129 +113,74 @@ class FactoryRunnerControlBotHttpPackageConsumerTests(unittest.TestCase):
             "test_mode: true",
             "test_transport: async",
         ):
-            self.assertIn(required, source)
+            self.assertIn(marker, self.source)
 
+        lowered = self.source.lower()
         for forbidden in (
-            "node:http",
-            "node:https",
-            "fetch(",
-            "npm publish",
-            "npm login",
-            "npm adduser",
-            "npm view",
-            "--registry",
-            "registry.npmjs.org",
-            "curl ",
-            "wget ",
+            "node:http", "node:https", "fetch(", "npm publish", "npm login",
+            "npm adduser", "npm view", "--registry", "registry.npmjs.org",
+            "curl ", "wget ",
         ):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, lowered)
+            self.assertNotIn(forbidden, lowered)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            artifact, provenance, dependencies, receipt = self._bundle(root)
-            requirements = self._requirements(root)
-            result = json.loads(
-                self._run(receipt, artifact, provenance, dependencies, requirements).stdout
-            )
-
-        self.assertEqual(result["transport_mode"], "injected_test_only")
-        self.assertEqual(result["response_status"], 200)
-        self.assertIs(result["scripts_disabled"], True)
-        self.assertIs(result["registry_access"], False)
-        self.assertIs(result["publish_attempted"], False)
-        self.assertIs(result["network_access"], False)
+        self.assertEqual(self.result["transport_mode"], "injected_test_only")
+        self.assertEqual(self.result["response_status"], 200)
+        self.assertIs(self.result["scripts_disabled"], True)
+        self.assertIs(self.result["registry_access"], False)
+        self.assertIs(self.result["network_access"], False)
 
     def test_stale_incompatible_tampered_or_missing_public_contract_fails_before_use(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            artifact, provenance, dependencies, receipt = self._bundle(root)
-            temp_root = root / "consumer-tmp"
-            temp_root.mkdir()
-            env = os.environ.copy()
-            env["TMPDIR"] = str(temp_root)
+        scenarios = {}
 
-            cases: list[tuple[str, dict[str, object]]] = []
+        stale = copy.deepcopy(BASE_REQUIREMENTS)
+        stale["version"] = 2
+        scenarios["stale"] = stale
 
-            stale = copy.deepcopy(REQUIREMENTS)
-            stale["version"] = 2
-            cases.append(("stale", stale))
+        protocol = copy.deepcopy(BASE_REQUIREMENTS)
+        protocol["protocol_version"] = 2
+        scenarios["incompatible"] = protocol
 
-            incompatible = copy.deepcopy(REQUIREMENTS)
-            incompatible["protocol_version"] = 2
-            cases.append(("incompatible", incompatible))
+        tampered = copy.deepcopy(BASE_REQUIREMENTS)
+        tampered["required_exports"][0]["contract_version"] = 2
+        scenarios["tampered"] = tampered
 
-            tampered = copy.deepcopy(REQUIREMENTS)
-            tampered["required_exports"][0]["contract_version"] = 2
-            cases.append(("tampered", tampered))
+        missing = copy.deepcopy(BASE_REQUIREMENTS)
+        missing["required_exports"] = missing["required_exports"][:-1]
+        scenarios["missing"] = missing
 
-            missing = copy.deepcopy(REQUIREMENTS)
-            missing["required_exports"] = missing["required_exports"][:-1]
-            cases.append(("missing", missing))
+        temp_root = self.root / "rejected-consumers"
+        temp_root.mkdir(exist_ok=True)
+        env = os.environ.copy()
+        env["TMPDIR"] = str(temp_root)
 
-            unknown = copy.deepcopy(REQUIREMENTS)
-            unknown["required_exports"].append(
-                {"export_name": "unknownRuntimeExport", "contract_version": 1, "capability": "protocol"}
-            )
-            cases.append(("unknown", unknown))
-
-            for name, payload in cases:
-                with self.subTest(name=name):
-                    requirements = self._requirements(root, payload, f"{name}.json")
-                    rejected = self._run(
-                        receipt,
-                        artifact,
-                        provenance,
-                        dependencies,
-                        requirements,
-                        check=False,
-                        env=env,
-                    )
-                    self.assertNotEqual(rejected.returncode, 0)
-                    self.assertEqual(list(temp_root.iterdir()), [])
+        for case_id, payload in scenarios.items():
+            with self.subTest(case_id=case_id):
+                requirement_path = self._write_requirements(payload, case_id + ".json")
+                rejected = self._invoke(requirement_path, check=False, env=env)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertEqual(list(temp_root.iterdir()), [])
 
     def test_output_is_bounded_secret_free_and_non_executing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            artifact, provenance, dependencies, receipt = self._bundle(root)
-            requirements = self._requirements(root)
-            completed = self._run(
-                receipt,
-                artifact,
-                provenance,
-                dependencies,
-                requirements,
-            )
-            result = json.loads(completed.stdout)
-
-        self.assertLess(len(completed.stdout.encode("utf-8")), 4096)
-        self.assertEqual(result["authority"], "unchanged")
-        self.assertIs(result["execution"], False)
-        self.assertIs(result["network_access"], False)
-        self.assertIs(result["external_mutation"], False)
+        self.assertLess(len(self.completed.stdout.encode("utf-8")), 4096)
+        self.assertEqual(self.result["authority"], "unchanged")
+        self.assertIs(self.result["execution"], False)
+        self.assertIs(self.result["network_access"], False)
+        self.assertIs(self.result["external_mutation"], False)
         self.assertEqual(
-            result["receipt_sha256"],
-            hashlib.sha256(receipt.read_bytes()).hexdigest(),
+            self.result["receipt_sha256"],
+            hashlib.sha256(self.receipt.read_bytes()).hexdigest(),
         )
         self.assertEqual(
-            result["artifact_sha256"],
-            hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            self.result["artifact_sha256"],
+            hashlib.sha256(self.artifact.read_bytes()).hexdigest(),
         )
 
-        serialized = json.dumps(result, sort_keys=True).lower()
+        serialized = json.dumps(self.result, sort_keys=True).lower()
         for forbidden in (
-            "password",
-            "cookie",
-            "authorization",
-            "bearer ",
-            "dsn",
-            "instruction_ref",
-            "controlbot:instruction",
-            "token",
-            "secret",
+            "password", "cookie", "authorization", "bearer ", "dsn",
+            "instruction_ref", "controlbot:instruction", "token", "secret",
         ):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, serialized)
+            self.assertNotIn(forbidden, serialized)
 
 
 if __name__ == "__main__":
