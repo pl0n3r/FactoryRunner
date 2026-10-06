@@ -66,12 +66,21 @@ export type HttpSessionClientResult = Readonly<{
 }>;
 
 export class HttpSessionClientError extends Error {
-  readonly code: 'client_disabled' | 'transport_timeout' | 'transport_failed' | 'transport_aborted';
+  readonly code: 'client_disabled' | 'transport_timeout' | 'transport_failed';
 
-  constructor(code: 'client_disabled' | 'transport_timeout' | 'transport_failed' | 'transport_aborted') {
+  constructor(code: 'client_disabled' | 'transport_timeout' | 'transport_failed') {
     super(code);
     this.name = 'HttpSessionClientError';
     this.code = code;
+  }
+}
+
+export class HttpSessionAbortError extends Error {
+  readonly code = 'transport_aborted' as const;
+
+  constructor() {
+    super('transport_aborted');
+    this.name = 'HttpSessionAbortError';
   }
 }
 
@@ -300,7 +309,7 @@ export class ControlBotHttpSessionClient {
           signal: callerSignal,
         });
     if (abortContract?.snapshot().abort_phase === 'pre_dispatch') {
-      throw new HttpSessionClientError('transport_aborted');
+      throw new HttpSessionAbortError();
     }
 
     const transportController = callerSignal === undefined ? null : new AbortController();
@@ -321,7 +330,7 @@ export class ControlBotHttpSessionClient {
           callerAbortHandler = () => {
             if (callerAbortSettled) return;
             callerAbortSettled = true;
-            reject(new HttpSessionClientError('transport_aborted'));
+            reject(new HttpSessionAbortError());
             transportController?.abort();
           };
           callerSignal.addEventListener('abort', callerAbortHandler, { once: true });
@@ -340,8 +349,8 @@ export class ControlBotHttpSessionClient {
       );
     } catch (error) {
       if (
-        error instanceof HttpSessionClientError
-        && (error.code === 'transport_timeout' || error.code === 'transport_aborted')
+        error instanceof HttpSessionAbortError
+        || (error instanceof HttpSessionClientError && error.code === 'transport_timeout')
       ) {
         throw error;
       }
