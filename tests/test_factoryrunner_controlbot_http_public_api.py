@@ -99,11 +99,14 @@ class FactoryRunnerControlBotHttpPublicApiTests(unittest.TestCase):
         self.assertEqual(
             self.observed["exports"],
             [
+                "CONTROLBOT_HTTP_PUBLIC_EXPORTS",
                 "ControlBotHttpSessionClient",
                 "HttpSessionClientError",
                 "assertFencedAck",
                 "assertFencedEvent",
                 "bindFencedExecution",
+                "controlBotHttpPublicCompatibility",
+                "controlBotHttpPublicManifest",
                 "controlBotRunnerHttpRequest",
             ],
         )
