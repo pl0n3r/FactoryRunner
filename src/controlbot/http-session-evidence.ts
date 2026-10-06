@@ -133,12 +133,13 @@ function successEvidence(input: unknown): HttpSessionSuccessEvidence {
 }
 
 function errorEvidence(error: HttpSessionClientError): HttpSessionErrorEvidence {
-  if (!ERROR_OUTCOMES.has(error.code)) {
+  const code = error.code;
+  if (!ERROR_OUTCOMES.has(code)) {
     throw new TypeError('HttpSessionClientError code inválido.');
   }
   return boundedEvidence({
     version: 1 as const,
-    outcome: error.code,
+    outcome: code,
     ...SAFETY,
   });
 }
