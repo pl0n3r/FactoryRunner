@@ -1,6 +1,5 @@
 import {
   controlBotHttpPublicManifest,
-  type ControlBotHttpPublicCapability,
   type ControlBotHttpPublicExportName,
   type ControlBotHttpPublicManifest,
 } from './controlbot-http-public-manifest.ts';
