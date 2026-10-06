@@ -30,6 +30,8 @@
     "src/browser-remote-observability-public.ts",
     "src/browser-remote-profile.ts",
     "src/capability-manifest.ts",
+    "src/controlbot-http-public-compatibility.ts",
+    "src/controlbot-http-public-manifest.ts",
     "src/controlbot-http-public.ts",
     "src/controlbot/fenced-execution-binding.ts",
     "src/controlbot/http-protocol-v1.ts",
