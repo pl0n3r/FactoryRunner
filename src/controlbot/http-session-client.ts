@@ -1,15 +1,7 @@
 import { controlBotRunnerHttpRequest, type ControlBotRunnerHttpPath } from './http-protocol-v1.ts';
-import {
-  assertFencedAck,
-  assertFencedEvent,
-} from './fenced-execution-binding.ts';
-import {
-  asRecord,
-  exactKeys,
-  integer,
-  stableSha256,
-  type JsonRecord,
-} from '../validation.ts';
+import { assertFencedAck, assertFencedEvent } from './fenced-execution-binding.ts';
+import { HttpSessionAbortContract } from './http-session-abort.ts';
+import { asRecord, exactKeys, integer, stableSha256, type JsonRecord } from '../validation.ts';
 
 export type HttpSessionTransportRequest = Readonly<{
   version: 1;
@@ -32,6 +24,7 @@ export type HttpSessionTransportResponse = Readonly<{
 
 export type InjectedHttpSessionTransport = (
   request: HttpSessionTransportRequest,
+  signal?: AbortSignal,
 ) => Promise<unknown>;
 
 export type HttpSessionClientOptions = Readonly<{
@@ -40,6 +33,10 @@ export type HttpSessionClientOptions = Readonly<{
   timeout_ms?: number;
   max_response_bytes?: number;
   test_transport?: InjectedHttpSessionTransport;
+}>;
+
+export type HttpSessionRequestOptions = Readonly<{
+  signal?: AbortSignal;
 }>;
 
 export type HttpSessionClientStatus = Readonly<{
@@ -78,6 +75,15 @@ export class HttpSessionClientError extends Error {
   }
 }
 
+export class HttpSessionAbortError extends Error {
+  readonly code = 'transport_aborted' as const;
+
+  constructor() {
+    super('transport_aborted');
+    this.name = 'HttpSessionAbortError';
+  }
+}
+
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 32_768;
 const MAX_RESPONSE_BYTES = 65_536;
@@ -90,6 +96,7 @@ const OPTION_KEYS = new Set([
   'max_response_bytes',
   'test_transport',
 ]);
+const REQUEST_OPTION_KEYS = new Set(['signal']);
 
 const SAFETY = Object.freeze({
   authority: 'unchanged' as const,
@@ -115,6 +122,16 @@ function assertAllowedOptions(options: HttpSessionClientOptions): void {
   }
 }
 
+function requestSignal(optionsInput: HttpSessionRequestOptions): AbortSignal | undefined {
+  const record = asRecord(optionsInput, 'HttpSessionRequestOptions');
+  for (const key of Object.keys(record)) {
+    if (!REQUEST_OPTION_KEYS.has(key)) {
+      throw new TypeError('HttpSessionRequestOptions contiene campos inválidos.');
+    }
+  }
+  return record.signal as AbortSignal | undefined;
+}
+
 function booleanOption(value: unknown, fallback: boolean, label: string): boolean {
   if (value === undefined) return fallback;
   if (typeof value !== 'boolean') throw new TypeError(`${label} inválido.`);
@@ -129,7 +146,6 @@ function boundedResponse(
   const record = asRecord(input, 'HttpSessionTransportResponse');
   exactKeys(record, ['version', 'request_fingerprint', 'status', 'body'], 'HttpSessionTransportResponse');
   if (record.version !== 1) throw new TypeError('HttpSessionTransportResponse version inválida.');
-
   if (
     typeof record.request_fingerprint !== 'string'
     || !HASH_RE.test(record.request_fingerprint)
@@ -137,13 +153,11 @@ function boundedResponse(
   ) {
     throw new TypeError('HttpSessionTransportResponse request_fingerprint inválido.');
   }
-
   const status = integer(record.status, 'status', 200, 299);
   const body = asRecord(record.body, 'body');
   if (jsonBytes(body, 'body') > maxResponseBytes) {
     throw new TypeError('HttpSessionTransportResponse excede el límite de bytes.');
   }
-
   return Object.freeze({
     version: 1,
     request_fingerprint: record.request_fingerprint,
@@ -156,12 +170,7 @@ function canonicalEnvelope(
   path: ControlBotRunnerHttpPath,
   payloadInput: unknown,
 ): HttpSessionTransportRequest['envelope'] {
-  const rawEnvelope = {
-    version: 1,
-    method: 'POST',
-    path,
-    payload: payloadInput,
-  };
+  const rawEnvelope = { version: 1, method: 'POST', path, payload: payloadInput };
   const validated = controlBotRunnerHttpRequest(rawEnvelope);
   return Object.freeze({
     version: 1,
@@ -172,12 +181,7 @@ function canonicalEnvelope(
 }
 
 function rawEnvelope(path: ControlBotRunnerHttpPath, payloadInput: unknown): JsonRecord {
-  return {
-    version: 1,
-    method: 'POST',
-    path,
-    payload: payloadInput,
-  };
+  return { version: 1, method: 'POST', path, payload: payloadInput };
 }
 
 export class ControlBotHttpSessionClient {
@@ -197,7 +201,6 @@ export class ControlBotHttpSessionClient {
       256,
       MAX_RESPONSE_BYTES,
     );
-
     if (!enabled) {
       if (testMode || options.test_transport !== undefined) {
         throw new TypeError('Cliente deshabilitado no acepta transport.');
@@ -211,7 +214,6 @@ export class ControlBotHttpSessionClient {
       this.#enabled = true;
       this.#transport = options.test_transport;
     }
-
     this.#timeoutMs = timeoutMs;
     this.#maxResponseBytes = maxResponseBytes;
   }
@@ -227,26 +229,35 @@ export class ControlBotHttpSessionClient {
     });
   }
 
-  heartbeat(payloadInput: unknown): Promise<HttpSessionClientResult> {
-    return this.#send('/v1/runner/heartbeat', payloadInput);
+  heartbeat(payloadInput: unknown, options: HttpSessionRequestOptions = {}): Promise<HttpSessionClientResult> {
+    return this.#send('/v1/runner/heartbeat', payloadInput, undefined, options);
   }
 
-  poll(payloadInput: unknown): Promise<HttpSessionClientResult> {
-    return this.#send('/v1/runner/poll', payloadInput);
+  poll(payloadInput: unknown, options: HttpSessionRequestOptions = {}): Promise<HttpSessionClientResult> {
+    return this.#send('/v1/runner/poll', payloadInput, undefined, options);
   }
 
-  ack(bindingInput: unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
-    return this.#send('/v1/runner/ack', payloadInput, bindingInput);
+  ack(
+    bindingInput: unknown,
+    payloadInput: unknown,
+    options: HttpSessionRequestOptions = {},
+  ): Promise<HttpSessionClientResult> {
+    return this.#send('/v1/runner/ack', payloadInput, bindingInput, options);
   }
 
-  event(bindingInput: unknown, payloadInput: unknown): Promise<HttpSessionClientResult> {
-    return this.#send('/v1/runner/event', payloadInput, bindingInput);
+  event(
+    bindingInput: unknown,
+    payloadInput: unknown,
+    options: HttpSessionRequestOptions = {},
+  ): Promise<HttpSessionClientResult> {
+    return this.#send('/v1/runner/event', payloadInput, bindingInput, options);
   }
 
   async #send(
     path: ControlBotRunnerHttpPath,
     payloadInput: unknown,
-    bindingInput?: unknown,
+    bindingInput: unknown,
+    options: HttpSessionRequestOptions,
   ): Promise<HttpSessionClientResult> {
     if (!this.#enabled || this.#transport === null) {
       throw new HttpSessionClientError('client_disabled');
@@ -263,6 +274,7 @@ export class ControlBotHttpSessionClient {
 
     const envelope = canonicalEnvelope(path, payloadInput);
     const requestFingerprint = stableSha256(envelope);
+    const callerSignal = requestSignal(options);
     const request = Object.freeze({
       version: 1 as const,
       request_fingerprint: requestFingerprint,
@@ -270,7 +282,7 @@ export class ControlBotHttpSessionClient {
       envelope,
     });
 
-    const response = await this.#invoke(request);
+    const response = await this.#invoke(request, callerSignal);
     return Object.freeze({
       version: 1,
       path,
@@ -283,23 +295,69 @@ export class ControlBotHttpSessionClient {
     });
   }
 
-  async #invoke(request: HttpSessionTransportRequest): Promise<HttpSessionTransportResponse> {
+  async #invoke(
+    request: HttpSessionTransportRequest,
+    callerSignal: AbortSignal | undefined,
+  ): Promise<HttpSessionTransportResponse> {
     const transport = this.#transport;
     if (transport === null) throw new HttpSessionClientError('client_disabled');
 
+    const abortContract = callerSignal === undefined
+      ? null
+      : new HttpSessionAbortContract({
+          request_fingerprint: request.request_fingerprint,
+          signal: callerSignal,
+        });
+    if (abortContract?.snapshot().abort_phase === 'pre_dispatch') {
+      throw new HttpSessionAbortError();
+    }
+
+    const transportController = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let callerAbortHandler: (() => void) | undefined;
+    let callerAbortSettled = false;
+
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new HttpSessionClientError('transport_timeout')), this.#timeoutMs);
+      timer = setTimeout(() => {
+        reject(new HttpSessionClientError('transport_timeout'));
+        transportController.abort();
+      }, this.#timeoutMs);
     });
+
+    const callerAbort = callerSignal === undefined
+      ? null
+      : new Promise<never>((_, reject) => {
+          callerAbortHandler = () => {
+            if (callerAbortSettled) return;
+            callerAbortSettled = true;
+            reject(new HttpSessionAbortError());
+            transportController.abort();
+          };
+          callerSignal.addEventListener('abort', callerAbortHandler, { once: true });
+          if (abortContract?.snapshot().aborted === true) callerAbortHandler();
+        });
 
     let raw: unknown;
     try {
-      raw = await Promise.race([transport(request), timeout]);
+      const transportPromise = transport(request, transportController.signal);
+      raw = await Promise.race(
+        callerAbort === null
+          ? [transportPromise, timeout]
+          : [transportPromise, timeout, callerAbort],
+      );
     } catch (error) {
-      if (error instanceof HttpSessionClientError && error.code === 'transport_timeout') throw error;
+      if (
+        error instanceof HttpSessionAbortError
+        || (error instanceof HttpSessionClientError && error.code === 'transport_timeout')
+      ) {
+        throw error;
+      }
       throw new HttpSessionClientError('transport_failed');
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (callerSignal !== undefined && callerAbortHandler !== undefined) {
+        callerSignal.removeEventListener('abort', callerAbortHandler);
+      }
     }
 
     return boundedResponse(raw, request.request_fingerprint, this.#maxResponseBytes);

@@ -121,6 +121,7 @@ class FactoryRunnerObservabilityPackageBoundaryTests(unittest.TestCase):
             {
                 "src/controlbot/fenced-execution-binding.ts",
                 "src/controlbot/http-protocol-v1.ts",
+                "src/controlbot/http-session-abort.ts",
                 "src/controlbot/http-session-client.ts",
                 "src/controlbot/transport.ts",
             },
