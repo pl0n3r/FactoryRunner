@@ -25,3 +25,20 @@ export {
   type HttpSessionTransportResponse,
   type InjectedHttpSessionTransport,
 } from './controlbot/http-session-client.ts';
+
+export {
+  CONTROLBOT_HTTP_PUBLIC_EXPORTS,
+  controlBotHttpPublicManifest,
+  type ControlBotHttpPublicCapability,
+  type ControlBotHttpPublicExportName,
+  type ControlBotHttpPublicManifest,
+  type ControlBotHttpPublicManifestEntry,
+} from './controlbot-http-public-manifest.ts';
+
+export {
+  controlBotHttpPublicCompatibility,
+  type ControlBotHttpPublicCompatibility,
+  type ControlBotHttpPublicCompatibilityReason,
+  type ControlBotHttpPublicRequirement,
+  type ControlBotHttpPublicRequirements,
+} from './controlbot-http-public-compatibility.ts';
