@@ -89,7 +89,7 @@ console.log(JSON.stringify({
         self.assertIs(result["same_fingerprint"], True)
         self.assertRegex(result["entry_fingerprint"], r"^[0-9a-f]{64}$")
 
-    def test_dynamic_outcome_getter_is_read_once_before_allowlist_decision(self):
+    def test_outcome_getter_is_read_once_and_cannot_change_after_validation(self):
         result = self._node("""
 import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
 import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
@@ -123,7 +123,7 @@ console.log(JSON.stringify({
         self.assertEqual(result["snapshot_outcome"], "client_disabled")
         self.assertEqual(result["evidence_fingerprint"], result["expected_fingerprint"])
 
-    def test_dynamic_safety_getters_are_read_once_and_noncanonical_values_fail_closed(self):
+    def test_safety_getters_are_read_once_and_noncanonical_values_fail_closed(self):
         result = self._node("""
 import { HttpSessionClientError } from './src/controlbot/http-session-client.ts';
 import { httpSessionEvidence } from './src/controlbot/http-session-evidence.ts';
