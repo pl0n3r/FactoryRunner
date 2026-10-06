@@ -181,10 +181,10 @@ function verifyReceipt(options: Options, version: string): Verification {
     fail('Verifier no confirmó evidencia local esperada.');
   }
 
-  const packageRecord = packageValue as Record<string, unknown>;
+  const packageMetadata = packageValue as Record<string, unknown>;
   if (
-    packageRecord.name !== EXPECTED_PACKAGE
-    || packageRecord.version !== version
+    packageMetadata.name !== EXPECTED_PACKAGE
+    || packageMetadata.version !== version
   ) {
     fail('Identidad exacta del paquete no coincide.');
   }
