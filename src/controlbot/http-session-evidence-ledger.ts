@@ -49,6 +49,12 @@ const SAFETY = Object.freeze({
 });
 
 type LedgerSafety = typeof SAFETY;
+type CapturedSafety = Readonly<{
+  authority: unknown;
+  execution: unknown;
+  networkAccess: unknown;
+  externalMutation: unknown;
+}>;
 
 export type HttpSessionEvidenceLedgerEntry = Readonly<{
   version: 1;
@@ -74,36 +80,59 @@ function fingerprintValue(value: unknown, label: string): string {
   return value;
 }
 
-function assertSafety(record: Record<string, unknown>): void {
+function captureSafety(record: Record<string, unknown>): CapturedSafety {
+  return Object.freeze({
+    authority: record.authority,
+    execution: record.execution,
+    networkAccess: record.network_access,
+    externalMutation: record.external_mutation,
+  });
+}
+
+function assertSafety(safety: CapturedSafety): void {
   if (
-    record.authority !== 'unchanged'
-    || record.execution !== false
-    || record.network_access !== false
-    || record.external_mutation !== false
+    safety.authority !== 'unchanged'
+    || safety.execution !== false
+    || safety.networkAccess !== false
+    || safety.externalMutation !== false
   ) {
     throw new TypeError('HttpSessionEvidence safety inválida.');
   }
 }
 
-function canonicalSuccessEvidence(record: Record<string, unknown>): HttpSessionSuccessEvidence {
+function canonicalSuccessEvidence(
+  record: Record<string, unknown>,
+  outcomeInput: unknown,
+): HttpSessionSuccessEvidence {
   exactKeys(record, SUCCESS_FIELDS, 'HttpSessionEvidence');
-  if (record.version !== 1 || record.outcome !== 'http_success') {
+
+  const version = record.version;
+  const pathInput = record.path;
+  const statusInput = record.status;
+  const requestFingerprintInput = record.request_fingerprint;
+  const responseFingerprintInput = record.response_fingerprint;
+  const safety = captureSafety(record);
+  const evidenceFingerprintInput = record.evidence_fingerprint;
+
+  if (version !== 1 || outcomeInput !== 'http_success') {
     throw new TypeError('HttpSessionEvidence success inválida.');
   }
-  assertSafety(record);
+  assertSafety(safety);
 
-  const path = record.path;
-  if (typeof path !== 'string' || !HTTP_PATHS.has(path as HttpSessionSuccessEvidence['path'])) {
+  if (
+    typeof pathInput !== 'string'
+    || !HTTP_PATHS.has(pathInput as HttpSessionSuccessEvidence['path'])
+  ) {
     throw new TypeError('HttpSessionEvidence path inválido.');
   }
-  const status = integer(record.status, 'status', 200, 299);
-  const requestFingerprint = fingerprintValue(record.request_fingerprint, 'request_fingerprint');
-  const responseFingerprint = fingerprintValue(record.response_fingerprint, 'response_fingerprint');
-  const evidenceFingerprint = fingerprintValue(record.evidence_fingerprint, 'evidence_fingerprint');
+  const status = integer(statusInput, 'status', 200, 299);
+  const requestFingerprint = fingerprintValue(requestFingerprintInput, 'request_fingerprint');
+  const responseFingerprint = fingerprintValue(responseFingerprintInput, 'response_fingerprint');
+  const evidenceFingerprint = fingerprintValue(evidenceFingerprintInput, 'evidence_fingerprint');
   const core = {
     version: 1 as const,
     outcome: 'http_success' as const,
-    path: path as HttpSessionSuccessEvidence['path'],
+    path: pathInput as HttpSessionSuccessEvidence['path'],
     status,
     request_fingerprint: requestFingerprint,
     response_fingerprint: responseFingerprint,
@@ -118,15 +147,27 @@ function canonicalSuccessEvidence(record: Record<string, unknown>): HttpSessionS
   });
 }
 
-function canonicalErrorEvidence(record: Record<string, unknown>): HttpSessionErrorEvidence {
+function canonicalErrorEvidence(
+  record: Record<string, unknown>,
+  outcomeInput: unknown,
+): HttpSessionErrorEvidence {
   exactKeys(record, ERROR_FIELDS, 'HttpSessionEvidence');
-  if (record.version !== 1 || !ERROR_OUTCOMES.has(record.outcome as HttpSessionErrorEvidence['outcome'])) {
+
+  const version = record.version;
+  const safety = captureSafety(record);
+  const evidenceFingerprintInput = record.evidence_fingerprint;
+
+  if (
+    version !== 1
+    || typeof outcomeInput !== 'string'
+    || !ERROR_OUTCOMES.has(outcomeInput as HttpSessionErrorEvidence['outcome'])
+  ) {
     throw new TypeError('HttpSessionEvidence outcome inválido.');
   }
-  assertSafety(record);
+  assertSafety(safety);
 
-  const outcome = record.outcome as HttpSessionErrorEvidence['outcome'];
-  const evidenceFingerprint = fingerprintValue(record.evidence_fingerprint, 'evidence_fingerprint');
+  const outcome = outcomeInput as HttpSessionErrorEvidence['outcome'];
+  const evidenceFingerprint = fingerprintValue(evidenceFingerprintInput, 'evidence_fingerprint');
   const core = {
     version: 1 as const,
     outcome,
@@ -143,8 +184,9 @@ function canonicalErrorEvidence(record: Record<string, unknown>): HttpSessionErr
 
 function canonicalEvidence(input: unknown): HttpSessionEvidence {
   const record = asRecord(input, 'HttpSessionEvidence');
-  if (record.outcome === 'http_success') return canonicalSuccessEvidence(record);
-  return canonicalErrorEvidence(record);
+  const outcome = record.outcome;
+  if (outcome === 'http_success') return canonicalSuccessEvidence(record, outcome);
+  return canonicalErrorEvidence(record, outcome);
 }
 
 function sameEvidence(left: HttpSessionEvidence, right: HttpSessionEvidence): boolean {
