@@ -310,8 +310,8 @@ export class ControlBotHttpSessionClient {
 
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        transportController?.abort();
         reject(new HttpSessionClientError('transport_timeout'));
+        transportController?.abort();
       }, this.#timeoutMs);
     });
 
@@ -321,8 +321,8 @@ export class ControlBotHttpSessionClient {
           callerAbortHandler = () => {
             if (callerAbortSettled) return;
             callerAbortSettled = true;
-            transportController?.abort();
             reject(new HttpSessionClientError('transport_aborted'));
+            transportController?.abort();
           };
           callerSignal.addEventListener('abort', callerAbortHandler, { once: true });
           if (abortContract?.snapshot().aborted === true) callerAbortHandler();

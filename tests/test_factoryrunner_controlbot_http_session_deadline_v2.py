@@ -122,8 +122,12 @@ async function runCase(timeoutMs, abortMs) {{
     timeout_ms: timeoutMs,
     test_transport: async (_request, signal) => {{
       calls += 1;
-      signal?.addEventListener('abort', () => {{ transportAborted = true; }}, {{ once: true }});
-      return await new Promise(() => {{}});
+      return await new Promise((_resolve, reject) => {{
+        signal?.addEventListener('abort', () => {{
+          transportAborted = true;
+          reject(new Error('transport-cancelled'));
+        }}, {{ once: true }});
+      }});
     }},
   }});
   const abortTimer = setTimeout(() => controller.abort(), abortMs);
