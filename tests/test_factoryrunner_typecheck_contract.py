@@ -25,7 +25,7 @@ class FactoryRunnerTypecheckContractTests(unittest.TestCase):
         self.assertEqual(
             package["devDependencies"],
             {
-                "@types/node": "24.19.0",
+                "@types/node": "24.19.1",
                 "typescript": "6.0.3",
             },
         )
@@ -39,7 +39,7 @@ class FactoryRunnerTypecheckContractTests(unittest.TestCase):
         )
         self.assertEqual(
             lock["packages"]["node_modules/@types/node"]["version"],
-            "24.19.0",
+            "24.19.1",
         )
         self.assertEqual(
             lock["packages"]["node_modules/undici-types"]["version"],
