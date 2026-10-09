@@ -160,7 +160,7 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
           await sleeperErrorCase('retryable_status'),
         ];
         const invalidPayloads = [];
-        for (const value of [undefined, Symbol('invalid')]) {
+        for (const value of [undefined, Symbol('invalid'), () => undefined, { toJSON: () => undefined }]) {
           let calls = 0;
           let pauses = 0;
           const failing = new ControlBotHttpsTransport(
@@ -281,7 +281,7 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
         self.assertNotIn("injected_private_detail", json.dumps(self.observed))
 
     def test_invalid_json_serialization_fails_before_executor(self):
-        self.assertEqual(len(self.observed["invalidPayloads"]), 2)
+        self.assertEqual(len(self.observed["invalidPayloads"]), 4)
         for item in self.observed["invalidPayloads"]:
             self.assertEqual(item["error"], "controlbot_http_failed")
             self.assertEqual(item["calls"], 0)
