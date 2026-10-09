@@ -122,7 +122,67 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
           body: 'token=supersecretvalue',
         }));
 
+
+        async function sleeperErrorCase(mode) {
+          const observedCalls = [];
+          const pauses = [];
+          const failing = new ControlBotHttpsTransport(
+            profile,
+            async (request) => {
+              observedCalls.push(request);
+              if (mode === 'executor_throw') {
+                throw new Error('injected_private_detail');
+              }
+              return { status: 503, body: null };
+            },
+            async (delay) => {
+              pauses.push(delay);
+              throw new Error('injected_private_detail');
+            },
+          );
+          let error = null;
+          try {
+            await failing.poll({
+              version: 1,
+              runner_id: '11111111-1111-7111-8111-111111111111',
+              capabilities: ['git.head'],
+              cursor: null,
+              limit: 1,
+            });
+          } catch (caught) {
+            error = caught instanceof Error ? caught.message : 'non-error';
+          }
+          return { mode, error, calls: observedCalls.length, pauses: pauses.length };
+        }
+
+        const sleeperFailures = [
+          await sleeperErrorCase('executor_throw'),
+          await sleeperErrorCase('retryable_status'),
+        ];
+        const invalidPayloads = [];
+        for (const value of [undefined, Symbol('invalid'), () => undefined, { toJSON: () => undefined }]) {
+          let calls = 0;
+          let pauses = 0;
+          const failing = new ControlBotHttpsTransport(
+            profile,
+            async () => {
+              calls += 1;
+              return { status: 204, body: null };
+            },
+            async () => { pauses += 1; },
+          );
+          let error = null;
+          try {
+            await failing.poll(value);
+          } catch (caught) {
+            error = caught instanceof Error ? caught.message : 'non-error';
+          }
+          invalidPayloads.push({ error, calls, pauses });
+        }
+
         console.log(JSON.stringify({
+          sleeperFailures,
+          invalidPayloads,
           calls,
           delays,
           pollResult,
@@ -209,6 +269,24 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
         serialized = json.dumps(self.observed)
         self.assertNotIn("private provider detail", serialized)
         self.assertNotIn("supersecretvalue", serialized)
+
+
+    def test_backoff_sleeper_error_is_sanitized_without_retrying_invalid_state(self):
+        self.assertEqual(len(self.observed["sleeperFailures"]), 2)
+        for item in self.observed["sleeperFailures"]:
+            self.assertIn(item["mode"], ("executor_throw", "retryable_status"))
+            self.assertEqual(item["error"], "controlbot_http_failed")
+            self.assertEqual(item["calls"], 1)
+            self.assertEqual(item["pauses"], 1)
+        self.assertNotIn("injected_private_detail", json.dumps(self.observed))
+
+    def test_invalid_json_serialization_fails_before_executor(self):
+        self.assertEqual(len(self.observed["invalidPayloads"]), 4)
+        for item in self.observed["invalidPayloads"]:
+            self.assertEqual(item["error"], "controlbot_http_failed")
+            self.assertEqual(item["calls"], 0)
+            self.assertEqual(item["pauses"], 0)
+
 
 
 if __name__ == "__main__":

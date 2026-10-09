@@ -58,7 +58,10 @@ class FactoryRunnerControlBotClientTests(unittest.TestCase):
     def test_node_suite_contract(self):
         package = json.loads(read("package.json"))
         version = json.loads(read("config/version.json"))
-        self.assertEqual(version["version"], "0.1.4")
+        parts = version["version"].split(".")
+        self.assertEqual(len(parts), 3)
+        self.assertTrue(all(part.isascii() and part.isdigit() and (part == "0" or not part.startswith("0")) for part in parts))
+        self.assertGreaterEqual(tuple(map(int, parts)), (0, 1, 4))
         self.assertIn("typecheck", package["scripts"])
         self.assertIn("node --experimental-strip-types --test", package["scripts"]["test"])
         self.assertIn("node --experimental-strip-types scripts/build.ts", package["scripts"]["build"])
