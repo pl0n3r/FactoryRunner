@@ -57,7 +57,9 @@ const SENSITIVE_RESPONSE_KEY_RE =
 
 function serializedPayload(input: unknown): string {
   try {
-    return JSON.stringify(input);
+    const serialized = JSON.stringify(input);
+    if (typeof serialized !== 'string') throw new TypeError('invalid_json_payload');
+    return serialized;
   } catch {
     throw new ControlBotHttpsTransportError('controlbot_http_failed');
   }
@@ -137,6 +139,14 @@ export class ControlBotHttpsTransport implements ControlBotTransport {
     this.#sleep = sleep;
   }
 
+  async #waitBeforeRetry(failedAttempt: number): Promise<void> {
+    try {
+      await this.#sleep(retryDelay(this.#profile, failedAttempt));
+    } catch {
+      throw new ControlBotHttpsTransportError('controlbot_http_failed');
+    }
+  }
+
   async #post(route: RouteKey, payload: unknown): Promise<string | null> {
     const body = serializedPayload(payload);
 
@@ -160,7 +170,7 @@ export class ControlBotHttpsTransport implements ControlBotTransport {
         if (attempt >= this.#profile.backoff.max_attempts) {
           throw new ControlBotHttpsTransportError('controlbot_http_failed');
         }
-        await this.#sleep(retryDelay(this.#profile, attempt));
+        await this.#waitBeforeRetry(attempt);
         continue;
       }
 
@@ -170,7 +180,7 @@ export class ControlBotHttpsTransport implements ControlBotTransport {
       if (!retryableStatus(response.status) || attempt >= this.#profile.backoff.max_attempts) {
         throw new ControlBotHttpsTransportError('controlbot_http_failed');
       }
-      await this.#sleep(retryDelay(this.#profile, attempt));
+      await this.#waitBeforeRetry(attempt);
     }
 
     throw new ControlBotHttpsTransportError('controlbot_http_failed');
