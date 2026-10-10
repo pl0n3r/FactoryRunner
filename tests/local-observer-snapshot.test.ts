@@ -49,6 +49,13 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.equal(synthetic.freshness, 'UNKNOWN');
   assert.equal(synthetic.observed_at, null);
   assert.equal(synthetic.runners[0].status, 'UNKNOWN');
+  const syntheticStale = unknown({...input, provenance: 'synthetic', freshness: 'STALE'});
+  assert.equal(syntheticStale.provenance, 'synthetic');
+  assert.equal(syntheticStale.freshness, 'UNKNOWN');
+  assert.equal(syntheticStale.capacity.available, null);
+  assert.equal(syntheticStale.runners[0].status, 'UNKNOWN');
+  assert.equal(syntheticStale.runners[0].reason, 'UNKNOWN');
+  assert.equal(syntheticStale.runners[0].last_outcome, 'UNKNOWN');
   const stale = unknown({...input, freshness: 'STALE'});
   assert.equal(stale.capacity.available, null);
   assert.equal(stale.runners[0].reason, 'STALE');
@@ -78,6 +85,21 @@ test('stale cached synthetic and unordered times fail closed without live readin
   const noBlocker = unknown({...input, runners: [{...input.runners[0], reason: 'NONE', heartbeat_at: '2026-10-10T11:59:59Z'}]});
   assert.equal(noBlocker.runners[0].status, 'READY');
   assert.equal(noBlocker.runners[0].reason, 'NONE');
+  // Match runner.ts heartbeatHealth's 90-second boundary.
+  const atLimit = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:30Z'}]});
+  assert.equal(atLimit.runners[0].status, 'READY');
+  const tooOld = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
+  assert.equal(tooOld.runners[0].status, 'UNKNOWN');
+  assert.equal(tooOld.runners[0].reason, 'STALE');
+  assert.equal(tooOld.runners[0].last_outcome, 'UNKNOWN');
+  const ancient = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
+  assert.equal(ancient.runners[0].status, 'UNKNOWN');
+  assert.equal(ancient.runners[0].reason, 'STALE');
+  // Original blocking reason still wins over an old heartbeat.
+  const blockedOld = unknown({...input, runners: [{...input.runners[0], reason: 'HUMAN_GATE',
+    heartbeat_at: '2020-01-01T00:00:00Z'}]});
+  assert.equal(blockedOld.runners[0].status, 'UNKNOWN');
+  assert.equal(blockedOld.runners[0].reason, 'HUMAN_GATE');
   // Case variants of the same hexadecimal alias must not represent two runners.
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], id: 'runner-ABC'}]}), unknown(null));
   assert.deepEqual(unknown({...input, runners: [

@@ -98,13 +98,18 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     }
     // A claimed fresh snapshot without an observed source is not current evidence.
     const trustedAsCurrent = root.provenance === 'observed' && root.freshness === 'FRESH';
-    // Snapshot-level freshness does not override runner-specific evidence.
-    // READY requires both a heartbeat and an explicit NONE blocking reason.
+    // The runtime's heartbeatHealth() considers >90 seconds stale. Measure
+    // relative to observed_at (not Date.now) so offline tests stay deterministic.
+    // A global FRESH claim never overrides individual runner freshness.
     const reportedRunners = runners.map((runner) => {
+      const missingHeartbeat = runner.heartbeat_at === null;
+      const staleHeartbeat = !missingHeartbeat && observed !== null
+        && Date.parse(observed) - Date.parse(runner.heartbeat_at!) > 90_000;
       if (trustedAsCurrent && runner.status === 'READY'
-          && (runner.heartbeat_at === null || runner.reason !== 'NONE')) {
+          && (missingHeartbeat || staleHeartbeat || runner.reason !== 'NONE')) {
         return {...runner, status: 'UNKNOWN' as const,
-          reason: runner.reason === 'NONE' ? 'UNKNOWN' as const : runner.reason,
+          reason: runner.reason !== 'NONE' ? runner.reason
+            : staleHeartbeat ? 'STALE' as const : 'UNKNOWN' as const,
           last_outcome: 'UNKNOWN' as const};
       }
       return runner;
@@ -119,7 +124,9 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
       queue: {pending: queue.pending, blocked: queue.blocked},
       runners: reportedRunners.map((runner) => trustedAsCurrent ? runner : {
         ...runner, status: 'UNKNOWN' as const,
-        reason: root.freshness === 'STALE' || root.provenance === 'cached' ? 'STALE' as const : 'UNKNOWN' as const,
+        reason: root.provenance === 'synthetic' ? 'UNKNOWN' as const
+          : root.freshness === 'STALE' || root.provenance === 'cached'
+            ? 'STALE' as const : 'UNKNOWN' as const,
         last_outcome: 'UNKNOWN' as const,
       }),
     };
