@@ -16,7 +16,7 @@ class LocalObserverHtmlContractTests(unittest.TestCase):
         node = shutil.which("node")
         self.assertIsNotNone(node, "Node runtime required for actual contract execution")
         run = subprocess.run(
-            [node, "--experimental-strip-types", "--test", f"--test-name-pattern={scenario}", SPEC],
+            [node, "--experimental-strip-types", "--test", "--test-reporter=tap", f"--test-name-pattern={scenario}", SPEC],
             cwd=ROOT, capture_output=True, text=True, timeout=60, check=False,
         )
         output = run.stdout + "\n" + run.stderr
