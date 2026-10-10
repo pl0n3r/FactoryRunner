@@ -71,9 +71,11 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.equal(noHeartbeat.runners[0].status, 'UNKNOWN');
   assert.equal(noHeartbeat.runners[0].reason, 'UNKNOWN');
   assert.equal(noHeartbeat.runners[0].last_outcome, 'UNKNOWN');
+  assert.equal(noHeartbeat.capacity.available, null, 'unverified READY cannot leave positive availability');
   const validHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:59:59Z'}]});
   assert.equal(validHeartbeat.runners[0].status, 'READY');
   assert.equal(validHeartbeat.runners[0].heartbeat_at, '2026-10-10T11:59:59Z');
+  assert.equal(validHeartbeat.capacity.available, 1, 'fresh READY preserves independently reported capacity');
   // A READY runner with a blocking or unknown reason is never actionable.
   for (const reason of ['HUMAN_GATE', 'CLAIMS', 'NO_CAPACITY', 'DEPENDENCY', 'STALE', 'UNKNOWN'] as const) {
     const contradictory = unknown({...input, runners: [{...input.runners[0], reason}]});
@@ -81,6 +83,7 @@ test('stale cached synthetic and unordered times fail closed without live readin
     assert.equal(contradictory.runners[0].status, 'UNKNOWN');
     assert.equal(contradictory.runners[0].reason, reason);
     assert.equal(contradictory.runners[0].last_outcome, 'UNKNOWN');
+    assert.equal(contradictory.capacity.available, null);
   }
   const noBlocker = unknown({...input, runners: [{...input.runners[0], reason: 'NONE', heartbeat_at: '2026-10-10T11:59:59Z'}]});
   assert.equal(noBlocker.runners[0].status, 'READY');
@@ -88,10 +91,12 @@ test('stale cached synthetic and unordered times fail closed without live readin
   // Match runner.ts heartbeatHealth's 90-second boundary.
   const atLimit = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:30Z'}]});
   assert.equal(atLimit.runners[0].status, 'READY');
+  assert.equal(atLimit.capacity.available, 1);
   const tooOld = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
   assert.equal(tooOld.runners[0].status, 'UNKNOWN');
   assert.equal(tooOld.runners[0].reason, 'STALE');
   assert.equal(tooOld.runners[0].last_outcome, 'UNKNOWN');
+  assert.equal(tooOld.capacity.available, null);
   const ancient = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(ancient.runners[0].status, 'UNKNOWN');
   assert.equal(ancient.runners[0].reason, 'STALE');
@@ -100,6 +105,17 @@ test('stale cached synthetic and unordered times fail closed without live readin
     heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(blockedOld.runners[0].status, 'UNKNOWN');
   assert.equal(blockedOld.runners[0].reason, 'HUMAN_GATE');
+  assert.equal(blockedOld.capacity.available, null);
+  // Mixed signals cannot claim trusted aggregate spare capacity either.
+  const mixed = unknown({...input, runners: [
+    input.runners[0], {...input.runners[0], id: 'runner-002', heartbeat_at: null},
+  ]});
+  assert.equal(mixed.runners[0].status, 'READY');
+  assert.equal(mixed.runners[1].status, 'UNKNOWN');
+  assert.equal(mixed.capacity.available, null);
+  // The aggregate may still be reported when no READY signal was downgraded.
+  const waiting = unknown({...input, runners: [{...input.runners[0], status: 'WAITING'}]});
+  assert.equal(waiting.capacity.available, 1);
   // Case variants of the same hexadecimal alias must not represent two runners.
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], id: 'runner-ABC'}]}), unknown(null));
   assert.deepEqual(unknown({...input, runners: [

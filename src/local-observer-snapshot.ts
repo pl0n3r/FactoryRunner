@@ -114,13 +114,19 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
       }
       return runner;
     });
+    // Aggregate availability is unsafe to display when a claimed READY runner
+    // had to be downgraded. Preserve the total as historical metadata, but
+    // refuse a misleading positive available count until sources reconcile.
+    const readinessDowngraded = runners.some((runner, index) =>
+      runner.status === 'READY' && reportedRunners[index].status !== 'READY');
     return {
       version: 1,
       provenance: root.provenance,
       freshness: root.provenance === 'synthetic' ? 'UNKNOWN'
         : root.provenance === 'cached' ? 'STALE' : root.freshness,
       observed_at: root.provenance === 'synthetic' ? null : observed,
-      capacity: {total: capacity.total, available: trustedAsCurrent ? capacity.available : null},
+      capacity: {total: capacity.total,
+        available: trustedAsCurrent && !readinessDowngraded ? capacity.available : null},
       queue: {pending: queue.pending, blocked: queue.blocked},
       runners: reportedRunners.map((runner) => trustedAsCurrent ? runner : {
         ...runner, status: 'UNKNOWN' as const,
