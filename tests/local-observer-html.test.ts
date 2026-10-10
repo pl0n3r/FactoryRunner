@@ -21,6 +21,29 @@ test('render escapes untrusted content and excludes active resources', () => {
   assert.ok(!/<\s*(script|img|iframe|form|button|a|link)\b/i.test(html));
   assert.ok(!/https?:\/\//i.test(html));
   assert.ok(!html.includes('alert(\'oops\')">'));
+  const shifting = snapshot();
+  let reasonReads = 0;
+  let timeReads = 0;
+  Object.defineProperty(shifting.runners[0], 'reason', {
+    enumerable: true,
+    get() { return ++reasonReads === 1 ? 'NONE' : '<img src=x onerror=alert(1)>'; },
+  });
+  Object.defineProperty(shifting, 'observed_at', {
+    enumerable: true,
+    get() { return ++timeReads === 1 ? '2026-10-10T12:00:00Z' : '<svg onload=alert(1)>'; },
+  });
+  const stable = renderLocalObserverHtml(shifting);
+  assert.ok(!/<\s*(img|svg|script)\b/i.test(stable));
+  assert.equal(reasonReads, 1, 'read each hostile accessor only once');
+  assert.equal(timeReads, 1, 'validated timestamps cannot change before render');
+  const throwing = snapshot();
+  Object.defineProperty(throwing.runners[0], 'last_outcome', {
+    enumerable: true,
+    get() { throw new Error('SECRET-SENTINEL'); },
+  });
+  const fallback = renderLocalObserverHtml(throwing);
+  assert.match(fallback, /UNKNOWN: snapshot inválido/);
+  assert.ok(!fallback.includes('SECRET-SENTINEL'));
   const privateInput = { ...snapshot(), token: 'PRIVATE-SENTINEL' };
   const rejected = renderLocalObserverHtml(privateInput);
   assert.ok(rejected.includes('snapshot inválido'));

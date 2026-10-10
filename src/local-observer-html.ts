@@ -95,7 +95,12 @@ caption{text-align:left;margin-bottom:.6rem}th,td{padding:.7rem;border-bottom:1p
 /** Never claims live readiness. Invalid/ambiguous input produces an honest UNKNOWN document. */
 export function renderLocalObserverHtml(input: unknown): string {
   let item: LocalObserverViewV1 | null = null;
-  try { if (valid(input)) item = input; } catch { /* getters/cycles never reach output */ }
+  try {
+    // Clone first: accessors/Proxies cannot change a value after validation.
+    // A non-cloneable or ambiguous value is rendered as UNKNOWN.
+    const snapshot: unknown = structuredClone(input);
+    if (valid(snapshot)) item = snapshot;
+  } catch { /* uncloneable input never reaches output */ }
   const trustworthy = item !== null && item.provenance === 'observed' && item.freshness === 'FRESH'
     && item.observed_at !== null;
   const status = item === null ? 'UNKNOWN: snapshot inválido'
@@ -104,11 +109,11 @@ export function renderLocalObserverHtml(input: unknown): string {
   const rows = item?.runners.map((runner) => {
     const state = !trustworthy && runner.status === 'READY'
       ? 'READY (dato no verificado)' : `${runner.status} (reportado)`;
-    return `<tr><th scope="row">${escapeText(runner.id)}</th><td>${escapeText(state)}</td><td>${runner.reason}</td><td>${runner.last_outcome}</td><td>${runner.heartbeat_at ?? 'UNKNOWN'}</td></tr>`;
+    return `<tr><th scope="row">${escapeText(runner.id)}</th><td>${escapeText(state)}</td><td>${escapeText(runner.reason)}</td><td>${escapeText(runner.last_outcome)}</td><td>${escapeText(runner.heartbeat_at ?? 'UNKNOWN')}</td></tr>`;
   }).join('') ?? '';
   const empty = rows ? '' : '<p role="status">No hay runners verificables en este snapshot. Estado UNKNOWN.</p>';
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FactoryRunner · Observador local</title><style>${STYLE}</style></head><body><main>
-<header><h1>FactoryRunner · Observador local</h1><p class="warning" role="status">${escapeText(status)}</p><p>Panel estático de lectura. Sin acciones, sin conexión, sin certificación de producción.</p><p>Observado: ${item?.observed_at ?? 'UNKNOWN'}</p></header>
+<header><h1>FactoryRunner · Observador local</h1><p class="warning" role="status">${escapeText(status)}</p><p>Panel estático de lectura. Sin acciones, sin conexión, sin certificación de producción.</p><p>Observado: ${escapeText(item?.observed_at ?? 'UNKNOWN')}</p></header>
 <section aria-labelledby="summary"><h2 id="summary">Capacidad y cola</h2><div class="summary"><div>Capacidad total<span class="value">${metric(item?.capacity.total ?? null)}</span></div><div>Capacidad disponible<span class="value">${metric(item?.capacity.available ?? null)}</span></div><div>En espera / bloqueados<span class="value">${metric(item?.queue.pending ?? null)} / ${metric(item?.queue.blocked ?? null)}</span></div></div></section>
 <section aria-labelledby="runners"><h2 id="runners">Runners</h2>${empty}<div class="table-wrap" role="region" aria-label="Tabla de runners, desplazable en pantallas pequeñas" tabindex="0"><table><caption>Estado, motivo, último resultado y heartbeat</caption><thead><tr><th scope="col">Runner</th><th scope="col">Estado</th><th scope="col">Motivo</th><th scope="col">Resultado</th><th scope="col">Heartbeat (UTC)</th></tr></thead><tbody>${rows}</tbody></table></div></section>
 </main></body></html>`;
