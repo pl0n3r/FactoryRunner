@@ -161,7 +161,7 @@ function exactXmlValue(xml:string,root:string,tag:string):string{
   let cursor=0;
   for(const match of source.matchAll(/<[^<>]*>/g)){
     const before=source.slice(cursor,match.index);
-    if(/[<>]/.test(before)||(!state.stack.length&&before.trim())) invalidBucketXml();
+    if(/[<>]/.test(before)||(state.stack.length<=1&&before.trim())) invalidBucketXml();
     const token=bucketXmlToken(match[0]);
     if(token.closing) closeBucketXmlTag(state,token,tag,source,match.index);
     else openBucketXmlTag(state,token,root,tag,match.index+match[0].length);
