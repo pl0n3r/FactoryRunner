@@ -92,13 +92,34 @@ test('390 and 1440 viewports have semantic responsive accessible layout', () => 
 test('unknown stale and empty states never claim live GREEN or enable actions', () => {
   const observed = renderLocalObserverHtml(snapshot());
   assert.match(observed, /SIN VALIDACIÓN EN PRODUCCIÓN/);
-  const sample = { ...snapshot(), provenance: 'synthetic', freshness: 'FRESH' };
+  // Representative output shapes of sibling projector #466, no cross-branch import.
+  const sample = { ...snapshot(), provenance: 'synthetic', freshness: 'UNKNOWN',
+    observed_at: null, capacity: { total: 3, available: null },
+    runners: [{ ...snapshot().runners[0], status: 'UNKNOWN', reason: 'UNKNOWN', last_outcome: 'UNKNOWN' }] };
   const synthetic = renderLocalObserverHtml(sample);
-  assert.match(synthetic, /NO LIVE · SYNTHETIC · FRESH/);
-  assert.match(synthetic, /READY \(dato no verificado\)/);
-  const stale = renderLocalObserverHtml({ ...snapshot(), provenance: 'cached', freshness: 'STALE' });
+  assert.match(synthetic, /NO LIVE · SYNTHETIC · UNKNOWN/);
+  assert.match(synthetic, /UNKNOWN \(reportado\)/);
+  const cachedInput = { ...snapshot(), provenance: 'cached', freshness: 'STALE',
+    capacity: { total: 3, available: null },
+    runners: [{ ...snapshot().runners[0], status: 'UNKNOWN', reason: 'STALE', last_outcome: 'UNKNOWN' }] };
+  const stale = renderLocalObserverHtml(cachedInput);
   assert.match(stale, /NO LIVE · CACHED · STALE/);
   assert.match(stale, /Capacidad disponible<span class="value">UNKNOWN<\/span>/);
+  const blocked = renderLocalObserverHtml({ ...snapshot(),
+    runners: [{ ...snapshot().runners[0], status: 'UNKNOWN', reason: 'HUMAN_GATE', last_outcome: 'UNKNOWN' }] });
+  assert.match(blocked, /UNKNOWN \(reportado\)/);
+  assert.match(blocked, /HUMAN_GATE/);
+  // Direct input must never relabel cached/synthetic/old evidence as fresh.
+  for (const inconsistent of [
+    { ...sample, freshness: 'FRESH' },
+    { ...sample, observed_at: snapshot().observed_at },
+    { ...cachedInput, freshness: 'FRESH' },
+    { ...cachedInput, capacity: snapshot().capacity },
+    { ...snapshot(), freshness: 'STALE' },
+    { ...snapshot(), freshness: 'UNKNOWN' },
+  ]) {
+    assert.match(renderLocalObserverHtml(inconsistent), /UNKNOWN: snapshot inválido/);
+  }
   const empty = renderLocalObserverHtml({ ...snapshot(), runners: [], capacity: { total: null, available: null }, queue: { pending: null, blocked: null } });
   assert.match(empty, /No hay runners verificables/);
   assert.match(empty, /UNKNOWN/);

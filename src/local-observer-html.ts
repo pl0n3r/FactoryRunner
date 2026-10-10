@@ -55,8 +55,15 @@ function valid(input: unknown): input is LocalObserverViewV1 {
       || !Array.isArray(input.runners) || input.runners.length > 40) return false;
   if (input.capacity.available !== null && input.capacity.total !== null
       && input.capacity.available > input.capacity.total) return false;
-  if (input.provenance === 'observed' && input.freshness === 'FRESH'
-      && input.observed_at === null) return false;
+  // Public render input must obey the same provenance states as the producer.
+  const freshObserved = input.provenance === 'observed' && input.freshness === 'FRESH';
+  if ((input.provenance === 'synthetic'
+        && (input.freshness !== 'UNKNOWN' || input.observed_at !== null))
+      || (input.provenance === 'cached' && input.freshness !== 'STALE')
+      || (freshObserved && input.observed_at === null)
+      || (!freshObserved && input.capacity.available !== null)) return false;
+  const noncurrentReason = input.provenance === 'cached' || input.freshness === 'STALE'
+    ? 'STALE' : 'UNKNOWN';
   const ids = new Set<string>();
   for (const runner of input.runners) {
     if (!record(runner, ['id', 'status', 'reason', 'heartbeat_at', 'last_outcome'])
@@ -67,7 +74,9 @@ function valid(input: unknown): input is LocalObserverViewV1 {
         || (runner.heartbeat_at !== null && input.observed_at !== null
             && Date.parse(runner.heartbeat_at) > Date.parse(input.observed_at))
         || (runner.status === 'READY'
-            && (runner.reason !== 'NONE' || runner.heartbeat_at === null))) return false;
+            && (runner.reason !== 'NONE' || runner.heartbeat_at === null))
+        || (!freshObserved && (runner.status !== 'UNKNOWN'
+            || runner.reason !== noncurrentReason || runner.last_outcome !== 'UNKNOWN'))) return false;
     ids.add(runner.id);
   }
   return true;
@@ -162,8 +171,7 @@ export function renderLocalObserverHtml(input: unknown): string {
   const status = observerStatus(item, trustworthy);
   const availableForDisplay = trustworthy && item !== null ? item.capacity.available : null;
   const rows = item?.runners.map((runner) => {
-    const state = !trustworthy && runner.status === 'READY'
-      ? 'READY (dato no verificado)' : `${runner.status} (reportado)`;
+    const state = `${runner.status} (reportado)`;
     return `<tr><th scope="row">${escapeText(runner.id)}</th><td>${escapeText(state)}</td><td>${escapeText(runner.reason)}</td><td>${escapeText(runner.last_outcome)}</td><td>${escapeText(runner.heartbeat_at ?? 'UNKNOWN')}</td></tr>`;
   }).join('') ?? '';
   const empty = rows ? '' : '<p role="status">No hay runners verificables en este snapshot. Estado UNKNOWN.</p>';
