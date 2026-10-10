@@ -97,34 +97,49 @@ caption{text-align:left;margin-bottom:.6rem}th,td{padding:.7rem;border-bottom:1p
  * object graphs, invokes getters, or copies oversized strings/arrays. Semantic
  * validation still happens on the isolated clone in valid().
  */
+type BoundedVisit = (value: unknown, depth: number) => boolean;
+
+function boundedArray(value: unknown[], depth: number, visit: BoundedVisit): boolean {
+  if (value.length > 40 || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    const entry = Object.getOwnPropertyDescriptor(value, String(i));
+    if (!entry || !('value' in entry) || !visit(entry.value, depth + 1)) return false;
+  }
+  return true;
+}
+
+function boundedRecord(value: object, depth: number, visit: BoundedVisit): boolean {
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 7) return false;
+  for (const key of keys) {
+    const entry = Object.getOwnPropertyDescriptor(value, key);
+    if (typeof key !== 'string' || !entry?.enumerable || !('value' in entry)
+        || !visit(entry.value, depth + 1)) return false;
+  }
+  return true;
+}
+
 function boundedForClone(input: unknown): boolean {
   const seen = new Set<object>();
-  function visit(value: unknown, depth: number): boolean {
+  const visit: BoundedVisit = (value, depth) => {
     if (value === null) return true;
     if (typeof value === 'string') return value.length <= 120;
     if (typeof value === 'number') return Number.isFinite(value);
     if (typeof value !== 'object' || depth > 3 || seen.has(value)) return false;
     seen.add(value);
-    if (Array.isArray(value)) {
-      if (value.length > 40 || Reflect.ownKeys(value).length !== value.length + 1) return false;
-      for (let i = 0; i < value.length; i += 1) {
-        const entry = Object.getOwnPropertyDescriptor(value, String(i));
-        if (!entry || !('value' in entry) || !visit(entry.value, depth + 1)) return false;
-      }
-      return true;
-    }
-    const proto: unknown = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) return false;
-    const keys = Reflect.ownKeys(value);
-    if (keys.length > 7) return false;
-    for (const key of keys) {
-      const entry = Object.getOwnPropertyDescriptor(value, key);
-      if (typeof key !== 'string' || !entry?.enumerable || !('value' in entry)
-          || !visit(entry.value, depth + 1)) return false;
-    }
-    return true;
-  }
+    return Array.isArray(value)
+      ? boundedArray(value, depth, visit)
+      : boundedRecord(value, depth, visit);
+  };
   return visit(input, 0);
+}
+
+function observerStatus(item: LocalObserverViewV1 | null, trustworthy: boolean): string {
+  if (item === null) return 'UNKNOWN: snapshot inválido';
+  if (!trustworthy) return `NO LIVE · ${item.provenance.toUpperCase()} · ${item.freshness}`;
+  return 'OBSERVED · FRESH reportado · SIN VALIDACIÓN EN PRODUCCIÓN';
 }
 
 /** Never claims live readiness. Invalid/ambiguous input produces an honest UNKNOWN document. */
@@ -139,9 +154,7 @@ export function renderLocalObserverHtml(input: unknown): string {
   } catch { /* uncloneable input never reaches output */ }
   const trustworthy = item !== null && item.provenance === 'observed' && item.freshness === 'FRESH'
     && item.observed_at !== null;
-  const status = item === null ? 'UNKNOWN: snapshot inválido'
-    : !trustworthy ? `NO LIVE · ${item.provenance.toUpperCase()} · ${item.freshness}`
-      : 'OBSERVED · FRESH reportado · SIN VALIDACIÓN EN PRODUCCIÓN';
+  const status = observerStatus(item, trustworthy);
   const rows = item?.runners.map((runner) => {
     const state = !trustworthy && runner.status === 'READY'
       ? 'READY (dato no verificado)' : `${runner.status} (reportado)`;
