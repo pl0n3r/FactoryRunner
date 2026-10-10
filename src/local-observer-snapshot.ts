@@ -62,6 +62,39 @@ function unknownView(): LocalObserverViewV1 {
     capacity: { total: null, available: null }, queue: { pending: null, blocked: null }, runners: [] };
 }
 
+/** Parse only canonical primitive runner fields; never call untrusted getters. */
+function parseRunners(values: unknown[], observed: string | null): LocalObserverViewV1['runners'] | null {
+  const ids = new Set<string>();
+  const runners: LocalObserverViewV1['runners'] = [];
+  for (let n = 0; n < values.length; n++) {
+    const cell = Object.getOwnPropertyDescriptor(values, String(n));
+    if (!cell || !('value' in cell)) return null;
+    const runner = fields(cell.value, RUNNER_KEYS);
+    if (!runner || !safeRunnerId(runner.id) || ids.has(runner.id)
+        || !listed(runner.status, STATUS) || !listed(runner.reason, REASONS)
+        || !utc(runner.heartbeat_at) || !listed(runner.last_outcome, OUTCOMES)
+        || (runner.heartbeat_at !== null && observed !== null
+            && Date.parse(runner.heartbeat_at) > Date.parse(observed))) return null;
+    ids.add(runner.id);
+    runners.push({id: runner.id, status: runner.status, reason: runner.reason,
+      heartbeat_at: runner.heartbeat_at, last_outcome: runner.last_outcome});
+  }
+  return runners;
+}
+
+function readyDowngradeReason(reason: LocalObserverViewV1['runners'][number]['reason'], stale: boolean) {
+  if (reason !== 'NONE') return reason;
+  return stale ? 'STALE' as const : 'UNKNOWN' as const;
+}
+function normalizedFreshness(source: LocalObserverViewV1['provenance'], freshness: LocalObserverViewV1['freshness']) {
+  if (source === 'synthetic') return 'UNKNOWN';
+  return source === 'cached' ? 'STALE' : freshness;
+}
+function noncurrentReason(source: LocalObserverViewV1['provenance'], freshness: LocalObserverViewV1['freshness']) {
+  if (source === 'synthetic') return 'UNKNOWN';
+  return source === 'cached' || freshness === 'STALE' ? 'STALE' : 'UNKNOWN';
+}
+
 /**
  * Produces only primitive copies from an exact, size-bounded allowlist. Invalid,
  * hostile, ambiguous or accessor-based data becomes a constant UNKNOWN view.
@@ -70,7 +103,7 @@ function unknownView(): LocalObserverViewV1 {
 export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV1 {
   try {
     const root = fields(input, ROOT_KEYS);
-    if (!root || root.version !== 1 || !listed(root.provenance, SOURCE)
+    if (root?.version !== 1 || !listed(root.provenance, SOURCE)
         || !listed(root.freshness, FRESH) || !utc(root.observed_at)) return unknownView();
     const capacity = fields(root.capacity, ['total', 'available']);
     const queue = fields(root.queue, ['pending', 'blocked']);
@@ -81,21 +114,11 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
         || Reflect.ownKeys(root.runners).length !== root.runners.length + 1) return unknownView();
 
     const observed = root.observed_at;
+    const source = root.provenance;
+    const freshness = root.freshness;
     if (root.provenance === 'observed' && root.freshness === 'FRESH' && observed === null) return unknownView();
-    const ids = new Set<string>();
-    const runners: LocalObserverViewV1['runners'] = [];
-    for (let n = 0; n < root.runners.length; n++) {
-      const cell = Object.getOwnPropertyDescriptor(root.runners, String(n));
-      if (!cell || !('value' in cell)) return unknownView();
-      const r = fields(cell.value, RUNNER_KEYS);
-      if (!r || !safeRunnerId(r.id) || ids.has(r.id)
-          || !listed(r.status, STATUS) || !listed(r.reason, REASONS)
-          || !utc(r.heartbeat_at) || !listed(r.last_outcome, OUTCOMES)
-          || (r.heartbeat_at !== null && observed !== null && Date.parse(r.heartbeat_at) > Date.parse(observed))) return unknownView();
-      ids.add(r.id);
-      runners.push({id: r.id, status: r.status, reason: r.reason,
-        heartbeat_at: r.heartbeat_at, last_outcome: r.last_outcome});
-    }
+    const runners = parseRunners(root.runners, observed);
+    if (runners === null) return unknownView();
     // A claimed fresh snapshot without an observed source is not current evidence.
     const trustedAsCurrent = root.provenance === 'observed' && root.freshness === 'FRESH';
     // The runtime's heartbeatHealth() considers >90 seconds stale. Measure
@@ -108,8 +131,7 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
       if (trustedAsCurrent && runner.status === 'READY'
           && (missingHeartbeat || staleHeartbeat || runner.reason !== 'NONE')) {
         return {...runner, status: 'UNKNOWN' as const,
-          reason: runner.reason !== 'NONE' ? runner.reason
-            : staleHeartbeat ? 'STALE' as const : 'UNKNOWN' as const,
+          reason: readyDowngradeReason(runner.reason, staleHeartbeat),
           last_outcome: 'UNKNOWN' as const};
       }
       return runner;
@@ -122,17 +144,14 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     return {
       version: 1,
       provenance: root.provenance,
-      freshness: root.provenance === 'synthetic' ? 'UNKNOWN'
-        : root.provenance === 'cached' ? 'STALE' : root.freshness,
+      freshness: normalizedFreshness(source, freshness),
       observed_at: root.provenance === 'synthetic' ? null : observed,
       capacity: {total: capacity.total,
         available: trustedAsCurrent && !readinessDowngraded ? capacity.available : null},
       queue: {pending: queue.pending, blocked: queue.blocked},
       runners: reportedRunners.map((runner) => trustedAsCurrent ? runner : {
         ...runner, status: 'UNKNOWN' as const,
-        reason: root.provenance === 'synthetic' ? 'UNKNOWN' as const
-          : root.freshness === 'STALE' || root.provenance === 'cached'
-            ? 'STALE' as const : 'UNKNOWN' as const,
+        reason: noncurrentReason(source, freshness),
         last_outcome: 'UNKNOWN' as const,
       }),
     };
