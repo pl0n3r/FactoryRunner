@@ -16,8 +16,8 @@ test('render escapes untrusted content and excludes active resources', () => {
   const before = JSON.stringify(hostile);
   const html = renderLocalObserverHtml(hostile);
   assert.equal(JSON.stringify(hostile), before, 'input stays unchanged');
-  assert.ok(html.includes('&lt;img src=x onerror=&quot;'));
-  assert.ok(html.includes('&lt;script&gt;eval(1)&lt;/script&gt;'));
+  assert.match(html, /UNKNOWN: snapshot inválido/);
+  assert.ok(!html.includes(hostile.runners[0].id));
   assert.ok(!/<\s*(script|img|iframe|form|button|a|link)\b/i.test(html));
   assert.ok(!/https?:\/\//i.test(html));
   assert.ok(!html.includes('alert(\'oops\')">'));
@@ -72,7 +72,7 @@ test('render escapes untrusted content and excludes active resources', () => {
 
 test('390 and 1440 viewports have semantic responsive accessible layout', () => {
   const item = snapshot();
-  item.runners[0].id = 'LONG-'.repeat(20);
+  item.runners[0].id = 'runner-' + 'a'.repeat(48);
   const html = renderLocalObserverHtml(item);
   assert.match(html, /<meta name="viewport" content="width=device-width,initial-scale=1">/);
   assert.match(html, /@media\(max-width:600px\)/);
@@ -98,11 +98,31 @@ test('unknown stale and empty states never claim live GREEN or enable actions', 
   assert.match(synthetic, /READY \(dato no verificado\)/);
   const stale = renderLocalObserverHtml({ ...snapshot(), provenance: 'cached', freshness: 'STALE' });
   assert.match(stale, /NO LIVE · CACHED · STALE/);
+  assert.match(stale, /Capacidad disponible<span class="value">UNKNOWN<\/span>/);
   const empty = renderLocalObserverHtml({ ...snapshot(), runners: [], capacity: { total: null, available: null }, queue: { pending: null, blocked: null } });
   assert.match(empty, /No hay runners verificables/);
   assert.match(empty, /UNKNOWN/);
   const invalid = renderLocalObserverHtml({ ...snapshot(), runners: [{ ...snapshot().runners[0], status: 'GREEN' }] });
   assert.match(invalid, /UNKNOWN: snapshot inválido/);
+  const privateAlias = 'person' + String.fromCharCode(64) + 'example.test';
+  for (const id of [privateAlias, 'runner-ABC', 'untrusted-runner-name']) {
+    const html = renderLocalObserverHtml({ ...snapshot(),
+      runners: [{ ...snapshot().runners[0], id }] });
+    assert.match(html, /UNKNOWN: snapshot inválido/);
+    assert.ok(!html.includes(id), 'a rejected identifier is never rendered');
+  }
+  for (const reason of ['HUMAN_GATE', 'CLAIMS', 'NO_CAPACITY', 'DEPENDENCY', 'STALE', 'UNKNOWN']) {
+    const html = renderLocalObserverHtml({ ...snapshot(),
+      runners: [{ ...snapshot().runners[0], reason }] });
+    assert.match(html, /UNKNOWN: snapshot inválido/, 'READY with a blocker must be denied');
+  }
+  for (const heartbeat_at of [null, '2026-10-10T12:05:00Z']) {
+    const html = renderLocalObserverHtml({ ...snapshot(),
+      runners: [{ ...snapshot().runners[0], heartbeat_at }] });
+    assert.match(html, /UNKNOWN: snapshot inválido/, 'unproven/future heartbeat cannot support READY');
+  }
+  assert.match(renderLocalObserverHtml({ ...snapshot(), observed_at: null }),
+    /UNKNOWN: snapshot inválido/);
   for (const html of [observed, synthetic, stale, empty, invalid]) {
     assert.doesNotMatch(html, /<\s*(button|form|script|iframe|a)\b/i);
     assert.doesNotMatch(html, /producción (GREEN|verificada)/i);

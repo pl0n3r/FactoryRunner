@@ -55,14 +55,19 @@ function valid(input: unknown): input is LocalObserverViewV1 {
       || !Array.isArray(input.runners) || input.runners.length > 40) return false;
   if (input.capacity.available !== null && input.capacity.total !== null
       && input.capacity.available > input.capacity.total) return false;
+  if (input.provenance === 'observed' && input.freshness === 'FRESH'
+      && input.observed_at === null) return false;
   const ids = new Set<string>();
   for (const runner of input.runners) {
     if (!record(runner, ['id', 'status', 'reason', 'heartbeat_at', 'last_outcome'])
-        || typeof runner.id !== 'string' || runner.id.length < 1 || runner.id.length > 120
-        || /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(runner.id)
+        || typeof runner.id !== 'string' || !/^runner-[0-9a-f]{3,48}$/.test(runner.id)
         || ids.has(runner.id) || !oneOf(runner.status, STATUS)
         || !oneOf(runner.reason, REASONS) || !timestamp(runner.heartbeat_at)
-        || !oneOf(runner.last_outcome, OUTCOMES)) return false;
+        || !oneOf(runner.last_outcome, OUTCOMES)
+        || (runner.heartbeat_at !== null && input.observed_at !== null
+            && Date.parse(runner.heartbeat_at) > Date.parse(input.observed_at))
+        || (runner.status === 'READY'
+            && (runner.reason !== 'NONE' || runner.heartbeat_at === null))) return false;
     ids.add(runner.id);
   }
   return true;
@@ -155,6 +160,7 @@ export function renderLocalObserverHtml(input: unknown): string {
   const trustworthy = item !== null && item.provenance === 'observed' && item.freshness === 'FRESH'
     && item.observed_at !== null;
   const status = observerStatus(item, trustworthy);
+  const availableForDisplay = trustworthy && item !== null ? item.capacity.available : null;
   const rows = item?.runners.map((runner) => {
     const state = !trustworthy && runner.status === 'READY'
       ? 'READY (dato no verificado)' : `${runner.status} (reportado)`;
@@ -163,7 +169,7 @@ export function renderLocalObserverHtml(input: unknown): string {
   const empty = rows ? '' : '<p role="status">No hay runners verificables en este snapshot. Estado UNKNOWN.</p>';
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FactoryRunner · Observador local</title><style>${STYLE}</style></head><body><main>
 <header><h1>FactoryRunner · Observador local</h1><p class="warning" role="status">${escapeText(status)}</p><p>Panel estático de lectura. Sin acciones, sin conexión, sin certificación de producción.</p><p>Observado: ${escapeText(item?.observed_at ?? 'UNKNOWN')}</p></header>
-<section aria-labelledby="summary"><h2 id="summary">Capacidad y cola</h2><div class="summary"><div>Capacidad total<span class="value">${metric(item?.capacity.total ?? null)}</span></div><div>Capacidad disponible<span class="value">${metric(item?.capacity.available ?? null)}</span></div><div>En espera / bloqueados<span class="value">${metric(item?.queue.pending ?? null)} / ${metric(item?.queue.blocked ?? null)}</span></div></div></section>
+<section aria-labelledby="summary"><h2 id="summary">Capacidad y cola</h2><div class="summary"><div>Capacidad total<span class="value">${metric(item?.capacity.total ?? null)}</span></div><div>Capacidad disponible<span class="value">${metric(availableForDisplay)}</span></div><div>En espera / bloqueados<span class="value">${metric(item?.queue.pending ?? null)} / ${metric(item?.queue.blocked ?? null)}</span></div></div></section>
 <section aria-labelledby="runners"><h2 id="runners">Runners</h2>${empty}<div class="table-wrap" role="region" aria-label="Tabla de runners, desplazable en pantallas pequeñas" tabindex="0"><table><caption>Estado, motivo, último resultado y heartbeat</caption><thead><tr><th scope="col">Runner</th><th scope="col">Estado</th><th scope="col">Motivo</th><th scope="col">Resultado</th><th scope="col">Heartbeat (UTC)</th></tr></thead><tbody>${rows}</tbody></table></div></section>
 </main></body></html>`;
 }
