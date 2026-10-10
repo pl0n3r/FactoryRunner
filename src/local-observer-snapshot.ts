@@ -54,8 +54,8 @@ function utc(value: unknown): value is string | null {
     && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().replace('.000', '') === value);
 }
 function safeRunnerId(value: unknown): value is string {
-  return typeof value === 'string' && /^runner-[A-Za-z0-9_-]{1,48}$/.test(value)
-    && !/(?:secret|token|cookie|password|bearer|github_pat|gh[pousr]_|sk[-_]|mail|email)/i.test(value);
+  // Opaque hexadecimal aliases only: user-entered labels or addresses cannot escape.
+  return typeof value === 'string' && /^runner-[0-9a-f]{3,48}$/i.test(value);
 }
 function unknownView(): LocalObserverViewV1 {
   return { version: 1, provenance: 'synthetic', freshness: 'UNKNOWN', observed_at: null,
