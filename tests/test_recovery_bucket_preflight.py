@@ -34,6 +34,12 @@ class RecoveryBucketPreflightTests(unittest.TestCase):
     def test_missing_suspended_or_unknown_versioning_fails_closed(self) -> None:
         self.node_test("missing suspended or unknown versioning fails closed before object operation")
 
+    def test_nested_status_is_not_direct_versioning_child(self) -> None:
+        self.node_test("nested Status under unknown element fails versioning before object operation")
+
+    def test_nested_lock_enabled_is_not_direct_object_lock_child(self) -> None:
+        self.node_test("nested ObjectLockEnabled under unknown element fails before object operation")
+
     def test_missing_disabled_or_unknown_object_lock_fails_closed(self) -> None:
         self.node_test("missing disabled or unknown Object Lock fails closed before object operation")
 
