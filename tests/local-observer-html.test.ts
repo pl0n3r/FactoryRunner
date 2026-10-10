@@ -144,7 +144,10 @@ test('unknown stale and empty states never claim live GREEN or enable actions', 
       runners: [{ ...snapshot().runners[0], reason }] });
     assert.match(html, /UNKNOWN: snapshot inválido/, 'READY with a blocker must be denied');
   }
-  for (const heartbeat_at of [null, '2026-10-10T12:05:00Z']) {
+  const atFreshnessEdge = renderLocalObserverHtml({ ...snapshot(),
+    runners: [{ ...snapshot().runners[0], heartbeat_at: '2026-10-10T11:58:30Z' }] });
+  assert.match(atFreshnessEdge, /READY \(reportado\)/);
+  for (const heartbeat_at of [null, '2026-10-10T12:05:00Z', '2026-10-10T11:58:29Z']) {
     const html = renderLocalObserverHtml({ ...snapshot(),
       runners: [{ ...snapshot().runners[0], heartbeat_at }] });
     assert.match(html, /UNKNOWN: snapshot inválido/, 'unproven/future heartbeat cannot support READY');

@@ -77,7 +77,8 @@ function valid(input: unknown): input is LocalObserverViewV1 {
         || (runner.heartbeat_at !== null && input.observed_at !== null
             && Date.parse(runner.heartbeat_at) > Date.parse(input.observed_at))
         || (runner.status === 'READY'
-            && (runner.reason !== 'NONE' || runner.heartbeat_at === null))
+            && (runner.reason !== 'NONE'
+                || !freshRunnerHeartbeat(input.observed_at, runner.heartbeat_at)))
         || (!freshObserved && (runner.status !== 'UNKNOWN'
             || !noncurrentReasons.includes(runner.reason) || runner.last_outcome !== 'UNKNOWN'))) return false;
     ids.add(runner.id);
@@ -91,6 +92,11 @@ function escapeText(value: string): string {
   return value.replace(/[&<>"']/g, (part) => ESCAPES[part] ?? '&#xfffd;');
 }
 function metric(value: number | null): string { return value === null ? 'UNKNOWN' : String(value); }
+// Match runner.ts heartbeatHealth's 90-second stale threshold relative to this observation.
+function freshRunnerHeartbeat(observed: string | null, heartbeat: string | null): boolean {
+  return observed !== null && heartbeat !== null
+    && Date.parse(observed) - Date.parse(heartbeat) <= 90_000;
+}
 
 const STYLE = `
 :root{font-family:system-ui,-apple-system,sans-serif;color:#eef1f5;background:#10141b;color-scheme:dark}
