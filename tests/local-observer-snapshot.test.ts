@@ -67,6 +67,17 @@ test('stale cached synthetic and unordered times fail closed without live readin
   const validHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:59:59Z'}]});
   assert.equal(validHeartbeat.runners[0].status, 'READY');
   assert.equal(validHeartbeat.runners[0].heartbeat_at, '2026-10-10T11:59:59Z');
+  // A READY runner with a blocking or unknown reason is never actionable.
+  for (const reason of ['HUMAN_GATE', 'CLAIMS', 'NO_CAPACITY', 'DEPENDENCY', 'STALE', 'UNKNOWN'] as const) {
+    const contradictory = unknown({...input, runners: [{...input.runners[0], reason}]});
+    assert.equal(contradictory.runners.length, 1);
+    assert.equal(contradictory.runners[0].status, 'UNKNOWN');
+    assert.equal(contradictory.runners[0].reason, reason);
+    assert.equal(contradictory.runners[0].last_outcome, 'UNKNOWN');
+  }
+  const noBlocker = unknown({...input, runners: [{...input.runners[0], reason: 'NONE', heartbeat_at: '2026-10-10T11:59:59Z'}]});
+  assert.equal(noBlocker.runners[0].status, 'READY');
+  assert.equal(noBlocker.runners[0].reason, 'NONE');
   // Case variants of the same hexadecimal alias must not represent two runners.
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], id: 'runner-ABC'}]}), unknown(null));
   assert.deepEqual(unknown({...input, runners: [

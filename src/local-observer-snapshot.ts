@@ -98,11 +98,13 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     }
     // A claimed fresh snapshot without an observed source is not current evidence.
     const trustedAsCurrent = root.provenance === 'observed' && root.freshness === 'FRESH';
-    // Snapshot-level freshness never proves that an individual runner is alive.
-    // Without a heartbeat, READY is unsafe even when the producer claims FRESH.
+    // Snapshot-level freshness does not override runner-specific evidence.
+    // READY requires both a heartbeat and an explicit NONE blocking reason.
     const reportedRunners = runners.map((runner) => {
-      if (trustedAsCurrent && runner.status === 'READY' && runner.heartbeat_at === null) {
-        return {...runner, status: 'UNKNOWN' as const, reason: 'UNKNOWN' as const,
+      if (trustedAsCurrent && runner.status === 'READY'
+          && (runner.heartbeat_at === null || runner.reason !== 'NONE')) {
+        return {...runner, status: 'UNKNOWN' as const,
+          reason: runner.reason === 'NONE' ? 'UNKNOWN' as const : runner.reason,
           last_outcome: 'UNKNOWN' as const};
       }
       return runner;
