@@ -99,6 +99,13 @@ test('unknown stale and empty states never claim live GREEN or enable actions', 
   const synthetic = renderLocalObserverHtml(sample);
   assert.match(synthetic, /NO LIVE · SYNTHETIC · UNKNOWN/);
   assert.match(synthetic, /UNKNOWN \(reportado\)/);
+  // The sibling producer maps a synthetic STALE source to synthetic/UNKNOWN,
+  // preserving STALE as the individual runner reason.
+  const syntheticFromStale = renderLocalObserverHtml({ ...sample,
+    runners: [{ ...sample.runners[0], reason: 'STALE' }] });
+  assert.match(syntheticFromStale, /NO LIVE · SYNTHETIC · UNKNOWN/);
+  assert.match(syntheticFromStale, /<td>STALE<\/td>/);
+  assert.doesNotMatch(syntheticFromStale, /READY \(reportado\)/);
   const cachedInput = { ...snapshot(), provenance: 'cached', freshness: 'STALE',
     capacity: { total: 3, available: null },
     runners: [{ ...snapshot().runners[0], status: 'UNKNOWN', reason: 'STALE', last_outcome: 'UNKNOWN' }] };

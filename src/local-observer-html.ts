@@ -62,8 +62,11 @@ function valid(input: unknown): input is LocalObserverViewV1 {
       || (input.provenance === 'cached' && input.freshness !== 'STALE')
       || (freshObserved && input.observed_at === null)
       || (!freshObserved && input.capacity.available !== null)) return false;
-  const noncurrentReason = input.provenance === 'cached' || input.freshness === 'STALE'
-    ? 'STALE' : 'UNKNOWN';
+  // The producer reports synthetic freshness as UNKNOWN even when its original
+  // source was STALE; that runner may retain the truthful STALE reason.
+  const noncurrentReasons = input.provenance === 'synthetic'
+    ? ['UNKNOWN', 'STALE']
+    : [input.provenance === 'cached' || input.freshness === 'STALE' ? 'STALE' : 'UNKNOWN'];
   const ids = new Set<string>();
   for (const runner of input.runners) {
     if (!record(runner, ['id', 'status', 'reason', 'heartbeat_at', 'last_outcome'])
@@ -76,7 +79,7 @@ function valid(input: unknown): input is LocalObserverViewV1 {
         || (runner.status === 'READY'
             && (runner.reason !== 'NONE' || runner.heartbeat_at === null))
         || (!freshObserved && (runner.status !== 'UNKNOWN'
-            || runner.reason !== noncurrentReason || runner.last_outcome !== 'UNKNOWN'))) return false;
+            || !noncurrentReasons.includes(runner.reason) || runner.last_outcome !== 'UNKNOWN'))) return false;
     ids.add(runner.id);
   }
   return true;
