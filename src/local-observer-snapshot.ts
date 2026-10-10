@@ -55,7 +55,7 @@ function utc(value: unknown): value is string | null {
 }
 function safeRunnerId(value: unknown): value is string {
   // Opaque hexadecimal aliases only: user-entered labels or addresses cannot escape.
-  return typeof value === 'string' && /^runner-[0-9a-f]{3,48}$/i.test(value);
+  return typeof value === 'string' && /^runner-[0-9a-f]{3,48}$/.test(value);
 }
 function unknownView(): LocalObserverViewV1 {
   return { version: 1, provenance: 'synthetic', freshness: 'UNKNOWN', observed_at: null,
@@ -98,6 +98,15 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     }
     // A claimed fresh snapshot without an observed source is not current evidence.
     const trustedAsCurrent = root.provenance === 'observed' && root.freshness === 'FRESH';
+    // Snapshot-level freshness never proves that an individual runner is alive.
+    // Without a heartbeat, READY is unsafe even when the producer claims FRESH.
+    const reportedRunners = runners.map((runner) => {
+      if (trustedAsCurrent && runner.status === 'READY' && runner.heartbeat_at === null) {
+        return {...runner, status: 'UNKNOWN' as const, reason: 'UNKNOWN' as const,
+          last_outcome: 'UNKNOWN' as const};
+      }
+      return runner;
+    });
     return {
       version: 1,
       provenance: root.provenance,
@@ -106,7 +115,7 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
       observed_at: root.provenance === 'synthetic' ? null : observed,
       capacity: {total: capacity.total, available: trustedAsCurrent ? capacity.available : null},
       queue: {pending: queue.pending, blocked: queue.blocked},
-      runners: runners.map((runner) => trustedAsCurrent ? runner : {
+      runners: reportedRunners.map((runner) => trustedAsCurrent ? runner : {
         ...runner, status: 'UNKNOWN' as const,
         reason: root.freshness === 'STALE' || root.provenance === 'cached' ? 'STALE' as const : 'UNKNOWN' as const,
         last_outcome: 'UNKNOWN' as const,

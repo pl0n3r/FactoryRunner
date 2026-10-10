@@ -58,6 +58,21 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-11T00:00:00Z'}]}), unknown(null));
   assert.deepEqual(unknown({...input, observed_at: '2026-02-30T00:00:00Z'}), unknown(null));
   assert.deepEqual(unknown({...input, freshness: 'NOT_A_REAL_STATE'}), unknown(null));
+  // A global FRESH claim cannot turn a runner with no heartbeat into READY.
+  const noHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: null}]});
+  assert.equal(noHeartbeat.runners.length, 1);
+  assert.equal(noHeartbeat.runners[0].status, 'UNKNOWN');
+  assert.equal(noHeartbeat.runners[0].reason, 'UNKNOWN');
+  assert.equal(noHeartbeat.runners[0].last_outcome, 'UNKNOWN');
+  const validHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:59:59Z'}]});
+  assert.equal(validHeartbeat.runners[0].status, 'READY');
+  assert.equal(validHeartbeat.runners[0].heartbeat_at, '2026-10-10T11:59:59Z');
+  // Case variants of the same hexadecimal alias must not represent two runners.
+  assert.deepEqual(unknown({...input, runners: [{...input.runners[0], id: 'runner-ABC'}]}), unknown(null));
+  assert.deepEqual(unknown({...input, runners: [
+    {...input.runners[0], id: 'runner-abc'},
+    {...input.runners[0], id: 'runner-ABC'},
+  ]}), unknown(null));
 });
 
 test('secrets PII HTML and hostile accessors never leak into projection or errors', () => {
