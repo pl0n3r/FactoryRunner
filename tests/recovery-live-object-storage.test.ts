@@ -261,6 +261,7 @@ async function assertRejectedBucketXml(
 test('nested Status under unknown element fails versioning before object operation',async()=>{
   await assertRejectedBucketXml('versioning',[
     '<VersioningConfiguration><Bogus><Status>Enabled</Status></Bogus></VersioningConfiguration>',
+    '<VersioningConfiguration>ROOT_TEXT_INVALID<Status>Enabled</Status></VersioningConfiguration>',
     '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
     '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration><Outside/>',
     '<VersioningConfiguration><Status>Enabled</Status><Bogus></VersioningConfiguration>',
@@ -278,6 +279,7 @@ test('nested Status under unknown element fails versioning before object operati
 test('nested ObjectLockEnabled under unknown element fails before object operation',async()=>{
   await assertRejectedBucketXml('object-lock',[
     '<ObjectLockConfiguration><Bogus><ObjectLockEnabled>Enabled</ObjectLockEnabled></Bogus></ObjectLockConfiguration>',
+    '<ObjectLockConfiguration>ROOT_TEXT_INVALID<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>',
     '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>',
     '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration><Outside/>',
     '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Bogus></ObjectLockConfiguration>',
