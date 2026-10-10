@@ -92,12 +92,48 @@ caption{text-align:left;margin-bottom:.6rem}th,td{padding:.7rem;border-bottom:1p
 @media(min-width:601px){.summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 `;
 
+/**
+ * A cheap, depth-bounded shape guard before structuredClone. Never traverses unknown
+ * object graphs, invokes getters, or copies oversized strings/arrays. Semantic
+ * validation still happens on the isolated clone in valid().
+ */
+function boundedForClone(input: unknown): boolean {
+  const seen = new Set<object>();
+  function visit(value: unknown, depth: number): boolean {
+    if (value === null) return true;
+    if (typeof value === 'string') return value.length <= 120;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (typeof value !== 'object' || depth > 3 || seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      if (value.length > 40 || Reflect.ownKeys(value).length !== value.length + 1) return false;
+      for (let i = 0; i < value.length; i += 1) {
+        const entry = Object.getOwnPropertyDescriptor(value, String(i));
+        if (!entry || !('value' in entry) || !visit(entry.value, depth + 1)) return false;
+      }
+      return true;
+    }
+    const proto: unknown = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 7) return false;
+    for (const key of keys) {
+      const entry = Object.getOwnPropertyDescriptor(value, key);
+      if (typeof key !== 'string' || !entry?.enumerable || !('value' in entry)
+          || !visit(entry.value, depth + 1)) return false;
+    }
+    return true;
+  }
+  return visit(input, 0);
+}
+
 /** Never claims live readiness. Invalid/ambiguous input produces an honest UNKNOWN document. */
 export function renderLocalObserverHtml(input: unknown): string {
   let item: LocalObserverViewV1 | null = null;
   try {
-    // Clone first: accessors/Proxies cannot change a value after validation.
-    // A non-cloneable or ambiguous value is rendered as UNKNOWN.
+    // Reject over-budget or accessor-based inputs before cloning any data.
+    // All HTML values then come exclusively from a separately validated clone.
+    if (!boundedForClone(input)) throw new TypeError('Invalid snapshot');
     const snapshot: unknown = structuredClone(input);
     if (valid(snapshot)) item = snapshot;
   } catch { /* uncloneable input never reaches output */ }

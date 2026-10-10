@@ -34,8 +34,9 @@ test('render escapes untrusted content and excludes active resources', () => {
   });
   const stable = renderLocalObserverHtml(shifting);
   assert.ok(!/<\s*(img|svg|script)\b/i.test(stable));
-  assert.equal(reasonReads, 1, 'read each hostile accessor only once');
-  assert.equal(timeReads, 1, 'validated timestamps cannot change before render');
+  assert.equal(reasonReads, 0, 'accessors must not be invoked even during preflight');
+  assert.equal(timeReads, 0, 'hostile timestamp accessors never execute');
+  assert.match(stable, /UNKNOWN: snapshot inválido/);
   const throwing = snapshot();
   Object.defineProperty(throwing.runners[0], 'last_outcome', {
     enumerable: true,
@@ -44,6 +45,25 @@ test('render escapes untrusted content and excludes active resources', () => {
   const fallback = renderLocalObserverHtml(throwing);
   assert.match(fallback, /UNKNOWN: snapshot inválido/);
   assert.ok(!fallback.includes('SECRET-SENTINEL'));
+  // Resource-limit regression: invalid input cannot trigger a 12 MiB clone.
+  const oversized = { ...snapshot(), unexpected: 'X'.repeat(12 * 1024 * 1024) };
+  const originalClone = globalThis.structuredClone;
+  let clones = 0;
+  globalThis.structuredClone = ((...args: Parameters<typeof structuredClone>) => {
+    clones += 1;
+    return originalClone(...args);
+  }) as typeof structuredClone;
+  try {
+    assert.match(renderLocalObserverHtml(oversized), /UNKNOWN: snapshot inválido/);
+    assert.equal(clones, 0, 'invalid oversized payload cannot reach structuredClone');
+    assert.match(renderLocalObserverHtml({ ...snapshot(), runners: Array(500).fill(snapshot().runners[0]) }), /UNKNOWN: snapshot inválido/);
+    assert.equal(clones, 0, 'oversized runner list cannot reach structuredClone');
+    const validOutput = renderLocalObserverHtml(snapshot());
+    assert.match(validOutput, /SIN VALIDACIÓN EN PRODUCCIÓN/);
+    assert.equal(clones, 1, 'valid small snapshot is cloned once');
+  } finally {
+    globalThis.structuredClone = originalClone;
+  }
   const privateInput = { ...snapshot(), token: 'PRIVATE-SENTINEL' };
   const rejected = renderLocalObserverHtml(privateInput);
   assert.ok(rejected.includes('snapshot inválido'));
