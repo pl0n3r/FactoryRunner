@@ -237,6 +237,70 @@ test('invalid XML HTTP errors and unsupported provider are generic failures',asy
   }
 });
 
+async function assertRejectedBucketXml(
+  route:'versioning'|'object-lock', cases:readonly string[],
+):Promise<void>{
+  for(const xml of cases){
+    let objectCalls=0;
+    const live=new RecoveryLiveObjectStorage({env,source,sink,transport:async(url,init)=>{
+      if(url.endsWith('?'+route+'=')) return new Response(xml,{status:200});
+      const preflight=preflightResponse(url);
+      if(preflight!==null) return preflight;
+      objectCalls++;
+      return response(init.method??'GET');
+    }});
+    await assert.rejects(()=>live.execute({
+      capability:'recovery.object-storage.verify',
+      connection_ref:'controlbot:connection/recovery-primary',
+      descriptor:descriptor('verify'),
+    }),RecoveryLiveObjectStorageError);
+    assert.equal(objectCalls,0);
+  }
+}
+
+test('nested Status under unknown element fails versioning before object operation',async()=>{
+  await assertRejectedBucketXml('versioning',[
+    '<VersioningConfiguration><Bogus><Status>Enabled</Status></Bogus></VersioningConfiguration>',
+    '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
+    '<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration><Outside/>',
+    '<VersioningConfiguration><Status>Enabled</Status><Bogus></VersioningConfiguration>',
+    '<VersioningConfiguration bogus><Status>Enabled</Status></VersioningConfiguration>',
+    '<VersioningConfiguration xmlns=unquoted><Status>Enabled</Status></VersioningConfiguration>',
+    '<VersioningConfiguration xmlns="unterminated><Status>Enabled</Status></VersioningConfiguration>',
+    '<VersioningConfiguration xmlns="a" xmlns="b"><Status>Enabled</Status></VersioningConfiguration>',
+    '<?xml bogus?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
+    '<?xmlversion="1.0"?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
+    '<?xmlversion="1.1"?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
+    '<?xml encoding="UTF-8"?><VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>',
+  ]);
+});
+
+test('nested ObjectLockEnabled under unknown element fails before object operation',async()=>{
+  await assertRejectedBucketXml('object-lock',[
+    '<ObjectLockConfiguration><Bogus><ObjectLockEnabled>Enabled</ObjectLockEnabled></Bogus></ObjectLockConfiguration>',
+    '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration><ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>',
+    '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration><Outside/>',
+    '<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Bogus></ObjectLockConfiguration>',
+    '<ObjectLockConfiguration bogus><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>',
+    '<ObjectLockConfiguration xmlns=unquoted><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>',
+  ]);
+});
+
+test('direct S3 control fields with nested retention siblings remain valid',async()=>{
+  const versioning='<?xml version="1.0" encoding="UTF-8"?><VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status><MfaDelete>Disabled</MfaDelete></VersioningConfiguration>';
+  const objectLock='<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention><Mode>COMPLIANCE</Mode><Days>30</Days></DefaultRetention></Rule></ObjectLockConfiguration>';
+  let objectCalls=0;
+  const live=new RecoveryLiveObjectStorage({env,source,sink,transport:async(url,init)=>{
+    if(url.endsWith('?versioning=')) return new Response(versioning,{status:200});
+    if(url.endsWith('?object-lock=')) return new Response(objectLock,{status:200});
+    objectCalls+=1;
+    return response(init.method??'GET');
+  }});
+  const result=await live.execute({capability:'recovery.object-storage.verify',connection_ref:'controlbot:connection/recovery-primary',descriptor:descriptor('verify')});
+  assert.match(result.immutable_version_ref,/^version:/);
+  assert.equal(objectCalls,1);
+});
+
 test('bucket preflight is cached per driver instance and never persisted',async()=>{
   const command={
     connection_ref:config.alias,

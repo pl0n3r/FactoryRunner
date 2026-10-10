@@ -63,15 +63,115 @@ function signedRequest(
   delete headers.host;
   return {url:config.endpoint+pathname+(queryString?'?'+queryString:''),init:{method,headers}};
 }
-function exactXmlValue(xml:string,root:string,tag:string):string{
-  if(xml.length===0||xml.length>8192||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(xml)) throw new Error('invalid_bucket_configuration');
-  const open=new RegExp('<'+root+'(?:\\s[^>]*)?>','g');
-  const close=new RegExp('</'+root+'>','g');
-  if([...xml.matchAll(open)].length!==1||[...xml.matchAll(close)].length!==1) throw new Error('invalid_bucket_configuration');
-  const values=[...xml.matchAll(new RegExp('<'+tag+'>\\s*([^<]+?)\\s*</'+tag+'>','g'))];
-  if(values.length!==1) throw new Error('invalid_bucket_configuration');
-  return values[0]![1]!.trim();
+function invalidBucketXml():never{throw new Error('invalid_bucket_configuration');}
+
+function validXmlAttributes(attrs:string):boolean{
+  let cursor=0;
+  const seen=new Set<string>();
+  while(cursor<attrs.length){
+    const whitespace=/^\s+/.exec(attrs.slice(cursor));
+    if(!whitespace) return false;
+    cursor+=whitespace[0].length;
+    if(cursor===attrs.length) return true;
+    const name=/^[A-Za-z_:][A-Za-z0-9_.:-]*/.exec(attrs.slice(cursor));
+    if(!name||seen.has(name[0])) return false;
+    seen.add(name[0]);
+    cursor+=name[0].length;
+    const assignment=/^\s*=\s*/.exec(attrs.slice(cursor));
+    if(!assignment) return false;
+    cursor+=assignment[0].length;
+    const quote=attrs[cursor];
+    if(quote!=='"'&&quote!=="'") return false;
+    const end=attrs.indexOf(quote,cursor+1);
+    if(end<0||/[<>&]/.test(attrs.slice(cursor+1,end))) return false;
+    cursor=end+1;
+  }
+  return true;
 }
+
+type BucketXmlToken={name:string;closing:boolean;selfClosing:boolean};
+type BucketXmlState={
+  stack:string[]; seenRoot:boolean; closedRoot:boolean;
+  targetValue:string|undefined; contentStart:number;
+};
+
+function bucketXmlToken(token:string):BucketXmlToken{
+  const closing=token.startsWith('</');
+  const selfClosing=token.endsWith('/>');
+  const inner=token.slice(closing?2:1,token.length-(selfClosing?2:1));
+  const name=/^[A-Za-z][A-Za-z0-9:._-]*/.exec(inner);
+  if(!name) invalidBucketXml();
+  const attrs=inner.slice(name[0].length);
+  if(closing ? (selfClosing||attrs.trim()!=='') : !validXmlAttributes(attrs)) invalidBucketXml();
+  return {name:name[0],closing,selfClosing};
+}
+
+function openBucketXmlTag(state:BucketXmlState,token:BucketXmlToken,root:string,tag:string,index:number):void{
+  if(state.closedRoot||(!state.stack.length&&(token.name!==root||state.seenRoot))
+     ||(state.stack.length&&token.name===root)) invalidBucketXml();
+  if(!state.stack.length) state.seenRoot=true;
+  if(token.name===tag){
+    if(state.stack.length!==1||state.targetValue!==undefined||token.selfClosing) invalidBucketXml();
+    state.contentStart=index;
+  }
+  if(!token.selfClosing) state.stack.push(token.name);
+  else if(!state.stack.length) state.closedRoot=true;
+}
+
+function closeBucketXmlTag(state:BucketXmlState,token:BucketXmlToken,tag:string,xml:string,index:number):void{
+  if(state.stack.at(-1)!==token.name) invalidBucketXml();
+  if(token.name===tag){
+    if(state.stack.length!==2||state.targetValue!==undefined||state.contentStart<0) invalidBucketXml();
+    const value=xml.slice(state.contentStart,index).trim();
+    if(!value||/[<>]/.test(value)) invalidBucketXml();
+    state.targetValue=value;
+  }
+  state.stack.pop();
+  if(!state.stack.length) state.closedRoot=true;
+}
+
+function stripXmlDeclaration(xml:string):string{
+  const source=xml.trim();
+  if(!source.startsWith('<?xml')) return source;
+  if(![' ', '\t', '\r', '\n'].includes(source[5]??'')) invalidBucketXml();
+  const end=source.indexOf('?>');
+  if(end<0||end>200) invalidBucketXml();
+  const fields=source.slice(5,end).trim().split(/\s+/);
+  if(fields.length<1||fields.length>2) invalidBucketXml();
+  if(!['version="1.0"', "version='1.0'", 'version="1.1"', "version='1.1'"].includes(fields[0]!)) invalidBucketXml();
+  if(fields.length===2){
+    const encoding=fields[1]!;
+    if(!encoding.startsWith('encoding=')) invalidBucketXml();
+    const quoted=encoding.slice('encoding='.length);
+    const quote=quoted[0];
+    if((quote!=='"'&&quote!=="'")||!quoted.endsWith(quote)) invalidBucketXml();
+    if(!/^[A-Za-z0-9._-]+$/.test(quoted.slice(1,-1))) invalidBucketXml();
+  }
+  return source.slice(end+2).trim();
+}
+
+function exactXmlValue(xml:string,root:string,tag:string):string{
+  if(xml.length===0||xml.length>8192||/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(xml)) invalidBucketXml();
+  // S3 preflight XML only: reject DTD, entities, comments and extra PIs.
+  const source=stripXmlDeclaration(xml);
+  if(source.includes('<!')||source.includes('<?')||source.includes('&')) invalidBucketXml();
+  const state:BucketXmlState={
+    stack:[],seenRoot:false,closedRoot:false,targetValue:undefined,contentStart:-1,
+  };
+  let cursor=0;
+  for(const match of source.matchAll(/<[^<>]*>/g)){
+    const before=source.slice(cursor,match.index);
+    if(/[<>]/.test(before)||(!state.stack.length&&before.trim())) invalidBucketXml();
+    const token=bucketXmlToken(match[0]);
+    if(token.closing) closeBucketXmlTag(state,token,tag,source,match.index);
+    else openBucketXmlTag(state,token,root,tag,match.index+match[0].length);
+    cursor=match.index+match[0].length;
+  }
+  if(!state.seenRoot||!state.closedRoot||state.stack.length
+     ||source.slice(cursor).trim()||state.targetValue===undefined) invalidBucketXml();
+  return state.targetValue;
+}
+
 
 export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
   readonly #config:RecoveryS3Connection;
