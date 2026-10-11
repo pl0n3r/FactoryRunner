@@ -29,6 +29,19 @@ Sin --demo, el CLI no inicia listener. Puerto cero solo para pruebas.
   relativa del heartbeat no valida frescura absoluta al momento de consulta.
 - Errores sin eco de datos y sin credenciales. No se declaran READY reales.
 
+## Justificación de HTTP local (regla Sonar S5332)
+
+El diseño de esta **demo de construcción** usa HTTP en texto claro de manera
+intencional solo en `127.0.0.1` para compatibilidad con una prueba Node sin
+material criptográfico ni certificados. El único contenido permitido es
+**sintético**, jamás secretos, datos reales ni credenciales. La conexión
+requiere Host exacto, Origin local cuando se presenta, socket remoto loopback,
+CSP y sin CORS. Los dos usos del literal `http://` llevan una excepción
+`NOSONAR` circunscrita a esas dos líneas; **no** autorizan cambiar a
+`0.0.0.0`, habilitar acceso remoto o servir fuentes reales. Si en un futuro
+se conectan datos o se pretende acceso fuera del host, se deberá crear un
+nuevo contrato con autenticación y TLS, sin reutilizar esta excepción.
+
 ## Pruebas y límites
 
     node --experimental-strip-types --test tests/local-observer-server.test.ts
