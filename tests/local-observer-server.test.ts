@@ -65,6 +65,27 @@ test('AC02 only localhost bind, GET and allowlisted routes', async () => {
     }
     assert.equal((await get(handle.port,
       {headers: {'Content-Length': '0'}})).status, 400);
+    // A body must be rejected before the client gets provisional 100 Continue.
+    const premature = await new Promise<{status: number | undefined;
+      continued: boolean; headers: Record<string, unknown>}>((done, reject) => {
+      let continued = false;
+      const req = request({hostname: '127.0.0.1', port: handle.port, path: '/',
+        method: 'GET', agent: false, timeout: 3000, headers: {
+          Host: '127.0.0.1:' + handle.port, Expect: '100-continue',
+          'Content-Length': '1048576',
+        }}, (res) => {
+        res.resume();
+        res.on('end', () => done({status: res.statusCode, continued,
+          headers: res.headers}));
+      });
+      req.on('continue', () => { continued = true; });
+      req.on('error', reject);
+      req.end();
+    });
+    assert.equal(premature.status, 417);
+    assert.equal(premature.continued, false);
+    assert.equal(premature.headers['cache-control'], 'no-store, max-age=0');
+    assert.equal(premature.headers['access-control-allow-origin'], undefined);
   } finally { await handle.close(); }
 });
 
