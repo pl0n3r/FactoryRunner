@@ -55,12 +55,6 @@ function valid(input: unknown): input is LocalObserverViewV1 {
       || !Array.isArray(input.runners) || input.runners.length > 40) return false;
   if (input.capacity.available !== null && input.capacity.total !== null
       && input.capacity.available > input.capacity.total) return false;
-  // A direct caller may bypass the snapshot projector. A positive available
-  // count with no identifiable runner is contradictory even for FRESH data.
-  // Fail closed to the generic UNKNOWN document; do not echo the input.
-  if (input.provenance === 'observed' && input.freshness === 'FRESH'
-      && input.capacity.available !== null && input.capacity.available > 0
-      && input.runners.length === 0) return false;
   // Public render input must obey the same provenance states as the producer.
   const freshObserved = input.provenance === 'observed' && input.freshness === 'FRESH';
   if ((input.provenance === 'synthetic'
@@ -74,6 +68,7 @@ function valid(input: unknown): input is LocalObserverViewV1 {
     ? ['UNKNOWN', 'STALE']
     : [input.provenance === 'cached' || input.freshness === 'STALE' ? 'STALE' : 'UNKNOWN'];
   const ids = new Set<string>();
+  let hasVerifiedReady = false;
   for (const runner of input.runners) {
     if (!record(runner, ['id', 'status', 'reason', 'heartbeat_at', 'last_outcome'])
         || typeof runner.id !== 'string' || !/^runner-[0-9a-f]{3,48}$/.test(runner.id)
@@ -88,7 +83,16 @@ function valid(input: unknown): input is LocalObserverViewV1 {
         || (!freshObserved && (runner.status !== 'UNKNOWN'
             || !noncurrentReasons.includes(runner.reason) || runner.last_outcome !== 'UNKNOWN'))) return false;
     ids.add(runner.id);
+    if (runner.status === 'READY' && runner.reason === 'NONE'
+        && freshRunnerHeartbeat(input.observed_at, runner.heartbeat_at)) {
+      hasVerifiedReady = true;
+    }
   }
+  // A caller can bypass the projector and supply a nonempty roster without
+  // any READY runner. A positive available count needs corroboration by a
+  // verified READY heartbeat; otherwise deny the entire untrusted snapshot.
+  if (freshObserved && input.capacity.available !== null && input.capacity.available > 0
+      && !hasVerifiedReady) return false;
   return true;
 }
 const ESCAPES: Record<string, string> = {
