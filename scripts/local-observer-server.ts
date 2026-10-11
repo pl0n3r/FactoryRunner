@@ -57,7 +57,7 @@ export async function startLocalObserverServer(fixture: unknown, port = 0): Prom
     if (req.socket.localAddress !== HOST || req.socket.remoteAddress !== HOST
         || hosts.length !== 1 || hosts[0] !== authority
         || origins.length > 1 || (origins.length === 1
-          && origins[0] !== 'http://' + authority)) {
+          && origins[0] !== 'http://' + authority)) { // NOSONAR: local-only synthetic demo, no secrets or external interface
       reply(403, 'forbidden_local_origin'); return;
     }
     if (req.method !== 'GET') { reply(405, 'get_only'); return; }
@@ -89,7 +89,7 @@ export async function startLocalObserverServer(fixture: unknown, port = 0): Prom
     server.close();
     throw new TypeError('non_loopback_listener');
   }
-  return { server, port: address.port, url: 'http://' + HOST + ':' + address.port,
+  return { server, port: address.port, url: 'http://' + HOST + ':' + address.port, // NOSONAR: no sensitive data; bound to loopback only
     close: () => new Promise<void>((done, reject) => {
       server.closeAllConnections();
       server.close((error) => error ? reject(error) : done());
@@ -107,8 +107,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.stderr.write('Uso: node --experimental-strip-types scripts/local-observer-server.ts --demo --port=8765\n');
     process.exitCode = 2;
   } else {
-    startLocalObserverServer(DEMO, portNumber)
-      .then((handle) => { process.stdout.write('Observador local sintético: ' + handle.url + ' (NO LIVE)\n'); })
-      .catch(() => { process.stderr.write('Listener local no disponible.\n'); process.exitCode = 1; });
+    try {
+      const handle = await startLocalObserverServer(DEMO, portNumber);
+      process.stdout.write('Observador local sintético: ' + handle.url + ' (NO LIVE)\n');
+    } catch {
+      process.stderr.write('Listener local no disponible.\n');
+      process.exitCode = 1;
+    }
   }
 }
