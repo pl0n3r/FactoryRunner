@@ -73,6 +73,17 @@ export async function startLocalObserverServer(fixture: unknown, port = 0): Prom
     }
     reply(404, 'unknown_local_route');
   });
+  // Node otherwise sends 100 Continue before our GET body gate can reject it.
+  server.on('checkContinue', (_request, response) => {
+    response.writeHead(417, {
+      'Cache-Control': 'no-store, max-age=0',
+      'Content-Security-Policy': CSP,
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Length': '0',
+      Connection: 'close',
+    });
+    response.end();
+  });
   server.requestTimeout = 4000;
   server.headersTimeout = 4000;
   server.keepAliveTimeout = 1000;
