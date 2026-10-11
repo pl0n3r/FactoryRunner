@@ -44,10 +44,10 @@ FactoryRunner ejecuta trabajo; no decide prioridades, no amplía autoridad y no 
 
 ## Work Queue
 
-- **NOW:** sin Issues abiertos; la fuente canónica es [FactoryRunner Issues](https://github.com/pl0n3r/FactoryRunner/issues).
+- **NOW:** sin hoja disponible para ejecutar; el inventario completo, incluidos Issues bloqueados, está en [FactoryRunner Issues](https://github.com/pl0n3r/FactoryRunner/issues).
 - **NEXT:** ninguno materializado. El siguiente trabajo debe nacer como Issue gobernado antes de reservarse o implementarse.
 - **LATER:** ampliar adapters de ejecución y browser únicamente mediante Issues gobernados y capacidades explícitas.
-- **BLOCKED:** ninguno por visibilidad. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
+- **BLOCKED:** [#431 — activación live](https://github.com/pl0n3r/FactoryRunner/issues/431) continúa bloqueado por puerta exclusiva del dueño y evidencia pendiente de compatibilidad ControlBot, health/readiness, observabilidad y rollback. No representa una hoja disponible ni autoriza go-live. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
 
 Referencias de baseline: [#20 — README Contract v1](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168 — bootstrap/arquitectura](https://github.com/pl0n3r/Factory/issues/168).
 

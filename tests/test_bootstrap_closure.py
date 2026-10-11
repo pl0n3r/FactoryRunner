@@ -47,10 +47,30 @@ class BootstrapClosureTests(unittest.TestCase):
         now_entry = next(
             line for line in queue.splitlines() if line.startswith("- **NOW:**")
         )
-        self.assertIn("**NOW:** sin Issues abiertos", now_entry)
+        self.assertIn("**NOW:** sin hoja disponible", now_entry)
+        self.assertNotIn("sin Issues abiertos", now_entry)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues", now_entry)
         self.assertNotIn("#22", now_entry)
         for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
             self.assertIn(f"**{lane}:**", queue)
+
+    def test_live_gate_431_is_a_blocked_issue_not_empty_queue(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        queue = text.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
+        now_entry = next(
+            line for line in queue.splitlines() if line.startswith("- **NOW:**")
+        )
+        blocked_entry = next(
+            line for line in queue.splitlines() if line.startswith("- **BLOCKED:**")
+        )
+        self.assertNotIn("sin Issues abiertos", queue)
+        self.assertNotIn("**BLOCKED:** ninguno", queue)
+        self.assertNotIn("#431", now_entry)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/431", blocked_entry)
+        self.assertIn("puerta exclusiva del dueño", blocked_entry)
+        self.assertIn("health/readiness", blocked_entry)
+        self.assertIn("observabilidad y rollback", blocked_entry)
+        self.assertIn("No representa una hoja disponible ni autoriza go-live", blocked_entry)
 
     def test_post_bootstrap_work_queue_points_to_canonical_issues(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
