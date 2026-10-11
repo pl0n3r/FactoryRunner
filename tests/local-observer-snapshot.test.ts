@@ -212,7 +212,7 @@ test('AC03 denial is bounded privacy-preserving and grants no new authority', ()
   assert.match(html, /NO LIVE · SYNTHETIC · UNKNOWN/);
   assert.match(html, /Capacidad disponible<span class="value">UNKNOWN/);
   assert.doesNotMatch(html, /Capacidad disponible<span class="value">[1-9]/);
-  assert.doesNotMatch(html, /<\\s*(?:script|form|button|iframe|a)\\b/i);
+  assert.doesNotMatch(html, /<\s*(?:script|form|button|iframe|a)\b/i);
   for (const forbidden of ['runner-001', 'PRIVATE_EVIDENCE_SENTINEL',
     'private-session-sentinel', 'token=', 'READY (reportado)']) {
     assert.ok(!html.includes(forbidden), forbidden);
