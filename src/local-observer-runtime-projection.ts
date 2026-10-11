@@ -123,16 +123,19 @@ export function projectInProcessObserverCandidate(
         || hb.observed_at > nowSeconds) return candidate();
     const age = nowSeconds - hb.observed_at;
     const health = heartbeatHealth(hb, nowSeconds);
-    if (health === 'offline') return candidate('OFFLINE', null, 'UNKNOWN', age, hb.capacity.max);
-    if (health === 'stale') return candidate('STALE', null, 'UNKNOWN', age, hb.capacity.max);
-    const expectedAvailable = hb.status === 'draining'
-      ? 0 : hb.capacity.max - hb.capacity.active;
+    // A stale/offline runner has NO available capacity, regardless of its
+    // historical max-active count. Validate before classifying its age.
+    const expectedAvailable = health === 'healthy' && hb.status !== 'draining'
+      ? hb.capacity.max - hb.capacity.active : 0;
     if (snapshot.available !== expectedAvailable) return candidate();
-    // Reuse strict existing projection for an opaque, declassified alias.
+    // Apply the shared strict consistency validator to EVERY age class.
+    // Otherwise contradictory stale/offline capacity can look legitimate.
     const safe = projectSyntheticObserverFromExports(
       snapshotInput, heartbeatInput, nowSeconds,
     );
     if (safe.runners.length !== 1) return candidate();
+    if (health === 'offline') return candidate('OFFLINE', null, 'UNKNOWN', age, hb.capacity.max);
+    if (health === 'stale') return candidate('STALE', null, 'UNKNOWN', age, hb.capacity.max);
     return candidate('FRESH', safe.runners[0].id, hb.status, age, hb.capacity.max);
   } catch {
     // No exception, private error message or raw source may escape.
