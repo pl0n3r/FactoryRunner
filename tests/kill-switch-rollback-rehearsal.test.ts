@@ -60,7 +60,7 @@ test('AC-03 evidencia auditada no contiene secretos o entradas y no usa sistemas
   assert.deepEqual(runner.snapshot(), { paused: false, accepted: [] });
   assert.deepEqual(bot.snapshot(), { paused: false });
   assert.throws(() => rehearseKillSwitchRollback({
-    runner: { snapshot: () => ({ paused: false, accepted: [] }) } as FakeRehearsalRunner,
+    runner: { snapshot: () => ({ paused: false, accepted: [] }) } as unknown as FakeRehearsalRunner,
     controlBot: bot, fakeOrderId, observedAt,
   }), /fake_only/);
 });
