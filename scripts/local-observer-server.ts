@@ -3,14 +3,38 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
-import { projectLocalObserverSnapshot } from '../src/local-observer-snapshot.ts';
+import { projectLocalObserverSnapshot, type LocalObserverViewV1 } from '../src/local-observer-snapshot.ts';
+import { projectSyntheticObserverFromExports } from '../src/local-observer-source-adapter.ts';
+import { capacitySnapshot, type ObservedQueueState } from '../src/result.ts';
+import type { RunnerHeartbeat, RunnerIdentity } from '../src/runner.ts';
 import { renderLocalObserverHtml } from '../src/local-observer-html.ts';
 
 const HOST = '127.0.0.1';
 const CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-const DEMO = { version: 1, provenance: 'synthetic', freshness: 'UNKNOWN',
-  observed_at: null, capacity: { total: null, available: null },
-  queue: { pending: null, blocked: null }, runners: [] };
+/**
+ * Deterministic demonstration of the existing typed runner exports, never a
+ * source reader. Calling this function does not open sockets, read files, run
+ * processes or claim an observed runner. Only CLI --demo starts the server.
+ */
+export function buildSyntheticLocalObserverDemoFixture(): LocalObserverViewV1 {
+  const runnerId = '11111111-1111-7111-8111-111111111111';
+  const observedAt = 1_700_000_100;
+  const now = observedAt + 30;
+  const identity: RunnerIdentity = {
+    version: 1, runner_id: runnerId, protocol_version: 1,
+    runtime: 'node', runtime_version: '0.1.5', platform: 'macos-arm64',
+    location: 'local', capabilities: ['git'], max_parallel: 4,
+  };
+  const heartbeat: RunnerHeartbeat = {
+    version: 1, runner_id: runnerId, sequence: 7, observed_at: observedAt,
+    status: 'ready', capacity: { max: 4, active: 1 }, active_sessions: [],
+  };
+  const queue: ObservedQueueState = {
+    version: 1, runner_id: runnerId, observed_at: observedAt, queued_orders: 2,
+  };
+  const snapshot = capacitySnapshot(identity, heartbeat, queue, now);
+  return projectSyntheticObserverFromExports(snapshot, heartbeat, now);
+}
 
 export type LocalObserverServerHandle = {
   readonly server: Server;
@@ -119,7 +143,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.exitCode = 2;
   } else {
     try {
-      const handle = await startLocalObserverServer(DEMO, portNumber);
+      const handle = await startLocalObserverServer(buildSyntheticLocalObserverDemoFixture(), portNumber);
       process.stdout.write('Observador local sintético: ' + handle.url + ' (NO LIVE)\n');
     } catch {
       process.stderr.write('Listener local no disponible.\n');
