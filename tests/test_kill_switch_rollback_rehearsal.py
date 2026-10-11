@@ -13,7 +13,7 @@ class KillSwitchRollbackRehearsalTests(unittest.TestCase):
     def _run(self, name: str) -> None:
         completed = subprocess.run(
             ["node", "--experimental-strip-types", "--test",
-             f"--test-name-pattern={name}", SPEC],
+             "--test-reporter=tap", f"--test-name-pattern={name}", SPEC],
             cwd=ROOT, capture_output=True, text=True, timeout=30,
             check=False,
         )
