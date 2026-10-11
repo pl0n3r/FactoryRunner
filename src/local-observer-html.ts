@@ -55,6 +55,12 @@ function valid(input: unknown): input is LocalObserverViewV1 {
       || !Array.isArray(input.runners) || input.runners.length > 40) return false;
   if (input.capacity.available !== null && input.capacity.total !== null
       && input.capacity.available > input.capacity.total) return false;
+  // A direct caller may bypass the snapshot projector. A positive available
+  // count with no identifiable runner is contradictory even for FRESH data.
+  // Fail closed to the generic UNKNOWN document; do not echo the input.
+  if (input.provenance === 'observed' && input.freshness === 'FRESH'
+      && input.capacity.available !== null && input.capacity.available > 0
+      && input.runners.length === 0) return false;
   // Public render input must obey the same provenance states as the producer.
   const freshObserved = input.provenance === 'observed' && input.freshness === 'FRESH';
   if ((input.provenance === 'synthetic'
