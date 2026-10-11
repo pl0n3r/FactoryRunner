@@ -121,6 +121,11 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     if (runners === null) return unknownView();
     // A claimed fresh snapshot without an observed source is not current evidence.
     const trustedAsCurrent = root.provenance === 'observed' && root.freshness === 'FRESH';
+    // A positive available count with no runner roster is not attributable to
+    // any observed runner, even if the upstream aggregate asserts FRESH.
+    // Deny this contradictory packet instead of rendering a false capacity.
+    if (trustedAsCurrent && capacity.available !== null
+        && capacity.available > 0 && runners.length === 0) return unknownView();
     // The runtime's heartbeatHealth() considers >90 seconds stale. Measure
     // relative to observed_at (not Date.now) so offline tests stay deterministic.
     // A global FRESH claim never overrides individual runner freshness.
