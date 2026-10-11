@@ -22,6 +22,8 @@ class LocalObserverExistingExportsContractTests(unittest.TestCase):
     def _node(self, pattern: str | None, expected_pass: int, expected_skip: int) -> None:
         command = ["node", "--experimental-strip-types", "--test",
                    "--test-reporter=tap"]
+        # Node 24 uses name-pattern filtering before TAP enumeration: excluded
+        # tests do not appear as skipped; a single matching test means skipped=0.
         if pattern is not None:
             command.extend(["--test-name-pattern", pattern])
         command.append(str(SUITE))
@@ -39,13 +41,13 @@ class LocalObserverExistingExportsContractTests(unittest.TestCase):
             self.assertEqual(int(match.group(1)), expected, output[-6000:])
 
     def test_export_fixture_through_synthetic_observer(self) -> None:
-        self._node("AC01", 1, 3)
+        self._node("AC01", 1, 0)
 
     def test_stale_offline_and_mismatch_fail_closed(self) -> None:
-        self._node("AC02", 1, 3)
+        self._node("AC02", 1, 0)
 
     def test_private_evidence_never_rendered(self) -> None:
-        self._node("AC03", 1, 3)
+        self._node("AC03", 1, 0)
 
     def test_all_node_acceptance_cases_are_discoverable(self) -> None:
         self._node(None, 4, 0)
