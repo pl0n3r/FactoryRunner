@@ -68,7 +68,7 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.deepEqual(unknown({...input, observed_at: '2026-02-30T00:00:00Z'}), unknown(null));
   assert.deepEqual(unknown({...input, freshness: 'NOT_A_REAL_STATE'}), unknown(null));
   // A global FRESH claim cannot turn a runner with no heartbeat into READY.
-  const noHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: null}]});
+  const noHeartbeat = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: null}]});
   assert.equal(noHeartbeat.runners.length, 1);
   assert.equal(noHeartbeat.runners[0].status, 'UNKNOWN');
   assert.equal(noHeartbeat.runners[0].reason, 'UNKNOWN');
@@ -80,7 +80,7 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.equal(validHeartbeat.capacity.available, 1, 'fresh READY preserves independently reported capacity');
   // A READY runner with a blocking or unknown reason is never actionable.
   for (const reason of ['HUMAN_GATE', 'CLAIMS', 'NO_CAPACITY', 'DEPENDENCY', 'STALE', 'UNKNOWN'] as const) {
-    const contradictory = unknown({...input, runners: [{...input.runners[0], reason}]});
+    const contradictory = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], reason}]});
     assert.equal(contradictory.runners.length, 1);
     assert.equal(contradictory.runners[0].status, 'UNKNOWN');
     assert.equal(contradictory.runners[0].reason, reason);
@@ -94,16 +94,16 @@ test('stale cached synthetic and unordered times fail closed without live readin
   const atLimit = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:30Z'}]});
   assert.equal(atLimit.runners[0].status, 'READY');
   assert.equal(atLimit.capacity.available, 1);
-  const tooOld = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
+  const tooOld = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
   assert.equal(tooOld.runners[0].status, 'UNKNOWN');
   assert.equal(tooOld.runners[0].reason, 'STALE');
   assert.equal(tooOld.runners[0].last_outcome, 'UNKNOWN');
   assert.equal(tooOld.capacity.available, null);
-  const ancient = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
+  const ancient = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(ancient.runners[0].status, 'UNKNOWN');
   assert.equal(ancient.runners[0].reason, 'STALE');
   // Original blocking reason still wins over an old heartbeat.
-  const blockedOld = unknown({...input, runners: [{...input.runners[0], reason: 'HUMAN_GATE',
+  const blockedOld = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], reason: 'HUMAN_GATE',
     heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(blockedOld.runners[0].status, 'UNKNOWN');
   assert.equal(blockedOld.runners[0].reason, 'HUMAN_GATE');
