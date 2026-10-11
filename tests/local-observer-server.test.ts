@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { request } from 'node:http';
-import { startLocalObserverServer } from '../scripts/local-observer-server.ts';
+import { buildSyntheticLocalObserverDemoFixture, startLocalObserverServer } from '../scripts/local-observer-server.ts';
 
 const FIXTURE = { version: 1, provenance: 'synthetic', freshness: 'UNKNOWN',
   observed_at: null, capacity: { total: null, available: null },
@@ -134,4 +134,84 @@ test('AC04 exact Host Origin and no CORS or DNS rebinding', async () => {
     const okay = await get(port, {origin: 'http://127.0.0.1:'+port});
     assert.equal(okay.status, 200);
   } finally { await handle.close(); }
+});
+
+test('AC05 demo fixture uses typed runner exports without claiming current availability', async () => {
+  const demo = buildSyntheticLocalObserverDemoFixture();
+  const repeated = buildSyntheticLocalObserverDemoFixture();
+  assert.deepEqual(demo, repeated);
+  assert.equal(demo.version, 1);
+  assert.equal(demo.provenance, 'synthetic');
+  assert.equal(demo.freshness, 'UNKNOWN');
+  assert.equal(demo.observed_at, null);
+  assert.deepEqual(demo.capacity, {total: 4, available: null});
+  assert.deepEqual(demo.queue, {pending: null, blocked: null});
+  assert.equal(demo.runners.length, 1);
+  assert.match(demo.runners[0].id, /^runner-[0-9a-f]{12}$/);
+  assert.equal(demo.runners[0].status, 'UNKNOWN');
+  assert.equal(demo.runners[0].reason, 'UNKNOWN');
+  assert.equal(demo.runners[0].last_outcome, 'UNKNOWN');
+  const handle = await startLocalObserverServer(demo);
+  try {
+    const page = await get(handle.port);
+    assert.equal(page.status, 200);
+    assert.match(page.body, /NO LIVE · SYNTHETIC · UNKNOWN/);
+    assert.match(page.body, /Capacidad total<span class="value">4/);
+    assert.match(page.body, /Capacidad disponible<span class="value">UNKNOWN/);
+    assert.match(page.body, /En espera \/ bloqueados<span class="value">UNKNOWN \/ UNKNOWN/);
+    assert.ok(page.body.includes(demo.runners[0].id));
+    assert.ok(!page.body.includes('11111111-1111-7111-8111-111111111111'));
+    assert.ok(!page.body.includes('READY (reportado)'));
+  } finally { await handle.close(); }
+});
+
+test('AC06 typed demo retains GET-only loopback and UNKNOWN health boundary', async () => {
+  const handle = await startLocalObserverServer(buildSyntheticLocalObserverDemoFixture());
+  try {
+    const address = handle.server.address();
+    assert.ok(address && typeof address !== 'string');
+    assert.equal(address.address, '127.0.0.1');
+    assert.equal(address.family, 'IPv4');
+    const health = await get(handle.port, {path: '/health'});
+    assert.equal(health.status, 200);
+    assert.deepEqual(JSON.parse(health.body), {mode: 'synthetic_only', readiness: 'UNKNOWN'});
+    assert.equal(health.headers['access-control-allow-origin'], undefined);
+    const page = await get(handle.port);
+    assert.equal(page.status, 200);
+    assert.match(String(page.headers['content-security-policy']), /default-src 'none'/);
+    for (const method of ['POST', 'PUT', 'DELETE', 'HEAD']) {
+      assert.equal((await get(handle.port, {method, path: '/'})).status, 405);
+    }
+    assert.equal((await get(handle.port, {path: '/execute'})).status, 404);
+    assert.equal((await get(handle.port, {host: 'evil.example:' + handle.port})).status, 403);
+    assert.equal((await get(handle.port, {origin: 'https://evil.example'})).status, 403);
+  } finally { await handle.close(); }
+});
+
+test('AC07 hostile or observed inputs cannot turn the demo into a live source', async () => {
+  const demo = buildSyntheticLocalObserverDemoFixture();
+  const original = JSON.stringify(demo);
+  const cases: unknown[] = [
+    {...demo, provenance: 'observed', freshness: 'FRESH', observed_at: null},
+    {...demo, evidence: 'private-evidence-sentinel'},
+    {...demo, runners: [{...demo.runners[0], status: 'READY', last_outcome: 'SUCCESS'}]},
+    {...demo, queue: {pending: 2, blocked: 1}},
+    {token: 'private-token-sentinel'},
+    null,
+  ];
+  for (const candidate of cases) {
+    const handle = await startLocalObserverServer(candidate);
+    try {
+      const page = await get(handle.port);
+      assert.equal(page.status, 200);
+      assert.match(page.body, /UNKNOWN/);
+      assert.doesNotMatch(page.body, /READY \(reportado\)/);
+      assert.ok(!page.body.includes('private-evidence-sentinel'));
+      assert.ok(!page.body.includes('private-token-sentinel'));
+      assert.ok(!page.body.includes('11111111-1111-7111-8111-111111111111'));
+      assert.equal((await get(handle.port, {path: '/health'})).body,
+        '{"mode":"synthetic_only","readiness":"UNKNOWN"}');
+    } finally { await handle.close(); }
+  }
+  assert.equal(JSON.stringify(demo), original);
 });
