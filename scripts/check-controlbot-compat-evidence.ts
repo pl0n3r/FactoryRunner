@@ -1,5 +1,4 @@
 /** Read-only ControlBot ↔ FactoryRunner evidence comparison; never contacts either service. */
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
@@ -71,7 +70,7 @@ function side(input: unknown, repository: Repo): Side {
     version: obj.version,
     sha: obj.sha,
     protocol_version: 1,
-    routes: Object.freeze([...obj.routes].sort()),
+    routes: Object.freeze([...obj.routes].sort((left: string, right: string) => left.localeCompare(right, 'en'))),
     observed_at: timestamp(obj.observed_at),
   });
 }
@@ -88,7 +87,7 @@ function compareRoutes(left: readonly string[], right: readonly string[]): reado
   }
   for (const route of left) if (!HTTP_V1_ROUTES.includes(route)) differences.add(`RUNNER_UNSUPPORTED:${route}`);
   for (const route of right) if (!HTTP_V1_ROUTES.includes(route)) differences.add(`CONTROLBOT_UNSUPPORTED:${route}`);
-  return Object.freeze([...differences].sort());
+  return Object.freeze([...differences].sort((left, right) => left.localeCompare(right, 'en')));
 }
 
 /** A compatible offline fixture is not a release or a production attestation. */
@@ -108,8 +107,9 @@ export function evaluateCompatibilityEvidence(input: unknown, nowIso: string): R
     ...(runnerFreshness !== 'FRESH' ? ['RUNNER_EVIDENCE_NOT_FRESH'] : []),
     ...(botFreshness !== 'FRESH' ? ['CONTROLBOT_EVIDENCE_NOT_FRESH'] : []),
     'LIVE_ATTESTATION_NOT_PROVIDED'];
-  const status = differences.length > 0 ? 'INCOMPATIBLE'
-    : reasons.length > 1 ? 'UNKNOWN' : 'COMPATIBLE';
+  let status: 'INCOMPATIBLE' | 'UNKNOWN' | 'COMPATIBLE' = 'COMPATIBLE';
+  if (differences.length > 0) status = 'INCOMPATIBLE';
+  else if (reasons.length > 1) status = 'UNKNOWN';
   return Object.freeze({
     schema_version: 1,
     status,
@@ -138,20 +138,26 @@ export function evaluateCompatibilityEvidence(input: unknown, nowIso: string): R
 }
 
 async function main(): Promise<void> {
-  if (process.argv.length !== 4 || process.argv[2] !== '--input') {
-    throw new TypeError('Uso: --input <fixture.json>');
+  if (process.argv.length !== 3 || process.argv[2] !== '--stdin') {
+    throw new TypeError('Uso: --stdin');
   }
-  const source = await readFile(process.argv[3], { encoding: 'utf8' });
-  if (Buffer.byteLength(source) > 32_768) throw new TypeError('Fixture fuera de límites.');
+  let source = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) {
+    source += chunk;
+    if (Buffer.byteLength(source) > 32_768) throw new TypeError('Fixture fuera de límites.');
+  }
   const input = JSON.parse(source) as unknown;
   const report = evaluateCompatibilityEvidence(input, new Date().toISOString());
   process.stdout.write(JSON.stringify(report) + '\n');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch(() => {
-    // Never print untrusted fields, fixture paths or confidential values.
+  try {
+    await main();
+  } catch {
+    // Never print untrusted fields or confidential values.
     process.stderr.write('Evidencia inválida o ilegible.\n');
     process.exitCode = 2;
-  });
+  }
 }

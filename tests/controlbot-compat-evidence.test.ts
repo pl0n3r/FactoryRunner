@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { evaluateCompatibilityEvidence, HTTP_V1_ROUTES } from '../scripts/check-controlbot-compat-evidence.ts';
@@ -77,17 +75,21 @@ test('fixture evaluation is offline, redacted, and never writes or uses credenti
     assert.equal(attempted, 0);
     const bad = { ...fixture(), authorization: 'Bearer synthetic-secret-do-not-echo' };
     assert.throws(() => evaluateCompatibilityEvidence(bad, AT), TypeError);
-    const tmp = mkdtempSync(join(tmpdir(), 'fr471-'));
-    try {
-      const file = join(tmp, 'fixture.json');
-      writeFileSync(file, JSON.stringify(bad), 'utf8');
-      const processResult = spawnSync(process.execPath,
-        ['--experimental-strip-types', script, '--input', file],
-        { encoding: 'utf8', timeout: 5000, env: { PATH: process.env.PATH } });
-      assert.equal(processResult.status, 2);
-      assert.doesNotMatch(processResult.stdout + processResult.stderr, /synthetic-secret|Bearer|authorization/i);
-      assert.deepEqual(readdirSync(tmp), ['fixture.json']);
-      assert.equal(readFileSync(file, 'utf8'), JSON.stringify(bad));
-    } finally { rmSync(tmp, { recursive: true, force: true }); }
+    const result = spawnSync(process.execPath,
+      ['--experimental-strip-types', script, '--stdin'],
+      { input: JSON.stringify(bad), encoding: 'utf8', timeout: 5000,
+        env: { PATH: process.env.PATH } });
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.doesNotMatch(result.stderr, /synthetic-secret|Bearer|authorization/i);
+    const valid = spawnSync(process.execPath,
+      ['--experimental-strip-types', script, '--stdin'],
+      { input: JSON.stringify(fixture()), encoding: 'utf8', timeout: 5000,
+        env: { PATH: process.env.PATH } });
+    assert.equal(valid.status, 0, valid.stderr);
+    const offline = JSON.parse(valid.stdout);
+    assert.equal(offline.go_no_go, 'NO_GO');
+    assert.equal(offline.network_access, false);
+    assert.equal(offline.external_mutation, false);
   } finally { globalThis.fetch = originalFetch; }
 });
