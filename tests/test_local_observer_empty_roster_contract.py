@@ -41,14 +41,14 @@ class EmptyRosterHtmlContractTests(unittest.TestCase):
             match = expression.search(proc.stdout)
             self.assertIsNotNone(match, f"TAP {name} missing: {output[-6500:]}")
             counts[name] = int(match.group(1))
-        self.assertEqual(counts["tests"], 3, output[-6500:])
+        # Node 24's name-pattern filter reports only matching cases (not
+        # skipped siblings). The full invocation must enumerate all three.
+        expected_tests = expected_pass if pattern is not None else 3
+        self.assertEqual(counts["tests"], expected_tests, output[-6500:])
         self.assertEqual(counts["pass"], expected_pass, output[-6500:])
         self.assertEqual(counts["fail"], 0, output[-6500:])
         self.assertEqual(counts["cancelled"], 0, output[-6500:])
-        # --test-name-pattern deliberately skips other tests on Node 24.
-        self.assertEqual(
-            counts["pass"] + counts["skipped"], counts["tests"], output[-6500:]
-        )
+        self.assertEqual(counts["skipped"], 0, output[-6500:])
 
     def test_renderer_rejects_positive_empty_roster_without_live_claim(self) -> None:
         self._node("AC01 renderer direct FRESH empty roster", 1)
