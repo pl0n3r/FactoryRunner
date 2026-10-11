@@ -112,7 +112,10 @@ test('unknown stale and empty states never claim live GREEN or enable actions', 
   const stale = renderLocalObserverHtml(cachedInput);
   assert.match(stale, /NO LIVE · CACHED · STALE/);
   assert.match(stale, /Capacidad disponible<span class="value">UNKNOWN<\/span>/);
+  // Preserve the blocked runner's reported reason with a coherent zero
+  // availability aggregate; positive capacity without READY must fail closed.
   const blocked = renderLocalObserverHtml({ ...snapshot(),
+    capacity: { total: 3, available: 0 },
     runners: [{ ...snapshot().runners[0], status: 'UNKNOWN', reason: 'HUMAN_GATE', last_outcome: 'UNKNOWN' }] });
   assert.match(blocked, /UNKNOWN \(reportado\)/);
   assert.match(blocked, /HUMAN_GATE/);
