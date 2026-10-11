@@ -13,7 +13,7 @@ class LocalObserverServerContractTests(unittest.TestCase):
     def _check(self, name: str) -> None:
         result = subprocess.run(
             ["node", "--experimental-strip-types", "--test",
-             "--test-name-pattern", name, str(SUITE)],
+             "--test-reporter=tap", "--test-name-pattern", name, str(SUITE)],
             cwd=ROOT, text=True, capture_output=True, check=False, timeout=35,
         )
         output = result.stdout + result.stderr
