@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectLocalObserverSnapshot } from '../src/local-observer-snapshot.ts';
+import { renderLocalObserverHtml } from '../src/local-observer-html.ts';
 
 function fixture() {
   return {version: 1, provenance: 'observed', freshness: 'FRESH', observed_at: '2026-10-10T12:00:00Z',
@@ -207,4 +208,13 @@ test('AC03 denial is bounded privacy-preserving and grants no new authority', ()
   assert.equal(view.capacity.total, null);
   assert.equal(view.capacity.available, null);
   assert.deepEqual(view.queue, {pending: null, blocked: null});
+  const html = renderLocalObserverHtml(view);
+  assert.match(html, /NO LIVE · SYNTHETIC · UNKNOWN/);
+  assert.match(html, /Capacidad disponible<span class="value">UNKNOWN/);
+  assert.doesNotMatch(html, /Capacidad disponible<span class="value">[1-9]/);
+  assert.doesNotMatch(html, /<\\s*(?:script|form|button|iframe|a)\\b/i);
+  for (const forbidden of ['runner-001', 'PRIVATE_EVIDENCE_SENTINEL',
+    'private-session-sentinel', 'token=', 'READY (reportado)']) {
+    assert.ok(!html.includes(forbidden), forbidden);
+  }
 });
