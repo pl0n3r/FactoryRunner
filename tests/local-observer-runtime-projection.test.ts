@@ -71,6 +71,23 @@ test('AC02 absolute age future sequence and mismatched identity fail closed', ()
     assert.equal(v.runner_status, 'UNKNOWN');
     assert.equal(v.heartbeat_age_seconds, age);
   }
+  // Regression: stale/offline exports must not claim ANY available work.
+  // A contradictory snapshot is UNKNOWN, not merely classified by age.
+  for (const age of [91, 301]) {
+    const {snap: oldSnapshot, beat: oldBeat} = input(BASE + age);
+    const inconsistent = {...oldSnapshot, available: 2, dispatchable_orders: 2};
+    const rejected = view(inconsistent, oldBeat, BASE + age, 6);
+    assert.equal(rejected.sample_freshness, 'UNKNOWN', String(age));
+    assert.equal(rejected.readiness, 'UNKNOWN');
+    assert.equal(rejected.runner_alias, null);
+    assert.equal(rejected.capacity.total, null);
+    assert.equal(rejected.capacity.available, null);
+    assert.equal(rejected.heartbeat_age_seconds, null);
+    assert.deepEqual(rejected.queue, {pending: null, blocked: null});
+    assert.equal(rejected.last_outcome, 'UNKNOWN');
+    assert.equal(view({...oldSnapshot, available: 0, dispatchable_orders: 1},
+      oldBeat, BASE + age, 6).sample_freshness, 'UNKNOWN');
+  }
   const {snap, beat} = input();
   const invalid: Array<[unknown, unknown, unknown, unknown?]> = [
     [snap, beat, BASE - 1],
