@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { projectLocalObserverSnapshot } from '../src/local-observer-snapshot.ts';
+import { renderLocalObserverHtml } from '../src/local-observer-html.ts';
 
 function fixture() {
   return {version: 1, provenance: 'observed', freshness: 'FRESH', observed_at: '2026-10-10T12:00:00Z',
@@ -154,4 +155,66 @@ test('secrets PII HTML and hostile accessors never leak into projection or error
   const massive = {...input, runners: Array(100000).fill(input.runners[0])};
   assert.deepEqual(unknown(massive), unknown(null));
   assert.equal(unknown(massive).runners.length, 0);
+});
+
+test('AC01 observed FRESH empty roster cannot carry positive availability', () => {
+  const baseline = fixture();
+  for (const count of [1, 2, 3]) {
+    const contradicted = {...baseline, capacity: {total: 3, available: count}, runners: []};
+    const before = JSON.stringify(contradicted);
+    const view = unknown(contradicted);
+    assert.deepEqual(view, unknown(null));
+    assert.equal(view.provenance, 'synthetic');
+    assert.equal(view.freshness, 'UNKNOWN');
+    assert.equal(view.capacity.available, null);
+    assert.deepEqual(view.runners, []);
+    assert.equal(JSON.stringify(contradicted), before);
+  }
+});
+
+test('AC02 empty nonpositive roster and supported READY semantics remain compatible', () => {
+  const baseline = fixture();
+  const observedZero = unknown({...baseline, capacity: {total: 3, available: 0}, runners: []});
+  assert.equal(observedZero.provenance, 'observed');
+  assert.equal(observedZero.freshness, 'FRESH');
+  assert.equal(observedZero.capacity.available, 0);
+  assert.deepEqual(observedZero.runners, []);
+  const observedNull = unknown({...baseline, capacity: {total: 3, available: null}, runners: []});
+  assert.equal(observedNull.capacity.available, null);
+  const positiveWithRunner = unknown(baseline);
+  assert.equal(positiveWithRunner.provenance, 'observed');
+  assert.equal(positiveWithRunner.capacity.available, 1);
+  assert.equal(positiveWithRunner.runners[0].status, 'READY');
+  for (const provenance of ['cached', 'synthetic'] as const) {
+    const view = unknown({...baseline, provenance, runners: []});
+    assert.equal(view.capacity.available, null);
+    assert.notEqual(view.freshness, 'FRESH');
+  }
+});
+
+test('AC03 denial is bounded privacy-preserving and grants no new authority', () => {
+  const baseline = fixture();
+  const userSupplied = {...baseline, capacity: {total: 3, available: 1}, runners: [],
+    queue: {pending: 2, blocked: 1}};
+  const view = unknown(userSupplied);
+  assert.deepEqual(Object.keys(view).sort(),
+    ['version','provenance','freshness','observed_at','capacity','queue','runners'].sort());
+  assert.deepEqual(view, unknown(null));
+  const serialized = JSON.stringify(view);
+  for (const forbidden of ['runner-001', 'PRIVATE_EVIDENCE_SENTINEL',
+    'private-session-sentinel', 'token=', 'READY', 'FRESH']) {
+    assert.ok(!serialized.includes(forbidden), forbidden);
+  }
+  assert.equal(view.capacity.total, null);
+  assert.equal(view.capacity.available, null);
+  assert.deepEqual(view.queue, {pending: null, blocked: null});
+  const html = renderLocalObserverHtml(view);
+  assert.match(html, /NO LIVE · SYNTHETIC · UNKNOWN/);
+  assert.match(html, /Capacidad disponible<span class="value">UNKNOWN/);
+  assert.doesNotMatch(html, /Capacidad disponible<span class="value">[1-9]/);
+  assert.doesNotMatch(html, /<\s*(?:script|form|button|iframe|a)\b/i);
+  for (const forbidden of ['runner-001', 'PRIVATE_EVIDENCE_SENTINEL',
+    'private-session-sentinel', 'token=', 'READY (reportado)']) {
+    assert.ok(!html.includes(forbidden), forbidden);
+  }
 });
