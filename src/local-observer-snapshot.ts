@@ -146,6 +146,14 @@ export function projectLocalObserverSnapshot(input: unknown): LocalObserverViewV
     // refuse a misleading positive available count until sources reconcile.
     const readinessDowngraded = runners.some((runner, index) =>
       runner.status === 'READY' && reportedRunners[index].status !== 'READY');
+    // A nonempty roster alone does not corroborate available capacity:
+    // it may contain only OFFLINE, WAITING or BLOCKED runners. Without a
+    // verified READY runner, a positive aggregate is a contradictory claim.
+    const verifiedReady = reportedRunners.some((runner) => runner.status === 'READY'
+      && runner.reason === 'NONE' && runner.heartbeat_at !== null && observed !== null
+      && Date.parse(observed) - Date.parse(runner.heartbeat_at) <= 90_000);
+    if (trustedAsCurrent && capacity.available !== null && capacity.available > 0
+        && !verifiedReady) return unknownView();
     return {
       version: 1,
       provenance: root.provenance,

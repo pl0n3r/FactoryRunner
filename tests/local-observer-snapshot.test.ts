@@ -60,14 +60,15 @@ test('stale cached synthetic and unordered times fail closed without live readin
   const stale = unknown({...input, freshness: 'STALE'});
   assert.equal(stale.capacity.available, null);
   assert.equal(stale.runners[0].reason, 'STALE');
-  const offline = unknown({...input, runners: [{...input.runners[0], status: 'OFFLINE', reason: 'NO_CAPACITY'}]});
+  const offline = unknown({...input, capacity: {total: 3, available: 0},
+    runners: [{...input.runners[0], status: 'OFFLINE', reason: 'NO_CAPACITY'}]});
   assert.equal(offline.runners[0].status, 'OFFLINE');
   assert.equal(unknown({...input, observed_at: null}).freshness, 'UNKNOWN');
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-11T00:00:00Z'}]}), unknown(null));
   assert.deepEqual(unknown({...input, observed_at: '2026-02-30T00:00:00Z'}), unknown(null));
   assert.deepEqual(unknown({...input, freshness: 'NOT_A_REAL_STATE'}), unknown(null));
   // A global FRESH claim cannot turn a runner with no heartbeat into READY.
-  const noHeartbeat = unknown({...input, runners: [{...input.runners[0], heartbeat_at: null}]});
+  const noHeartbeat = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: null}]});
   assert.equal(noHeartbeat.runners.length, 1);
   assert.equal(noHeartbeat.runners[0].status, 'UNKNOWN');
   assert.equal(noHeartbeat.runners[0].reason, 'UNKNOWN');
@@ -79,7 +80,7 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.equal(validHeartbeat.capacity.available, 1, 'fresh READY preserves independently reported capacity');
   // A READY runner with a blocking or unknown reason is never actionable.
   for (const reason of ['HUMAN_GATE', 'CLAIMS', 'NO_CAPACITY', 'DEPENDENCY', 'STALE', 'UNKNOWN'] as const) {
-    const contradictory = unknown({...input, runners: [{...input.runners[0], reason}]});
+    const contradictory = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], reason}]});
     assert.equal(contradictory.runners.length, 1);
     assert.equal(contradictory.runners[0].status, 'UNKNOWN');
     assert.equal(contradictory.runners[0].reason, reason);
@@ -93,16 +94,16 @@ test('stale cached synthetic and unordered times fail closed without live readin
   const atLimit = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:30Z'}]});
   assert.equal(atLimit.runners[0].status, 'READY');
   assert.equal(atLimit.capacity.available, 1);
-  const tooOld = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
+  const tooOld = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: '2026-10-10T11:58:29Z'}]});
   assert.equal(tooOld.runners[0].status, 'UNKNOWN');
   assert.equal(tooOld.runners[0].reason, 'STALE');
   assert.equal(tooOld.runners[0].last_outcome, 'UNKNOWN');
   assert.equal(tooOld.capacity.available, null);
-  const ancient = unknown({...input, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
+  const ancient = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(ancient.runners[0].status, 'UNKNOWN');
   assert.equal(ancient.runners[0].reason, 'STALE');
   // Original blocking reason still wins over an old heartbeat.
-  const blockedOld = unknown({...input, runners: [{...input.runners[0], reason: 'HUMAN_GATE',
+  const blockedOld = unknown({...input, capacity: {total: 3, available: 0}, runners: [{...input.runners[0], reason: 'HUMAN_GATE',
     heartbeat_at: '2020-01-01T00:00:00Z'}]});
   assert.equal(blockedOld.runners[0].status, 'UNKNOWN');
   assert.equal(blockedOld.runners[0].reason, 'HUMAN_GATE');
@@ -114,9 +115,13 @@ test('stale cached synthetic and unordered times fail closed without live readin
   assert.equal(mixed.runners[0].status, 'READY');
   assert.equal(mixed.runners[1].status, 'UNKNOWN');
   assert.equal(mixed.capacity.available, null);
-  // The aggregate may still be reported when no READY signal was downgraded.
+  // An unverified non-READY roster must not certify spare capacity.
   const waiting = unknown({...input, runners: [{...input.runners[0], status: 'WAITING'}]});
-  assert.equal(waiting.capacity.available, 1);
+  assert.deepEqual(waiting, unknown(null));
+  const waitingZero = unknown({...input, capacity: {total: 3, available: 0},
+    runners: [{...input.runners[0], status: 'WAITING'}]});
+  assert.equal(waitingZero.capacity.available, 0);
+  assert.equal(waitingZero.runners[0].status, 'WAITING');
   // Case variants of the same hexadecimal alias must not represent two runners.
   assert.deepEqual(unknown({...input, runners: [{...input.runners[0], id: 'runner-ABC'}]}), unknown(null));
   assert.deepEqual(unknown({...input, runners: [
@@ -217,4 +222,76 @@ test('AC03 denial is bounded privacy-preserving and grants no new authority', ()
     'private-session-sentinel', 'token=', 'READY (reportado)']) {
     assert.ok(!html.includes(forbidden), forbidden);
   }
+});
+
+test('AC01 nonready roster positive capacity fails closed', () => {
+  const base = fixture();
+  for (const [status, reason] of [
+    ['OFFLINE', 'STALE'], ['WAITING', 'NO_CAPACITY'], ['BLOCKED', 'HUMAN_GATE'],
+  ] as const) {
+    for (const available of [1, 2, 3]) {
+      const input = {...base, capacity: {total: 3, available},
+        runners: [{...base.runners[0], status, reason}]};
+      const serialized = JSON.stringify(input);
+      const view = unknown(input);
+      assert.deepEqual(view, unknown(null), status + '/' + available);
+      assert.equal(view.capacity.available, null);
+      assert.equal(view.freshness, 'UNKNOWN');
+      assert.equal(JSON.stringify(input), serialized);
+    }
+  }
+  const mixedNonready = unknown({...base, runners: [
+    {...base.runners[0], status: 'OFFLINE', reason: 'STALE'},
+    {...base.runners[0], id: 'runner-002', status: 'WAITING', reason: 'NO_CAPACITY'},
+  ]});
+  assert.deepEqual(mixedNonready, unknown(null));
+});
+
+test('AC02 READY heartbeat and nonpositive capacity stay compatible', () => {
+  const base = fixture();
+  const ready = unknown(base);
+  assert.equal(ready.capacity.available, 1);
+  assert.equal(ready.runners[0].status, 'READY');
+  for (const available of [0, null]) {
+    for (const status of ['OFFLINE', 'WAITING', 'BLOCKED'] as const) {
+      const v = unknown({...base, capacity: {total: 3, available},
+        runners: [{...base.runners[0], status, reason: 'NO_CAPACITY'}]});
+      assert.equal(v.provenance, 'observed');
+      assert.equal(v.capacity.available, available);
+      assert.equal(v.runners[0].status, status);
+    }
+  }
+  for (const provenance of ['synthetic', 'cached'] as const) {
+    const v = unknown({...base, provenance});
+    assert.equal(v.capacity.available, null);
+    assert.notEqual(v.freshness, 'FRESH');
+  }
+  const stale = unknown({...base, freshness: 'STALE'});
+  assert.equal(stale.capacity.available, null);
+  const atLimit = unknown({...base, runners: [{...base.runners[0],
+    heartbeat_at: '2026-10-10T11:58:30Z'}]});
+  assert.equal(atLimit.capacity.available, 1);
+  const pastLimit = unknown({...base, runners: [{...base.runners[0],
+    heartbeat_at: '2026-10-10T11:58:29Z'}]});
+  assert.equal(pastLimit.capacity.available, null);
+});
+
+test('AC03 nonready denial remains private and does not grant authority', () => {
+  const base = fixture();
+  const input = {...base, capacity: {total: 3, available: 2},
+    queue: {pending: 987654, blocked: 4321},
+    runners: [{...base.runners[0], status: 'BLOCKED', reason: 'HUMAN_GATE'}]};
+  const view = unknown(input);
+  assert.deepEqual(view, unknown(null));
+  assert.deepEqual(view.queue, {pending: null, blocked: null});
+  assert.deepEqual(view.capacity, {total: null, available: null});
+  const json = JSON.stringify(view);
+  for (const sentinel of ['987654', '4321', 'runner-001', 'READY', 'FRESH']) {
+    assert.ok(!json.includes(sentinel), sentinel);
+  }
+  const html = renderLocalObserverHtml(view);
+  assert.match(html, /NO LIVE · SYNTHETIC · UNKNOWN/);
+  assert.match(html, /Capacidad disponible<span class="value">UNKNOWN/);
+  assert.doesNotMatch(html, /987654|4321|runner-001|READY \(reportado\)/);
+  assert.doesNotMatch(html, /<\s*(?:script|form|button|iframe|a)\b/i);
 });
