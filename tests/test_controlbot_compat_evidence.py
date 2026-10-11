@@ -10,7 +10,8 @@ TEST = ROOT / "tests" / "controlbot-compat-evidence.test.ts"
 class ControlBotCompatEvidenceTests(unittest.TestCase):
     def _node_test(self, pattern):
         result = subprocess.run(
-            ["node", "--experimental-strip-types", "--test", f"--test-name-pattern={pattern}", str(TEST)],
+            ["node", "--experimental-strip-types", "--test", "--test-reporter=tap",
+             f"--test-name-pattern={pattern}", str(TEST)],
             cwd=ROOT, capture_output=True, text=True, timeout=25, check=False,
         )
         self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
