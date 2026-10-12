@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
 import type { ExecutionEvent, ExecutionState } from './event.ts';
 import { assertEventTransition, assertInitialEventMatchesOrder, parseExecutionEvent } from './event.ts';
 import type { ExecutionOrder } from './order.ts';
@@ -71,14 +71,28 @@ function regularJournalSize(descriptor: number): number {
   return stat.size;
 }
 
+/** Read at most 16 MiB + 1 byte from the verified descriptor, including after fstat. */
+function boundedJournalBytes(descriptor: number): Buffer {
+  if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (total <= MAX_JOURNAL_BYTES) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_JOURNAL_BYTES + 1 - total));
+    const count = readSync(descriptor, chunk, 0, chunk.length, null);
+    if (count === 0) return Buffer.concat(chunks, total);
+    total += count;
+    if (total > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
+    chunks.push(chunk.subarray(0, count));
+  }
+  return invalid('Journal excede el límite permitido.');
+}
+
 function readRecords(path: string): JournalRecord[] {
   let descriptor: number | undefined;
   let raw: Buffer;
   try {
     descriptor = openSync(path, journalOpenFlags(constants.O_RDONLY));
-    if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
-    raw = readFileSync(descriptor);
-    if (raw.length > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
+    raw = boundedJournalBytes(descriptor);
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableJournalError) throw error;
