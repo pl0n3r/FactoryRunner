@@ -43,6 +43,27 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
             "AC02 outbox fsync EIO plus close EIO preserves primary"
         )
         self.assertIn("pass 1", output)
+
+    def test_persist_close_preserves_append_failure(self):
+        """#529 AC-01: executed Node append ENOSPC + secondary close EIO."""
+        output = run_node_test(
+            "AC01 outbox append ENOSPC plus close EIO preserves primary"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_persist_close_preserves_fsync_failure(self):
+        """#529 AC-02: executed Node fsync ENOSPC + secondary close EIO."""
+        output = run_node_test(
+            "AC02 outbox fsync ENOSPC plus close EIO preserves primary"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_persist_close_guard_keeps_recovery(self):
+        """#529 AC-03: unmodified recovery and idempotency regression."""
+        output = run_node_test(
+            "AC03 outbox close guard maintains recovery and idempotency"
+        )
+        self.assertIn("pass 1", output)
     def test_close_failure_is_typed_io(self):
         output = run_node_test("AC01 outbox close failure returns typed IO error")
         self.assertIn("pass 1", output)

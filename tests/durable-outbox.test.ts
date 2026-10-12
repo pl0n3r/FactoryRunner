@@ -578,13 +578,14 @@ test('AC03 outbox close guard maintains recovery and idempotency', () => {
 function withSyntheticPersistAndCloseFailures(
   operation: 'append' | 'fsync',
   run: (primary: Error, closed: () => number) => void,
+  fsyncCode: 'EIO' | 'ENOSPC' = 'EIO',
 ): void {
   const originalAppend = fs.appendFileSync;
   const originalFsync = fs.fsyncSync;
   const originalClose = fs.closeSync;
   const primary = Object.assign(
     new Error(operation === 'append' ? 'synthetic append primary' : 'synthetic fsync primary'),
-    { code: operation === 'append' ? 'ENOSPC' : 'EIO' },
+    { code: operation === 'append' ? 'ENOSPC' : fsyncCode },
   );
   let closeCount = 0;
   try {
@@ -627,7 +628,8 @@ test('AC01 outbox append ENOSPC plus close EIO preserves primary', () => {
   });
 });
 
-test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
+/** Share one failure assertion across both fsync error codes; no duplicated scenario. */
+function assertFsyncFailurePreservesPrimary(code: 'EIO' | 'ENOSPC'): void {
   withOutbox((path) => {
     const outbox = new DurableOutbox(path);
     withSyntheticPersistAndCloseFailures('fsync', (primary, closed) => {
@@ -635,15 +637,26 @@ test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
         assert.ok(error instanceof DurableOutboxError);
         assert.equal(error.code, 'outbox_io');
         assert.strictEqual(error.cause, primary);
-        assert.equal((error.cause as Error).message, 'synthetic fsync primary');
+        assert.equal((error.cause as { code?: string })?.code, code);
         return true;
       });
       assert.equal(closed(), 1);
-    });
-    // An append can have persisted before fsync fails. Never claim rollback.
-    const pending = outbox.recover().pending;
-    assert.equal(pending.length, 1);
-    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, pending[0]?.delivery_id);
-    assert.equal(outbox.recover().pending.length, 1);
+    }, code);
+    // fsync failure does not imply rollback: the append can be durable.
+    const recovered = outbox.recover();
+    assert.equal(recovered.pending.length, 1);
+    assert.equal(recovered.delivered.length, 0);
+    const before = readFileSync(path);
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, recovered.pending[0]?.delivery_id);
+    assert.deepEqual(readFileSync(path), before);
+    assert.equal(new DurableOutbox(path).recover().pending.length, 1);
   });
+}
+
+test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
+  assertFsyncFailurePreservesPrimary('EIO');
+});
+
+test('AC02 outbox fsync ENOSPC plus close EIO preserves primary', () => {
+  assertFsyncFailurePreservesPrimary('ENOSPC');
 });
