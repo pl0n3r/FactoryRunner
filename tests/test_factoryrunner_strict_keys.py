@@ -43,11 +43,22 @@ const hashUnchanged = stableSha256(original) === hashBefore && stableSha256(plai
 const missingRejected = rejects({ version: 1 });
 const enumerableExtraRejected = rejects({ version: 1, status: 'ready', extra: 2 });
 const noExpectedKeysAccepted = !rejects({}, []);
+const hiddenRequired = { status: 'ready' };
+Object.defineProperty(hiddenRequired, 'version', { value: 1, enumerable: false });
+const hiddenRequiredRejected = rejects(hiddenRequired);
+let requiredAccessorCalls = 0;
+const requiredAccessor = { status: 'ready' };
+Object.defineProperty(requiredAccessor, 'version', {
+  enumerable: false,
+  get() { requiredAccessorCalls += 1; throw new Error('required hidden getter must not execute'); },
+});
+const requiredAccessorRejected = rejects(requiredAccessor);
 console.log(JSON.stringify({
   hiddenRejected, hiddenGetterCalls,
   symbolRejected, symbolGetterCalls,
   plainAccepted, reverseOrderAccepted, hashUnchanged,
   missingRejected, enumerableExtraRejected, noExpectedKeysAccepted,
+  hiddenRequiredRejected, requiredAccessorRejected, requiredAccessorCalls,
 }));
 """
     raw = subprocess.check_output(
@@ -72,6 +83,13 @@ class FactoryRunnerStrictKeysTests(unittest.TestCase):
     def test_symbol_extra_own_field_rejected_without_getter(self):
         self.assertTrue(self.observed["symbolRejected"])
         self.assertEqual(self.observed["symbolGetterCalls"], 0)
+
+    def test_non_enumerable_required_field_rejected(self):
+        self.assertTrue(self.observed["hiddenRequiredRejected"])
+
+    def test_non_enumerable_required_accessor_rejected_without_invocation(self):
+        self.assertTrue(self.observed["requiredAccessorRejected"])
+        self.assertEqual(self.observed["requiredAccessorCalls"], 0)
 
     def test_plain_json_exact_keys_and_existing_invalid_cases(self):
         self.assertTrue(self.observed["plainAccepted"])
