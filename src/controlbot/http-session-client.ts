@@ -1,3 +1,4 @@
+import { types as nodeTypes } from 'node:util';
 import { controlBotRunnerHttpRequest, type ControlBotRunnerHttpPath } from './http-protocol-v1.ts';
 import { assertFencedAck, assertFencedEvent } from './fenced-execution-binding.ts';
 import { HttpSessionAbortContract } from './http-session-abort.ts';
@@ -124,6 +125,8 @@ function assertStrictResponseJson(root: JsonRecord, maxResponseBytes: number): v
       continue;
     }
     if (typeof value !== 'object') throw new TypeError('body no es JSON estricto.');
+    // Reject Proxy identity before any trap can spoof descriptors for JSON.stringify.
+    if (nodeTypes.isProxy(value)) throw new TypeError('body contiene Proxy no confiable.');
     if (seen.has(value)) continue;
     seen.add(value);
     const array = Array.isArray(value);
@@ -212,6 +215,7 @@ function boundedResponse(
   expectedRequestFingerprint: string,
   maxResponseBytes: number,
 ): HttpSessionTransportResponse {
+  if (nodeTypes.isProxy(input)) throw new TypeError('HttpSessionTransportResponse contiene Proxy.');
   const record = asRecord(input, 'HttpSessionTransportResponse');
   exactKeys(record, ['version', 'request_fingerprint', 'status', 'body'], 'HttpSessionTransportResponse');
   // Require fixed own data properties and snapshot them exactly once.
