@@ -447,3 +447,116 @@ test('AC01 bounded journal growth after fstat is capped without replay', () => {
     assert.equal(statSync(path).size, limit + 1);
   });
 });
+
+
+// FactoryRunner #521: short POSIX writes must not be mistaken for durable records.
+test('AC01 journal short writes retry to full record before durable fsync', () => {
+  withJournal((path) => {
+    const nativeWrite = fs.writeSync;
+    const nativeFsync = fs.fsyncSync;
+    let writeCalls = 0;
+    let fsyncCalls = 0;
+    try {
+      fs.writeSync = ((
+        fd: number, buffer: Buffer, offset: number, length: number, position: number | null,
+      ) => {
+        writeCalls += 1;
+        const shortLength = Math.min(length, 1 + (writeCalls % 7));
+        return nativeWrite(fd, buffer, offset, shortLength, position);
+      }) as typeof fs.writeSync;
+      fs.fsyncSync = ((fd: number) => {
+        fsyncCalls += 1;
+        return nativeFsync(fd);
+      }) as typeof fs.fsyncSync;
+      syncBuiltinESMExports();
+
+      const journal = new DurableJournal(path);
+      journal.appendOrder(order());
+      journal.appendEvent(event());
+      assert.ok(writeCalls > 2, 'a partial append must take multiple writes');
+      assert.equal(fsyncCalls, 2, 'fsync must follow each complete record');
+      assert.equal(readFileSync(path).at(-1), 0x0a, 'NDJSON must end in newline');
+      const restarted = new DurableJournal(path).recover();
+      assert.equal(restarted.orders.length, 1);
+      assert.equal(restarted.events.length, 1);
+      const beforeDuplicate = readFileSync(path);
+      journal.appendOrder(order());
+      journal.appendEvent(event());
+      assert.deepEqual(readFileSync(path), beforeDuplicate);
+      assert.equal(fsyncCalls, 2, 'replays must remain idempotent');
+    } finally {
+      fs.writeSync = nativeWrite;
+      fs.fsyncSync = nativeFsync;
+      syncBuiltinESMExports();
+    }
+  });
+});
+
+test('AC02 journal invalid write counts fail closed without syncing', () => {
+  for (const returned of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1_000_000]) {
+    withJournal((path) => {
+      const nativeWrite = fs.writeSync;
+      const nativeFsync = fs.fsyncSync;
+      let fsyncCalls = 0;
+      try {
+        fs.writeSync = (() => returned) as typeof fs.writeSync;
+        fs.fsyncSync = (() => { fsyncCalls += 1; }) as typeof fs.fsyncSync;
+        syncBuiltinESMExports();
+        assert.throws(() => new DurableJournal(path).appendOrder(order()), (error: unknown) =>
+          error instanceof DurableJournalError && error.code === 'journal_io');
+        assert.equal(fsyncCalls, 0, 'invalid progress must never be committed');
+      } finally {
+        fs.writeSync = nativeWrite;
+        fs.fsyncSync = nativeFsync;
+        syncBuiltinESMExports();
+      }
+      assert.deepEqual(new DurableJournal(path).recover(), { orders: [], events: [] });
+    });
+  }
+});
+
+test('AC02 journal interrupted short write never reports success or replays', () => {
+  withJournal((path) => {
+    const nativeWrite = fs.writeSync;
+    const nativeFsync = fs.fsyncSync;
+    let writes = 0;
+    let fsyncCalls = 0;
+    try {
+      fs.writeSync = ((
+        fd: number, buffer: Buffer, offset: number, length: number, position: number | null,
+      ) => {
+        writes += 1;
+        if (writes === 1) return nativeWrite(fd, buffer, offset, Math.min(4, length), position);
+        return 0;
+      }) as typeof fs.writeSync;
+      fs.fsyncSync = (() => { fsyncCalls += 1; }) as typeof fs.fsyncSync;
+      syncBuiltinESMExports();
+      assert.throws(() => new DurableJournal(path).appendOrder(order()), (error: unknown) =>
+        error instanceof DurableJournalError && error.code === 'journal_io');
+      assert.equal(writes, 2);
+      assert.equal(fsyncCalls, 0);
+    } finally {
+      fs.writeSync = nativeWrite;
+      fs.fsyncSync = nativeFsync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(readFileSync(path).length, 4);
+    assert.throws(() => new DurableJournal(path).recover(), (error: unknown) =>
+      error instanceof DurableJournalError && error.code === 'journal_invalid');
+  });
+});
+
+test('AC03 journal short-write guard retains normal recovery and idempotency', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    const original = readFileSync(path);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    assert.deepEqual(readFileSync(path), original);
+  });
+});
