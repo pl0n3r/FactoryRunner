@@ -200,16 +200,36 @@ function parseResponse(
 export class BrowserRemoteDriver implements BrowserDriver {
   readonly #profile: BrowserRemoteProfile;
   readonly #transport: BrowserRemoteTransport;
+  readonly #executeMethod: BrowserRemoteTransport['execute'];
 
   constructor(
     profile: BrowserRemoteProfile,
     transport: BrowserRemoteTransport,
   ) {
-    if (!transport || typeof transport.execute !== 'function') {
+    if (transport === null || (typeof transport !== 'object' && typeof transport !== 'function')) {
       throw new TypeError('BrowserRemoteTransport requerido.');
     }
+
+    let owner: object | null = transport;
+    let executeMethod: BrowserRemoteTransport['execute'] | null = null;
+    while (owner !== null) {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, 'execute');
+      if (descriptor !== undefined) {
+        if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
+          throw new TypeError('BrowserRemoteTransport.execute debe ser un método de datos.');
+        }
+        executeMethod = descriptor.value as BrowserRemoteTransport['execute'];
+        break;
+      }
+      owner = Object.getPrototypeOf(owner) as object | null;
+    }
+    if (executeMethod === null) {
+      throw new TypeError('BrowserRemoteTransport requerido.');
+    }
+
     this.#profile = canonicalProfile(profile);
     this.#transport = transport;
+    this.#executeMethod = executeMethod;
   }
 
   async execute(commandInput: BrowserDriverCommand): Promise<unknown> {
@@ -234,7 +254,7 @@ export class BrowserRemoteDriver implements BrowserDriver {
       request_fingerprint: requestFingerprint,
     });
 
-    const response = await this.#transport.execute(request);
+    const response = await this.#executeMethod.call(this.#transport, request);
     return parseResponse(response, requestFingerprint);
   }
 }
