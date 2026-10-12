@@ -105,9 +105,59 @@ const SAFETY = Object.freeze({
   external_mutation: false as const,
 });
 
+function assertStrictResponseJson(root: JsonRecord, maxResponseBytes: number): void {
+  // JSON.stringify silently drops undefined/functions/symbols and maps
+  // NaN/Infinity to null. Never fingerprint a normalized non-JSON transport.
+  // Inspect property descriptors to avoid calling accessor getters during
+  // validation. Cycles remain denied by the serializer below.
+  const pending: unknown[] = [root];
+  const seen = new WeakSet<object>();
+  let count = 0;
+  while (pending.length > 0) {
+    if (++count > maxResponseBytes) throw new TypeError('body excede el límite JSON.');
+    const value = pending.pop();
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value) || Object.is(value, -0)) {
+        throw new TypeError('body contiene un número JSON inválido.');
+      }
+      continue;
+    }
+    if (typeof value !== 'object') throw new TypeError('body no es JSON estricto.');
+    if (seen.has(value)) continue;
+    seen.add(value);
+    const array = Array.isArray(value);
+    const proto = Object.getPrototypeOf(value);
+    if (array ? proto !== Array.prototype : (proto !== Object.prototype && proto !== null)) {
+      throw new TypeError('body contiene un objeto JSON no canónico.');
+    }
+    if ((proto !== null && Object.getOwnPropertyDescriptor(proto, 'toJSON'))
+        || (array && Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON'))) {
+      throw new TypeError('body contiene toJSON heredado.');
+    }
+    const keys = Reflect.ownKeys(value);
+    if (array && keys.length !== value.length + 1) {
+      throw new TypeError('body contiene un array incompleto.');
+    }
+    for (const key of keys) {
+      if (typeof key !== 'string') throw new TypeError('body contiene clave Symbol.');
+      if (array && key === 'length') continue;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || !('value' in desc) || !desc.enumerable) {
+        throw new TypeError('body contiene propiedades JSON no canónicas.');
+      }
+      if (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length)) {
+        throw new TypeError('body contiene campos extra de array.');
+      }
+      pending.push(desc.value);
+    }
+  }
+}
+
 function snapshotResponseBody(input: JsonRecord, maxResponseBytes: number): JsonRecord {
-  // Serialize once: the bounded bytes, detached body and fingerprint must
-  // refer to the same observation, even if the injected transport holds aliases.
+  // Validate the transport as strict JSON before serializing the bounded,
+  // detached tree. The response hash is calculated from this frozen snapshot.
+  assertStrictResponseJson(input, maxResponseBytes);
   let serialized: string | undefined;
   try {
     serialized = JSON.stringify(input);
