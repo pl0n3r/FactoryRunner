@@ -80,12 +80,29 @@ const negatives = [
   await rejects(hiddenBody),
   await rejects({ nested: sparse }),
 ];
+// Accessor-based transport metadata must be rejected without reading any getter.
+let accessed = 0;
+const getterClient = new ControlBotHttpSessionClient({
+  enabled: true, test_mode: true, timeout_ms: 100, max_response_bytes: 512,
+  test_transport: async (request) => {
+    const response = {
+      version: 1, status: 200, body: { ok: true },
+      get request_fingerprint() {
+        accessed += 1;
+        return accessed <= 3 ? request.request_fingerprint : 'f'.repeat(64);
+      },
+    };
+    return response;
+  },
+});
+let accessorRejected = false;
+try { await getterClient.poll(poll); } catch { accessorRejected = true; }
 const signal = new AbortController(); signal.abort();
 let abortCode = null;
 try { await client.poll(poll, { signal: signal.signal }); }
 catch (error) { abortCode = error?.code ?? null; }
 console.log(JSON.stringify({
-  frozen, nestedDenied, arrayDenied, isolated, negatives, abortCode,
+  frozen, nestedDenied, arrayDenied, isolated, negatives, accessorRejected, getterReads: accessed, abortCode,
   version: result.version, transport_mode: result.transport_mode,
   authority: result.authority, execution: result.execution,
   network_access: result.network_access, external_mutation: result.external_mutation,
@@ -116,6 +133,8 @@ class FactoryRunnerHttpResponseSnapshotTests(unittest.TestCase):
 
     def test_invalid_and_legacy_contracts(self):
         self.assertTrue(all(self.report["negatives"]))
+        self.assertTrue(self.report["accessorRejected"])
+        self.assertEqual(self.report["getterReads"], 0)
         self.assertEqual(self.report["abortCode"], "transport_aborted")
         self.assertEqual(self.report["version"], 1)
         self.assertEqual(self.report["transport_mode"], "injected_test_only")
