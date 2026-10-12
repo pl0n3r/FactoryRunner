@@ -79,6 +79,28 @@ const extraEntryFieldRejected = rejected(() => {
   browserRemoteEntryHandle({ profile, transport, endpoint: 'https://example.test' });
 });
 
+// A canonical-looking nested profile must never run any of its seven getters.
+const nestedProfileAccessorCases = Object.fromEntries([
+  'version', 'authority', 'runner_id', 'location',
+  'capability', 'remote_alias', 'fingerprint',
+].map((key) => {
+  let getterCalls = 0;
+  const malicious = { ...profile };
+  Object.defineProperty(malicious, key, {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return profile[key];
+    },
+  });
+  const unusedTransport = new MutableTransport();
+  const refused = rejected(() => browserRemoteEntryHandle({
+    profile: malicious,
+    transport: unusedTransport,
+  }));
+  return [key, { refused, getterCalls, transportCalls: unusedTransport.calls }];
+}));
+
 // AC-01: own accessor wrappers are rejected without touching their getters.
 let profileGetterCalls = 0;
 const wrapperProfileRejected = rejected(() => browserRemoteEntryHandle({
@@ -156,6 +178,7 @@ console.log(JSON.stringify({
   tamperedProfileRejected,
   invalidTransportRejected,
   extraEntryFieldRejected,
+  nestedProfileAccessorCases,
   wrapperProfileRejected,
   wrapperTransportRejected,
   profileGetterCalls,
@@ -196,6 +219,25 @@ class FactoryRunnerBrowserRemoteEntryHandleTests(unittest.TestCase):
         self.assertTrue(self.observed["tamperedProfileRejected"])
         self.assertTrue(self.observed["invalidTransportRejected"])
         self.assertTrue(self.observed["extraEntryFieldRejected"])
+
+    def test_nested_profile_accessors_rejected_without_getter(self):
+        for key, observation in self.observed["nestedProfileAccessorCases"].items():
+            with self.subTest(field=key):
+                self.assertTrue(observation["refused"])
+                self.assertEqual(observation["getterCalls"], 0)
+                self.assertEqual(observation["transportCalls"], 0)
+
+    def test_canonical_data_profile_preserves_identity_and_one_shot_invoke(self):
+        self.assertTrue(self.observed["exactProfile"])
+        self.assertTrue(self.observed["sameExecuteReference"])
+        self.assertTrue(self.observed["frozen"])
+        self.assertTrue(self.observed["inheritedMethodCaptured"])
+        self.assertTrue(self.observed["inheritedSecondRejected"])
+        self.assertTrue(self.observed["inheritedOnlyOnce"])
+        self.assertEqual(
+            self.observed["first"],
+            {"source": "original", "calls": 1, "tag": "first"},
+        )
 
     def test_entry_wrapper_accessors_rejected_without_getter(self):
         self.assertTrue(self.observed["wrapperProfileRejected"])
