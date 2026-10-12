@@ -217,6 +217,13 @@ function boundedResponse(
 ): HttpSessionTransportResponse {
   if (nodeTypes.isProxy(input)) throw new TypeError('HttpSessionTransportResponse contiene Proxy.');
   const record = asRecord(input, 'HttpSessionTransportResponse');
+  // Object.keys alone misses hidden own properties and Symbol keys.
+  // Inspect names only, before reading any potential attacker-controlled extra field.
+  const expectedKeys = new Set(['version', 'request_fingerprint', 'status', 'body']);
+  const ownKeys = Reflect.ownKeys(record);
+  if (ownKeys.length !== expectedKeys.size || ownKeys.some(key => !expectedKeys.has(key as string))) {
+    throw new TypeError('HttpSessionTransportResponse contiene campos no permitidos.');
+  }
   exactKeys(record, ['version', 'request_fingerprint', 'status', 'body'], 'HttpSessionTransportResponse');
   // Require fixed own data properties and snapshot them exactly once.
   // Transport accessors must not change identity after validation.

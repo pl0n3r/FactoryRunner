@@ -117,13 +117,44 @@ const rootResponseClient = new ControlBotHttpSessionClient({
 });
 let rootResponseProxyRejected = false;
 try { await rootResponseClient.poll(poll); } catch { rootResponseProxyRejected = true; }
+// Own non-enumerable and Symbol response keys must fail before getters are invoked.
+let hiddenEnvelopeGetterCalls = 0;
+let symbolEnvelopeGetterCalls = 0;
+async function rejectsTransportEnvelope(addExtra) {
+  const testClient = new ControlBotHttpSessionClient({
+    enabled: true, test_mode: true, timeout_ms: 100, max_response_bytes: 512,
+    test_transport: async request => {
+      const response = {
+        version: 1, request_fingerprint: request.request_fingerprint,
+        status: 200, body: { ok: true },
+      };
+      addExtra(response);
+      return response;
+    },
+  });
+  try { await testClient.poll(poll); return false; }
+  catch { return true; }
+}
+const hiddenResponseEnvelopeRejected = await rejectsTransportEnvelope(response => {
+  Object.defineProperty(response, 'hidden', {
+    enumerable: false, configurable: true,
+    get() { hiddenEnvelopeGetterCalls++; throw new Error('hidden getter must not run'); },
+  });
+});
+const symbolResponseEnvelopeRejected = await rejectsTransportEnvelope(response => {
+  Object.defineProperty(response, Symbol('extra'), {
+    enumerable: true, configurable: true,
+    get() { symbolEnvelopeGetterCalls++; throw new Error('symbol getter must not run'); },
+  });
+});
 const signal = new AbortController(); signal.abort();
 let abortCode = null;
 try { await client.poll(poll, { signal: signal.signal }); }
 catch (error) { abortCode = error?.code ?? null; }
 console.log(JSON.stringify({
   frozen, nestedDenied, arrayDenied, isolated, negatives, accessorRejected, getterReads: accessed,
-  nestedProxyRejected, rootBodyProxyRejected, arrayProxyRejected, rootResponseProxyRejected, proxyGetterCalls, abortCode,
+  nestedProxyRejected, rootBodyProxyRejected, arrayProxyRejected, rootResponseProxyRejected, proxyGetterCalls,
+  hiddenResponseEnvelopeRejected, symbolResponseEnvelopeRejected, hiddenEnvelopeGetterCalls, symbolEnvelopeGetterCalls, abortCode,
   version: result.version, transport_mode: result.transport_mode,
   authority: result.authority, execution: result.execution,
   network_access: result.network_access, external_mutation: result.external_mutation,
@@ -160,6 +191,14 @@ class FactoryRunnerHttpResponseSnapshotTests(unittest.TestCase):
                 self.assertTrue(self.report[key])
         # No attacker-controlled get trap may be invoked while validating.
         self.assertEqual(self.report["proxyGetterCalls"], 0)
+
+    def test_hidden_response_envelope_key_fails_closed(self):
+        self.assertTrue(self.report["hiddenResponseEnvelopeRejected"])
+        self.assertEqual(self.report["hiddenEnvelopeGetterCalls"], 0)
+
+    def test_symbol_response_envelope_key_fails_closed(self):
+        self.assertTrue(self.report["symbolResponseEnvelopeRejected"])
+        self.assertEqual(self.report["symbolEnvelopeGetterCalls"], 0)
 
     def test_transport_source_mutation_isolated(self):
         self.assertTrue(self.report["isolated"])
