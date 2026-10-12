@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -395,5 +396,54 @@ test('AC03 bounded journal preserves ENOENT and nonregular fail closed', () => {
   withJournal((path) => {
     mkdirSync(path);
     assert.throws(() => new DurableJournal(path).recover(), DurableJournalError);
+  });
+});
+
+// AC-01: inject a deterministic growth *after fstat*, at the first actual
+// readSync call, and account for the number of bytes really requested/read.
+// Keep the monkey-patch scoped to this synchronous test and restore the
+// Node ESM named builtins even if the assertion throws.
+test('AC01 bounded journal growth after fstat is capped without replay', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const initialSize = statSync(path).size;
+    const limit = 16 * 1024 * 1024;
+    assert.ok(initialSize > 0 && initialSize < limit);
+    const originalReadSync = fs.readSync;
+    let grew = false;
+    let requestedBytes = 0;
+    let readBytes = 0;
+    try {
+      fs.readSync = ((
+        descriptor: number, buffer: Buffer, offset: number,
+        length: number, position: number | null,
+      ) => {
+        if (!grew) {
+          // readRecords has already passed regularJournalSize(descriptor).
+          // Grow the same inode before its first read occurs.
+          truncateSync(path, limit + 1);
+          grew = true;
+        }
+        requestedBytes += length;
+        const count = originalReadSync(descriptor, buffer, offset, length, position);
+        readBytes += count;
+        return count;
+      }) as typeof fs.readSync;
+      syncBuiltinESMExports();
+      assert.throws(
+        () => journal.recover(),
+        (error: unknown) => error instanceof DurableJournalError
+          && error.code === 'journal_invalid',
+      );
+    } finally {
+      fs.readSync = originalReadSync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(grew, true);
+    assert.equal(readBytes, limit + 1);
+    assert.ok(requestedBytes <= limit + 1, 'read requests must remain bounded');
+    assert.ok(readBytes <= limit + 1, 'physical bytes read must remain bounded');
+    assert.equal(statSync(path).size, limit + 1);
   });
 });
