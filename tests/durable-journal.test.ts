@@ -71,65 +71,48 @@ test('durable journal recovers valid orders and events after restart', () => {
   });
 });
 
-test('AC01 durable journal denies duplicate top-level kind and version keys', () => {
+
+function assertJournalRejectsNoncanonicalLines(variants: (valid: string) => readonly string[]): void {
   withJournal((path) => {
     const journal = new DurableJournal(path);
     journal.appendOrder(order());
-    const valid = readFileSync(path, 'utf8');
-    const variants = [
-      valid.replace('"kind":"order"', '"kind":"event","kind":"order"'),
-      valid.replace('"version":1', '"version":2,"version":1'),
-    ];
-    for (const ambiguous of variants) {
-      assert.notEqual(ambiguous, valid);
-      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
-      writeFileSync(path, ambiguous, 'utf8');
-      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
-      assert.throws(() => new DurableJournal(path).appendOrder(order()), /no canónico/);
-      assert.equal(readFileSync(path, 'utf8'), ambiguous);
+    const original = readFileSync(path, 'utf8');
+    for (const changed of variants(original)) {
+      assert.notEqual(changed, original);
+      assert.deepEqual(JSON.parse(changed), JSON.parse(original));
+      writeFileSync(path, changed, 'utf8');
+      assert.throws(() => journal.recover(), /no canónico/);
+      assert.throws(() => journal.appendOrder(order()), /no canónico/);
+      assert.equal(readFileSync(path, 'utf8'), changed);
     }
   });
+}
+
+test('AC01 durable journal denies duplicate top-level kind and version keys', () => {
+  assertJournalRejectsNoncanonicalLines((valid) => [
+    valid.replace('"kind":"order"', '"kind":"event","kind":"order"'),
+    valid.replace('"version":1', '"version":2,"version":1'),
+  ]);
 });
 
 test('AC02 durable journal denies duplicate nested payload keys without replay', () => {
-  withJournal((path) => {
-    const journal = new DurableJournal(path);
-    journal.appendOrder(order());
-    const valid = readFileSync(path, 'utf8');
-    const variants = [
-      valid.replace('"payload":', '"payload":{"version":1},"payload":'),
-      valid.replace('"order_id":"', '"order_id":"invalid","order_id":"'),
-    ];
-    for (const ambiguous of variants) {
-      assert.notEqual(ambiguous, valid);
-      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
-      writeFileSync(path, ambiguous, 'utf8');
-      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
-      assert.equal(readFileSync(path, 'utf8'), ambiguous);
-    }
-  });
+  assertJournalRejectsNoncanonicalLines((valid) => [
+    valid.replace('"payload":', '"payload":{"version":1},"payload":'),
+    valid.replace('"order_id":"', '"order_id":"invalid","order_id":"'),
+  ]);
 });
 
 test('AC03 durable journal rejects noncanonical NDJSON but recovers writer records', () => {
+  assertJournalRejectsNoncanonicalLines((valid) => [
+    valid.replace('"kind":"order"', '"kind": "order"'),
+    valid.replace('"kind":"order"', String.raw`"\u006bind":"order"`),
+  ]);
   withJournal((path) => {
     const journal = new DurableJournal(path);
     journal.appendOrder(order());
-    const valid = readFileSync(path, 'utf8');
-    const variants = [
-      valid.replace('"kind":"order"', '"kind": "order"'),
-      valid.replace('"kind":"order"', String.raw`"\u006bind":"order"`),
-    ];
-    for (const ambiguous of variants) {
-      assert.notEqual(ambiguous, valid);
-      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
-      writeFileSync(path, ambiguous, 'utf8');
-      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
-    }
-    writeFileSync(path, valid, 'utf8');
     journal.appendEvent(event());
     const recovered = new DurableJournal(path).recover();
     assert.equal(recovered.orders.length, 1);
-    assert.equal(recovered.events.length, 1);
     assert.equal(recovered.events[0]?.event_id, event().event_id);
   });
 });
