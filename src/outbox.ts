@@ -143,7 +143,14 @@ function decodeOutbox(raw: string): OutboxRecord[] {
       return invalid(`Registro de outbox inválido en línea ${lineNumber}.`);
     }
     try {
-      return parseRecord(JSON.parse(line), lineNumber);
+      const decoded: unknown = JSON.parse(line);
+      // The append-only writer always emits compact JSON.stringify output.
+      // Round-trip equality denies duplicate keys (including nested ones),
+      // ambiguous escapes, and other representations never emitted by us.
+      if (JSON.stringify(decoded) !== line) {
+        return invalid(`Registro de outbox no canónico en línea ${lineNumber}.`);
+      }
+      return parseRecord(decoded, lineNumber);
     } catch (error) {
       if (error instanceof DurableOutboxError) throw error;
       return invalid(`Registro corrupto en línea ${lineNumber}.`, error);
