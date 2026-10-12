@@ -79,6 +79,69 @@ const extraEntryFieldRejected = rejected(() => {
   browserRemoteEntryHandle({ profile, transport, endpoint: 'https://example.test' });
 });
 
+// AC-01: own accessor wrappers are rejected without touching their getters.
+let profileGetterCalls = 0;
+const wrapperProfileRejected = rejected(() => browserRemoteEntryHandle({
+  get profile() {
+    profileGetterCalls += 1;
+    throw new Error('profile getter must not execute');
+  },
+  transport: new MutableTransport(),
+}));
+let transportGetterCalls = 0;
+const wrapperTransportRejected = rejected(() => browserRemoteEntryHandle({
+  profile,
+  get transport() {
+    transportGetterCalls += 1;
+    throw new Error('transport getter must not execute');
+  },
+}));
+
+// AC-02: neither own nor inherited execute getters may be evaluated.
+let ownExecuteGetterCalls = 0;
+const ownAccessor = {
+  get execute() {
+    ownExecuteGetterCalls += 1;
+    return async () => ({ source: 'forbidden' });
+  },
+};
+const ownExecuteRejected = rejected(() =>
+  browserRemoteEntryHandle({ profile, transport: ownAccessor })
+);
+let inheritedExecuteGetterCalls = 0;
+const inheritedAccessor = Object.create({
+  get execute() {
+    inheritedExecuteGetterCalls += 1;
+    return async () => ({ source: 'forbidden' });
+  },
+});
+const inheritedExecuteRejected = rejected(() =>
+  browserRemoteEntryHandle({ profile, transport: inheritedAccessor })
+);
+
+// AC-03: class methods are inherited data descriptors; keep this and the
+// original transport reference, correct this binding, and one-shot invoke.
+class ValidInheritedTransport {
+  calls = 0;
+  async execute(request) {
+    this.calls += 1;
+    return { tag: request.tag, calls: this.calls };
+  }
+}
+const validInherited = new ValidInheritedTransport();
+const inheritedMethod = Object.getOwnPropertyDescriptor(
+  ValidInheritedTransport.prototype, 'execute'
+)?.value;
+const validHandle = browserRemoteEntryHandle({ profile, transport: validInherited });
+const inheritedMethodCaptured = validHandle.execute === inheritedMethod
+  && validHandle.profile === profile && Object.isFrozen(validHandle);
+const inheritedFirst = await validHandle.invoke({ tag: 'once' });
+const inheritedSecondRejected = await validHandle.invoke({ tag: 'again' }).then(
+  () => false,
+  (error) => error instanceof TypeError,
+);
+const inheritedOnlyOnce = validInherited.calls === 1;
+
 console.log(JSON.stringify({
   exactProfile,
   sameExecuteReference,
@@ -93,6 +156,18 @@ console.log(JSON.stringify({
   tamperedProfileRejected,
   invalidTransportRejected,
   extraEntryFieldRejected,
+  wrapperProfileRejected,
+  wrapperTransportRejected,
+  profileGetterCalls,
+  transportGetterCalls,
+  ownExecuteRejected,
+  inheritedExecuteRejected,
+  ownExecuteGetterCalls,
+  inheritedExecuteGetterCalls,
+  inheritedMethodCaptured,
+  inheritedFirst,
+  inheritedSecondRejected,
+  inheritedOnlyOnce,
 }));
 """
     raw = subprocess.check_output(
@@ -121,6 +196,26 @@ class FactoryRunnerBrowserRemoteEntryHandleTests(unittest.TestCase):
         self.assertTrue(self.observed["tamperedProfileRejected"])
         self.assertTrue(self.observed["invalidTransportRejected"])
         self.assertTrue(self.observed["extraEntryFieldRejected"])
+
+    def test_entry_wrapper_accessors_rejected_without_getter(self):
+        self.assertTrue(self.observed["wrapperProfileRejected"])
+        self.assertTrue(self.observed["wrapperTransportRejected"])
+        self.assertEqual(self.observed["profileGetterCalls"], 0)
+        self.assertEqual(self.observed["transportGetterCalls"], 0)
+
+    def test_transport_execute_accessors_rejected_without_getter(self):
+        self.assertTrue(self.observed["ownExecuteRejected"])
+        self.assertTrue(self.observed["inheritedExecuteRejected"])
+        self.assertEqual(self.observed["ownExecuteGetterCalls"], 0)
+        self.assertEqual(self.observed["inheritedExecuteGetterCalls"], 0)
+
+    def test_data_and_inherited_method_handle_preserve_identity(self):
+        self.assertTrue(self.observed["inheritedMethodCaptured"])
+        self.assertEqual(self.observed["inheritedFirst"], {"tag": "once", "calls": 1})
+        self.assertTrue(self.observed["inheritedSecondRejected"])
+        self.assertTrue(self.observed["inheritedOnlyOnce"])
+        self.assertTrue(self.observed["sameExecuteReference"])
+        self.assertTrue(self.observed["exactProfile"])
 
     def test_handle_ignores_later_transport_method_swap_and_preserves_internal_state(self):
         self.assertTrue(self.observed["currentTransportIsHijacked"])
