@@ -76,5 +76,20 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
         self.assertIn("pass 1", output)
 
 
+    def test_symlink_outbox_does_not_read_or_write_target(self):
+        output = run_node_test("AC01 symlink outbox does not read or write target")
+        self.assertIn("AC01 symlink outbox does not read or write target", output)
+        self.assertIn("pass 1", output)
+
+    def test_dangling_symlink_and_nonregular_file_fail_closed(self):
+        output = run_node_test("AC02 dangling symlink and nonregular file fail closed")
+        self.assertIn("AC02 dangling symlink and nonregular file fail closed", output)
+        self.assertIn("pass 1", output)
+
+    def test_regular_outbox_append_and_restart_remain_compatible(self):
+        output = run_node_test("AC03 regular outbox append and restart remain compatible")
+        self.assertIn("AC03 regular outbox append and restart remain compatible", output)
+        self.assertIn("pass 1", output)
+
 if __name__ == "__main__":
     unittest.main()
