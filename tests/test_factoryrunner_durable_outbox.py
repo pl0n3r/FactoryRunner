@@ -126,5 +126,22 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
         self.assertIn("pass 1", output)
 
 
+
+    def test_post_fstat_growth_is_bounded_and_fails_closed(self):
+        """AC-01: count actual reads on deterministic growth after fstat."""
+        output = run_node_test(
+            "AC01 outbox post-fstat growth rejects within bounded bytes"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_post_fstat_regression_preserves_regular_recovery(self):
+        """AC-02: keep real recovery, idempotency and aggregate-size boundary."""
+        for pattern in (
+            "AC02 bounded reader preserves regular recovery and idempotency",
+            "AC02 outbox append within remaining aggregate size recovers on restart",
+        ):
+            self.assertIn("pass 1", run_node_test(pattern))
+
+
 if __name__ == "__main__":
     unittest.main()
