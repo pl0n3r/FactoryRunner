@@ -41,6 +41,30 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
         )
         self.assertIn("pass 1", output)
 
+    def test_duplicate_top_level_operation_keys_fail_closed(self):
+        output = run_node_test(
+            "AC01 durable outbox denies conflicting top-level op declarations"
+        )
+        self.assertIn("AC01 durable outbox denies conflicting top-level op declarations", output)
+        self.assertIn("pass 1", output)
+
+    def test_duplicate_nested_delivery_keys_fail_closed(self):
+        output = run_node_test(
+            "AC02 durable outbox denies nested duplicate fingerprints and requests"
+        )
+        self.assertIn("AC02 durable outbox denies nested duplicate fingerprints and requests", output)
+        self.assertIn("pass 1", output)
+
+    def test_noncanonical_lines_fail_closed_but_appended_legacy_lines_recover(self):
+        output = run_node_test(
+            "AC03 durable outbox rejects noncanonical NDJSON but replays genuine append-only records"
+        )
+        self.assertIn(
+            "AC03 durable outbox rejects noncanonical NDJSON but replays genuine append-only records",
+            output,
+        )
+        self.assertIn("pass 1", output)
+
     def test_corrupt_or_conflicting_delivery_state_fails_closed(self):
         output = run_node_test(
             "durable outbox fails closed on corrupt or conflicting delivery state"
