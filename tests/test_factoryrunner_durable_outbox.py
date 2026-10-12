@@ -104,5 +104,14 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
         output = run_node_test("AC03 bounded reader preserves ENOENT and nonregular fail closed")
         self.assertIn("pass 1", output)
 
+    def test_invalid_utf8_fails_closed_without_rewrite(self):
+        """AC-02/03: reject malformed bytes and preserve authentic Unicode."""
+        for pattern in (
+            "AC02 outbox rejects malformed UTF-8 before replay or enqueue",
+            "AC03 outbox authentic Unicode including U+FFFD round-trips unchanged",
+        ):
+            output = run_node_test(pattern)
+            self.assertIn("pass 1", output)
+
 if __name__ == "__main__":
     unittest.main()

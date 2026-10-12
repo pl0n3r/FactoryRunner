@@ -183,7 +183,16 @@ function boundedOutboxText(descriptor: number): string {
   while (total <= MAX_OUTBOX_BYTES) {
     const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_OUTBOX_BYTES + 1 - total));
     const read = readSync(descriptor, chunk, 0, chunk.length, null);
-    if (read === 0) return Buffer.concat(chunks, total).toString('utf8');
+    if (read === 0) {
+      // Preserve exact bytes: replacement decoding could make a corrupt NDJSON
+      // record appear canonical and replay an altered event.
+      try {
+        return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+          .decode(Buffer.concat(chunks, total));
+      } catch {
+        return invalid('Outbox contiene UTF-8 inválido.');
+      }
+    }
     total += read;
     if (total > MAX_OUTBOX_BYTES) invalid('Outbox excede el límite permitido.');
     chunks.push(chunk.subarray(0, read));

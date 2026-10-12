@@ -307,3 +307,44 @@ test('AC03 oversized existing journal is never appended', () => {
     assert.equal(journalHash(path), beforeHash);
   });
 });
+
+test('AC01 journal rejects malformed UTF-8 before replay or append', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    journal.appendEvent(event({ evidence: { code: 'accepted', summary: 'alpha beta PRIVATE_UTF8_CANARY', ref: null } }));
+    const bytes = readFileSync(path);
+    const position = bytes.indexOf(Buffer.from('alpha beta PRIVATE_UTF8_CANARY'));
+    assert.ok(position > 0);
+    const broken = Buffer.from(bytes);
+    broken[position + 6] = 0x80; // malformed standalone continuation byte
+    writeFileSync(path, broken);
+    for (const run of [
+      () => new DurableJournal(path).recover(),
+      () => journal.appendOrder(order()),
+      () => journal.appendEvent(event()),
+    ]) {
+      assert.throws(run, (error: unknown) => {
+        assert.ok(error instanceof DurableJournalError);
+        assert.equal(error.code, 'journal_invalid');
+        assert.doesNotMatch(error.message, /PRIVATE_UTF8_CANARY/);
+        return true;
+      });
+      assert.deepEqual(readFileSync(path), broken);
+    }
+  });
+});
+
+test('AC03 journal authentic Unicode including U+FFFD round-trips unchanged', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const summary = 'Árbol 🤖 \uFFFD intacto';
+    journal.appendEvent(event({ evidence: { code: 'accepted', summary, ref: null } }));
+    const bytes = readFileSync(path);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.events[0]?.evidence.summary, summary);
+    journal.appendEvent(event({ evidence: { code: 'accepted', summary, ref: null } }));
+    assert.deepEqual(readFileSync(path), bytes);
+  });
+});

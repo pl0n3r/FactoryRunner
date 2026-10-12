@@ -273,3 +273,47 @@ test('AC03 bounded reader preserves ENOENT and nonregular fail closed', () => {
     expectProtectedFailure(() => new DurableOutbox(path).recover());
   });
 });
+
+test('AC02 outbox rejects malformed UTF-8 before replay or enqueue', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    outbox.enqueueEvents(eventsRequest());
+    const bytes = readFileSync(path);
+    const position = bytes.indexOf(Buffer.from('Order accepted by runner'));
+    assert.ok(position > 0);
+    const broken = Buffer.from(bytes);
+    broken[position + 6] = 0x80; // synthetically corrupt the stored summary byte
+    writeFileSync(path, broken);
+    for (const run of [
+      () => new DurableOutbox(path).recover(),
+      () => outbox.enqueueAck(ackRequest()),
+      () => outbox.enqueueEvents(eventsRequest()),
+    ]) {
+      assert.throws(run, (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_invalid');
+        assert.doesNotMatch(error.message, /Order accepted by runner/);
+        return true;
+      });
+      assert.deepEqual(readFileSync(path), broken);
+    }
+  });
+});
+
+test('AC03 outbox authentic Unicode including U+FFFD round-trips unchanged', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    const summary = 'Árbol 🤖 \uFFFD intacto';
+    const request = { version: 1, runner_id: runnerId,
+      events: [event({ evidence: { code: 'accepted', summary, ref: null } })] };
+    const delivery = outbox.enqueueEvents(request);
+    const bytes = readFileSync(path);
+    const recovered = new DurableOutbox(path).recover();
+    assert.equal(recovered.pending[0]?.delivery_id, delivery.delivery_id);
+    assert.equal(recovered.pending[0]?.kind, 'events');
+    assert.equal(recovered.pending[0]?.kind === 'events'
+      ? recovered.pending[0]?.request.events[0]?.evidence.summary : null, summary);
+    outbox.enqueueEvents(request);
+    assert.deepEqual(readFileSync(path), bytes);
+  });
+});
