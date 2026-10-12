@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -215,5 +215,61 @@ test('AC03 regular outbox append and restart remain compatible', () => {
     restarted.markDelivered(ack.delivery_id);
     assert.deepEqual(new DurableOutbox(path).recover().delivered.map((item) => item.delivery_id),
       [ack.delivery_id]);
+  });
+});
+
+test('AC01 bounded reader rejects oversized sparse outbox before unbounded read', () => {
+  withOutbox((path) => {
+    writeFileSync(path, '');
+    truncateSync(path, 16 * 1024 * 1024 + 1);
+    const sizeBefore = statSync(path).size;
+    assert.throws(
+      () => new DurableOutbox(path).recover(),
+      (error: unknown) => error instanceof DurableOutboxError
+        && error.code === 'outbox_invalid'
+        && !error.message.includes('PRIVATE_TARGET_SENTINEL'),
+    );
+    assert.equal(statSync(path).size, sizeBefore);
+    // Enforce a true capped read, not only a post-read size comparison.
+    const source = readFileSync(new URL('../src/outbox.ts', import.meta.url), 'utf8');
+    assert.match(source, /readSync\(descriptor, chunk, 0, chunk\.length, null\)/);
+    assert.doesNotMatch(source, /readFileSync\(descriptor/);
+  });
+});
+
+test('AC02 bounded reader preserves regular recovery and idempotency', () => {
+  withOutbox((path) => {
+    const first = new DurableOutbox(path);
+    const ack = first.enqueueAck(ackRequest());
+    const events = first.enqueueEvents(eventsRequest());
+    const original = readFileSync(path, 'utf8');
+    assert.deepEqual(new DurableOutbox(path).recover().pending.map((d) => d.delivery_id),
+      [ack.delivery_id, events.delivery_id]);
+    assert.equal(first.enqueueAck(ackRequest()).delivery_id, ack.delivery_id);
+    assert.equal(readFileSync(path, 'utf8'), original);
+    first.markDelivered(ack.delivery_id);
+    assert.deepEqual(new DurableOutbox(path).recover().delivered.map((d) => d.delivery_id), [ack.delivery_id]);
+    writeFileSync(path, original + '{"op":"enqueue"', 'utf8');
+    const invalid = readFileSync(path, 'utf8');
+    assert.throws(() => first.enqueueAck(ackRequest()), /Outbox truncado/);
+    assert.equal(readFileSync(path, 'utf8'), invalid);
+  });
+});
+
+test('AC03 bounded reader preserves ENOENT and nonregular fail closed', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    assert.deepEqual(outbox.recover(), { pending: [], delivered: [] });
+    const target = path + '.target';
+    const canary = 'PRIVATE_TARGET_SENTINEL\n';
+    writeFileSync(target, canary, 'utf8');
+    symlinkSync(target, path);
+    expectProtectedFailure(() => outbox.recover());
+    expectProtectedFailure(() => outbox.enqueueAck(ackRequest()));
+    assert.equal(readFileSync(target, 'utf8'), canary);
+  });
+  withOutbox((path) => {
+    mkdirSync(path);
+    expectProtectedFailure(() => new DurableOutbox(path).recover());
   });
 });

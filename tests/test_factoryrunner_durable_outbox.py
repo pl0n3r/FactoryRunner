@@ -91,5 +91,18 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
         self.assertIn("AC03 regular outbox append and restart remain compatible", output)
         self.assertIn("pass 1", output)
 
+
+    def test_oversized_sparse_outbox_fails_before_unbounded_read(self):
+        output = run_node_test("AC01 bounded reader rejects oversized sparse outbox before unbounded read")
+        self.assertIn("pass 1", output)
+
+    def test_bounded_reader_preserves_regular_recovery_idempotency(self):
+        output = run_node_test("AC02 bounded reader preserves regular recovery and idempotency")
+        self.assertIn("pass 1", output)
+
+    def test_bounded_reader_preserves_nonregular_fail_closed(self):
+        output = run_node_test("AC03 bounded reader preserves ENOENT and nonregular fail closed")
+        self.assertIn("pass 1", output)
+
 if __name__ == "__main__":
     unittest.main()
