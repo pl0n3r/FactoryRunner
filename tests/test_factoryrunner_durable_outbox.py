@@ -31,6 +31,18 @@ def run_node_test(name: str) -> str:
 
 
 class FactoryRunnerDurableOutboxTests(unittest.TestCase):
+
+    def test_append_and_close_failure_preserves_primary_io(self):
+        output = run_node_test(
+            "AC01 outbox append ENOSPC plus close EIO preserves primary"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_fsync_and_close_failure_preserves_primary_io(self):
+        output = run_node_test(
+            "AC02 outbox fsync EIO plus close EIO preserves primary"
+        )
+        self.assertIn("pass 1", output)
     def test_close_failure_is_typed_io(self):
         output = run_node_test("AC01 outbox close failure returns typed IO error")
         self.assertIn("pass 1", output)
