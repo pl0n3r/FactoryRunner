@@ -505,3 +505,71 @@ test('AC02 outbox append fills exact aggregate limit and survives restart', () =
     assert.deepEqual(readFileSync(path), before);
   });
 });
+
+/** The fake closes the real descriptor first to avoid leaking file handles. */
+function withSyntheticCloseFailure(run: () => void): void {
+  const realClose = fs.closeSync;
+  fs.closeSync = ((descriptor: number) => {
+    realClose(descriptor);
+    throw Object.assign(new Error('synthetic close failure'), { code: 'EIO' });
+  }) as typeof fs.closeSync;
+  syncBuiltinESMExports();
+  try {
+    run();
+  } finally {
+    fs.closeSync = realClose;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 outbox close failure returns typed IO error', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.equal((error.cause as { code?: string })?.code, 'EIO');
+        return true;
+      });
+    });
+    // A reported failure does not imply the preceding append/fsync was rolled back.
+    assert.equal(outbox.recover().pending.length, 1);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => outbox.recover(), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.equal((error.cause as { code?: string })?.code, 'EIO');
+        return true;
+      });
+    });
+  });
+});
+
+test('AC02 outbox close failure preserves earlier invalid error', () => {
+  withOutbox((path) => {
+    writeFileSync(path, '{"not_an_outbox_record":true}\\n', 'utf8');
+    const before = readFileSync(path);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => new DurableOutbox(path).recover(), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_invalid');
+        assert.notEqual((error.cause as { code?: string } | undefined)?.code, 'EIO');
+        return true;
+      });
+    });
+    assert.deepEqual(readFileSync(path), before);
+  });
+});
+
+test('AC03 outbox close guard maintains recovery and idempotency', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    const first = outbox.enqueueAck(ackRequest());
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, first.delivery_id);
+    assert.equal(outbox.recover().pending[0]?.delivery_id, first.delivery_id);
+    outbox.markDelivered(first.delivery_id);
+    assert.deepEqual(new DurableOutbox(path).recover().pending, []);
+    assert.equal(new DurableOutbox(path).recover().delivered[0]?.delivery_id, first.delivery_id);
+  });
+});
