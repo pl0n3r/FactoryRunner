@@ -53,12 +53,32 @@ async function rejects(body, opts = {}) {
   catch { return true; }
 }
 const cyclic = {}; cyclic.self = cyclic;
+const customSerializer = { nested: { toJSON() { return { hidden: 'modified' }; } } };
+const getterBody = { nested: {} };
+Object.defineProperty(getterBody.nested, 'danger', {
+  get() { throw new Error('must never invoke accessor'); }, enumerable: true,
+});
+const hiddenBody = { nested: {} };
+Object.defineProperty(hiddenBody.nested, 'secret', { value: true, enumerable: false });
+const sparse = []; sparse.length = 2; sparse[1] = 4;
 const negatives = [
   await rejects([]), await rejects(null),
   await rejects({ data: 'x'.repeat(3000) }), await rejects(cyclic),
   await rejects({ ok: true }, { version: 2 }),
   await rejects({ ok: true }, { status: 500 }),
   await rejects({ ok: true }, { fingerprint: 'f'.repeat(64) }),
+  await rejects({ nested: { missing: undefined } }),
+  await rejects({ nested: { missing: () => 1 } }),
+  await rejects({ nested: { missing: Symbol('ignored') } }),
+  await rejects({ nested: { count: Number.NaN } }),
+  await rejects({ nested: { count: Number.POSITIVE_INFINITY } }),
+  await rejects({ nested: { count: Number.NEGATIVE_INFINITY } }),
+  await rejects({ nested: { count: -0 } }),
+  await rejects({ nested: { value: new Date(0) } }),
+  await rejects(customSerializer),
+  await rejects(getterBody),
+  await rejects(hiddenBody),
+  await rejects({ nested: sparse }),
 ];
 const signal = new AbortController(); signal.abort();
 let abortCode = null;
