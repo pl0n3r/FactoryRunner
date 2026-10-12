@@ -90,7 +90,14 @@ function readRecords(path: string): JournalRecord[] {
   if (raw.length === 0) return [];
   if (raw[raw.length - 1] !== 0x0a) invalid('Journal truncado: falta newline final.');
 
-  return raw.toString('utf8').slice(0, -1).split('\n').map((line, index) => {
+  // Reject malformed bytes before JSON.parse can silently receive U+FFFD.
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(raw);
+  } catch {
+    return invalid('Journal contiene UTF-8 inválido.');
+  }
+  return text.slice(0, -1).split('\n').map((line, index) => {
     const lineNumber = index + 1;
     if (line.length === 0 || Buffer.byteLength(line, 'utf8') > MAX_RECORD_BYTES) {
       return invalid(`Registro de journal inválido en línea ${lineNumber}.`);

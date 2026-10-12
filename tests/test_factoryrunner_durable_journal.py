@@ -106,5 +106,14 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
             run_node_test("AC03 oversized existing journal is never appended"),
         )
 
+    def test_invalid_utf8_fails_closed_without_rewrite(self):
+        """AC-01/03: reject malformed bytes while retaining genuine Unicode."""
+        for pattern in (
+            "AC01 journal rejects malformed UTF-8 before replay or append",
+            "AC03 journal authentic Unicode including U+FFFD round-trips unchanged",
+        ):
+            output = run_node_test(pattern)
+            self.assertIn("pass 1", output)
+
 if __name__ == "__main__":
     unittest.main()
