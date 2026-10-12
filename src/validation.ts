@@ -81,6 +81,12 @@ export function noSensitiveText(value: string, label: string): string {
   return value;
 }
 
+/** Collation can equate different Unicode keys; use UTF-16 code units to break ties. */
+function canonicalKeyOrder(a: string, b: string): number {
+  const collated = a.localeCompare(b, 'en');
+  return collated !== 0 ? collated : a < b ? -1 : a > b ? 1 : 0;
+}
+
 function canonicalValue(value: unknown): unknown {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -88,7 +94,7 @@ function canonicalValue(value: unknown): unknown {
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
     const ordered: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-    for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b, 'en'))) {
+    for (const key of Object.keys(record).sort(canonicalKeyOrder)) {
       ordered[key] = canonicalValue(record[key]);
     }
     return ordered;

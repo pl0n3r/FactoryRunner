@@ -27,7 +27,7 @@ class StableSha256ContractTests(unittest.TestCase):
         output = completed.stdout + completed.stderr
         self.assertEqual(completed.returncode, 0, output[-6500:])
         self.assertIn(expected_case, completed.stdout, output[-6500:])
-        for name, expected in (("tests", 3), ("pass", 3), ("fail", 0),
+        for name, expected in (("tests", 5), ("pass", 5), ("fail", 0),
                                ("skipped", 0), ("cancelled", 0)):
             result = COUNTS[name].search(completed.stdout)
             self.assertIsNotNone(result, f"Missing TAP {name}: {output[-6500:]}")
@@ -41,6 +41,12 @@ class StableSha256ContractTests(unittest.TestCase):
 
     def test_ordinary_json_hashes_are_backward_compatible(self) -> None:
         self._run_node("AC03 ordinary JSON hashes remain backward-compatible")
+
+    def test_collation_tie_is_insertion_order_independent(self) -> None:
+        self._run_node("AC04 distinct Unicode keys with equal collation produce insertion-independent hashes")
+
+    def test_nested_collation_tie_is_insertion_order_independent(self) -> None:
+        self._run_node("AC05 nested Unicode collation ties remain insertion-independent")
 
     def test_node_test_suite_runs(self) -> None:
         self._run_node("AC01 proto key affects root JSON fingerprint")
