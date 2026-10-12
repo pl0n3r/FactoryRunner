@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -391,5 +392,49 @@ test('AC03 existing oversized outbox refuses new append and preserves bytes', ()
     assert.deepEqual(readFileSync(path).subarray(0, prefix.length), prefix);
     assert.throws(() => new DurableOutbox(path).recover(),
       (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+  });
+});
+
+
+test('AC01 outbox post-fstat growth rejects within bounded bytes', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    outbox.enqueueAck(ackRequest());
+    const canary = readFileSync(path);
+    assert.ok(canary.length > 0 && canary.length < OUTBOX_TOTAL_LIMIT);
+    const original = fs.readSync;
+    let injected = false;
+    let requested = 0;
+    let readBytes = 0;
+    try {
+      fs.readSync = ((fd: number, buffer: Buffer, offset: number,
+        length: number, position: number | null) => {
+        if (!injected) {
+          // fstat has already accepted this regular descriptor.
+          truncateSync(path, OUTBOX_TOTAL_LIMIT + 1);
+          injected = true;
+        }
+        requested += length;
+        const count = original(fd, buffer, offset, length, position);
+        readBytes += count;
+        return count;
+      }) as typeof fs.readSync;
+      syncBuiltinESMExports();
+      assert.throws(() => outbox.recover(), (error: unknown) =>
+        error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+    } finally {
+      fs.readSync = original;
+      syncBuiltinESMExports();
+    }
+    assert.equal(injected, true);
+    assert.equal(readBytes, OUTBOX_TOTAL_LIMIT + 1);
+    assert.ok(requested <= OUTBOX_TOTAL_LIMIT + 1);
+    const grown = readFileSync(path);
+    assert.equal(grown.length, OUTBOX_TOTAL_LIMIT + 1);
+    assert.deepEqual(grown.subarray(0, canary.length), canary);
+    // Rejecting recovery cannot replay a truncated prefix or append a record.
+    assert.throws(() => outbox.enqueueEvents(eventsRequest()),
+      (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+    assert.deepEqual(readFileSync(path), grown);
   });
 });
