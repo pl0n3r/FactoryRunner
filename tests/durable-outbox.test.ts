@@ -438,3 +438,70 @@ test('AC01 outbox post-fstat growth rejects within bounded bytes', () => {
     assert.deepEqual(readFileSync(path), grown);
   });
 });
+
+
+/**
+ * Exercise the literal byte boundaries required by #512.
+ * The NDJSON remains canonical: padding is inside a valid event summary.
+ */
+function eventRequestWithExtraSummaryBytes(extra: number) {
+  assert.ok(Number.isInteger(extra) && extra >= 0 && extra < 1024);
+  return {
+    ...eventsRequest(),
+    events: [event({
+      evidence: {
+        code: 'accepted',
+        summary: 'Order accepted by runner' + 'x'.repeat(extra),
+        ref: null,
+      },
+    })],
+  };
+}
+
+test('AC01 outbox rejects one byte over exact aggregate limit', () => {
+  withOutbox((path) => {
+    const probePath = path + '.probe';
+    new DurableOutbox(probePath).enqueueEvents(eventsRequest());
+    const baseBytes = statSync(probePath).size;
+    const { remaining, deliveredLineBytes } = denseOutbox(path, baseBytes);
+    const extra = remaining - baseBytes + 1;
+    assert.ok(extra > 0 && extra <= deliveredLineBytes);
+    const overByOne = eventRequestWithExtraSummaryBytes(extra);
+
+    const actualPath = path + '.exact-probe';
+    new DurableOutbox(actualPath).enqueueEvents(overByOne);
+    assert.equal(statSync(actualPath).size, remaining + 1);
+
+    const before = readFileSync(path);
+    assert.throws(() => new DurableOutbox(path).enqueueEvents(overByOne),
+      (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+    assert.equal(statSync(path).size, OUTBOX_TOTAL_LIMIT - remaining);
+    assert.deepEqual(readFileSync(path), before);
+    assert.equal(new DurableOutbox(path).recover().pending.length, 0);
+  });
+});
+
+test('AC02 outbox append fills exact aggregate limit and survives restart', () => {
+  withOutbox((path) => {
+    const probePath = path + '.probe';
+    new DurableOutbox(probePath).enqueueEvents(eventsRequest());
+    const baseBytes = statSync(probePath).size;
+    const { remaining, ackId, deliveredLineBytes } = denseOutbox(path, baseBytes);
+    const extra = remaining - baseBytes;
+    assert.ok(extra >= 0 && extra < deliveredLineBytes);
+    const exactlyFits = eventRequestWithExtraSummaryBytes(extra);
+
+    const actualPath = path + '.exact-probe';
+    new DurableOutbox(actualPath).enqueueEvents(exactlyFits);
+    assert.equal(statSync(actualPath).size, remaining);
+
+    const delivery = new DurableOutbox(path).enqueueEvents(exactlyFits);
+    assert.equal(statSync(path).size, OUTBOX_TOTAL_LIMIT);
+    const recovered = new DurableOutbox(path).recover();
+    assert.deepEqual(recovered.pending.map(x => x.delivery_id), [delivery.delivery_id]);
+    assert.deepEqual(recovered.delivered.map(x => x.delivery_id), [ackId]);
+    const before = readFileSync(path);
+    assert.equal(new DurableOutbox(path).enqueueEvents(exactlyFits).delivery_id, delivery.delivery_id);
+    assert.deepEqual(readFileSync(path), before);
+  });
+});
