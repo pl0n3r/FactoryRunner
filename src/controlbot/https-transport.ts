@@ -65,11 +65,7 @@ function serializedPayload(input: unknown): string {
   }
 }
 
-function responseBody(value: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value !== 'string' || value.length > 65_536) {
-    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
-  }
+function rejectSensitiveResponseText(value: string): void {
   try {
     noSensitiveText(value, 'controlbot_response');
   } catch {
@@ -78,6 +74,31 @@ function responseBody(value: unknown): string | null {
   if (SENSITIVE_RESPONSE_KEY_RE.test(value)) {
     throw new ControlBotHttpsTransportError('controlbot_http_sensitive_output');
   }
+}
+
+function responseBody(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value.length > 65_536) {
+    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
+  }
+
+  rejectSensitiveResponseText(value);
+  // JSON escapes may hide a sensitive key/value from raw-text scanners.
+  // Canonicalize only for validation; preserve the original response bytes.
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    // Non-JSON replies from ACK/events/heartbeat remain compatible.
+    return value;
+  }
+  let canonical: string;
+  try {
+    canonical = JSON.stringify(decoded);
+  } catch {
+    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
+  }
+  rejectSensitiveResponseText(canonical);
   return value;
 }
 
