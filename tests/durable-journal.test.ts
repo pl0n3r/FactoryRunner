@@ -117,7 +117,7 @@ test('AC03 durable journal rejects noncanonical NDJSON but recovers writer recor
     const valid = readFileSync(path, 'utf8');
     const variants = [
       valid.replace('"kind":"order"', '"kind": "order"'),
-      valid.replace('"kind":"order"', String.raw`"\\u006bind":"order"`),
+      valid.replace('"kind":"order"', String.raw`"\u006bind":"order"`),
     ];
     for (const ambiguous of variants) {
       assert.notEqual(ambiguous, valid);
