@@ -110,9 +110,20 @@ function registrationRecord(value: unknown): Readonly<{
     REGISTRATION_KEYS,
     'BrowserRemoteDirectoryRegistration',
   );
+  // Resolve data fields once without evaluating caller-owned getters.
+  const profileField = Object.getOwnPropertyDescriptor(record, 'profile');
+  const transportField = Object.getOwnPropertyDescriptor(record, 'transport');
+  if (
+    profileField === undefined
+    || !Object.hasOwn(profileField, 'value')
+    || transportField === undefined
+    || !Object.hasOwn(transportField, 'value')
+  ) {
+    throw new TypeError('BrowserRemoteDirectoryRegistration inválido.');
+  }
   return Object.freeze({
-    profile: record.profile,
-    transport: record.transport,
+    profile: profileField.value,
+    transport: transportField.value,
   });
 }
 
