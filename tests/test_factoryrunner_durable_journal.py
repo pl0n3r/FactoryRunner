@@ -49,5 +49,22 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
         self.assertIn("pass 1", output)
 
 
+    def test_duplicate_top_level_record_keys_fail_closed(self):
+        output = run_node_test("AC01 durable journal denies duplicate top-level kind and version keys")
+        self.assertIn("AC01 durable journal denies duplicate top-level", output)
+        self.assertIn("pass 1", output)
+
+    def test_duplicate_nested_payload_keys_fail_closed(self):
+        output = run_node_test("AC02 durable journal denies duplicate nested payload keys without replay")
+        self.assertIn("AC02 durable journal denies duplicate nested", output)
+        self.assertIn("pass 1", output)
+
+    def test_noncanonical_lines_fail_closed_but_valid_append_only_recovers(self):
+        output = run_node_test("AC03 durable journal rejects noncanonical NDJSON but recovers writer records")
+        self.assertIn("AC03 durable journal rejects noncanonical", output)
+        self.assertIn("pass 1", output)
+
+
+
 if __name__ == "__main__":
     unittest.main()
