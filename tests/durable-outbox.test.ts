@@ -548,7 +548,7 @@ test('AC01 outbox close failure returns typed IO error', () => {
 
 test('AC02 outbox close failure preserves earlier invalid error', () => {
   withOutbox((path) => {
-    writeFileSync(path, '{"not_an_outbox_record":true}\\n', 'utf8');
+    writeFileSync(path, '{"not_an_outbox_record":true}\n', 'utf8');
     const before = readFileSync(path);
     withSyntheticCloseFailure(() => {
       assert.throws(() => new DurableOutbox(path).recover(), (error: unknown) => {
