@@ -219,3 +219,88 @@ test('timeout cancel and restart preserve terminal state without duplicate effec
     assert.equal(restartCalls, 0);
   });
 });
+
+
+test('AC01 same-instance concurrent order preserves in-flight terminal success', async () => {
+  await withJournal(async (path) => {
+    let dispatches = 0;
+    let adapterStarted!: () => void;
+    let releaseAdapter!: (value: ProgrammaticAdapterResult) => void;
+    const started = new Promise<void>((resolve) => { adapterStarted = resolve; });
+    const registry = new AdapterRegistry([{
+      id: 'held',
+      capabilities: ['git'],
+      async execute() {
+        dispatches += 1;
+        adapterStarted();
+        return new Promise<ProgrammaticAdapterResult>((resolve) => { releaseAdapter = resolve; });
+      },
+    }]);
+    const loop = new ExecutionLoop({
+      journal: new DurableJournal(path),
+      registry,
+      identity: identity(),
+      now: () => 1_100,
+    });
+    const first = loop.execute(order(), { timeout_ms: 1_000 });
+    await started;
+    const states = () => new DurableJournal(path).recover().events.map((event) => event.state);
+    assert.deepEqual(states(), ['accepted', 'started']);
+    await assert.rejects(loop.execute(order()), /Orden ya en ejecución en esta instancia/);
+    assert.deepEqual(states(), ['accepted', 'started'], 'duplicate must not mark an active order interrupted');
+    assert.equal(dispatches, 1);
+    releaseAdapter(result());
+    const completed = await first;
+    assert.equal(completed.event.state, 'completed');
+    assert.equal(completed.reused, false);
+    assert.deepEqual(states(), ['accepted', 'started', 'completed']);
+    const replay = await loop.execute(order());
+    assert.equal(replay.reused, true);
+    assert.equal(replay.event.state, 'completed');
+    assert.equal(dispatches, 1);
+  });
+});
+
+test('AC02 in-flight guard clears on timeout and cancel', async () => {
+  for (const kind of ['timeout', 'cancel'] as const) {
+    await withJournal(async (path) => {
+      let dispatches = 0;
+      let adapterStarted!: () => void;
+      const started = new Promise<void>((resolve) => { adapterStarted = resolve; });
+      const registry = new AdapterRegistry([{
+        id: 'held',
+        capabilities: ['git'],
+        async execute() {
+          dispatches += 1;
+          adapterStarted();
+          return new Promise<ProgrammaticAdapterResult>(() => {});
+        },
+      }]);
+      const controller = new AbortController();
+      const loop = new ExecutionLoop({
+        journal: new DurableJournal(path),
+        registry,
+        identity: identity(),
+        now: () => 1_100,
+      });
+      const first = loop.execute(order(), {
+        timeout_ms: kind === 'timeout' ? 10 : 1_000,
+        signal: controller.signal,
+      });
+      await started;
+      await assert.rejects(loop.execute(order()), /Orden ya en ejecución en esta instancia/);
+      assert.deepEqual(
+        new DurableJournal(path).recover().events.map((event) => event.state),
+        ['accepted', 'started'],
+      );
+      if (kind === 'cancel') controller.abort();
+      const terminal = await first;
+      assert.equal(terminal.event.state, kind === 'timeout' ? 'failed' : 'cancelled');
+      assert.equal(terminal.event.evidence.code, kind === 'timeout' ? 'timeout' : 'cancelled');
+      const replay = await loop.execute(order());
+      assert.equal(replay.reused, true, 'guard must be cleared for terminal replay');
+      assert.equal(replay.event.state, terminal.event.state);
+      assert.equal(dispatches, 1);
+    });
+  }
+});

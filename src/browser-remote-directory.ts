@@ -55,13 +55,21 @@ function sealedTransport(value: unknown): BrowserRemoteTransport {
   }
 
   const transport = value as BrowserRemoteTransport;
-  const execute = transport.execute;
-  if (typeof execute !== 'function') {
+  // Resolve through descriptors only: reading transport.execute could invoke
+  // caller-owned accessors before the transport has been validated.
+  let cursor: object | null = transport;
+  let descriptor: PropertyDescriptor | undefined;
+  while (cursor !== null) {
+    descriptor = Object.getOwnPropertyDescriptor(cursor, 'execute');
+    if (descriptor !== undefined) break;
+    cursor = Object.getPrototypeOf(cursor) as object | null;
+  }
+  if (descriptor === undefined || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') {
     throw new TypeError('BrowserRemoteTransport requerido.');
   }
 
-  const descriptor = Object.getOwnPropertyDescriptor(transport, 'execute');
-  const enumerable = descriptor?.enumerable ?? false;
+  const execute = descriptor.value as BrowserRemoteTransport['execute'];
+  const enumerable = Object.getOwnPropertyDescriptor(transport, 'execute')?.enumerable ?? false;
   try {
     Object.defineProperty(transport, 'execute', {
       value: execute,
