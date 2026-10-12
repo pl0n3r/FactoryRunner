@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { DurableOutbox } from '../src/outbox.ts';
+import { DurableOutbox, DurableOutboxError } from '../src/outbox.ts';
 
 const runnerId = '11111111-1111-7111-8111-111111111111';
 const orderId = '22222222-2222-7222-8222-222222222222';
@@ -160,5 +160,60 @@ test('durable outbox fails closed on corrupt or conflicting delivery state', () 
     assert.throws(() => new DurableOutbox(path).recover(), /Outbox truncado/);
     assert.throws(() => new DurableOutbox(path).enqueueEvents(eventsRequest()), /Outbox truncado/);
     assert.equal(readFileSync(path, 'utf8'), corruptState);
+  });
+});
+
+function expectProtectedFailure(action: () => unknown): void {
+  assert.throws(action, (error: unknown) => error instanceof DurableOutboxError
+    && (error.code === 'outbox_invalid' || error.code === 'outbox_io')
+    && !error.message.includes('PRIVATE_TARGET_SENTINEL'));
+}
+
+test('AC01 symlink outbox does not read or write target', () => {
+  withOutbox((path) => {
+    const target = path + '.target';
+    const canary = 'PRIVATE_TARGET_SENTINEL\\n';
+    writeFileSync(target, canary, 'utf8');
+    symlinkSync(target, path);
+    const outbox = new DurableOutbox(path);
+    expectProtectedFailure(() => outbox.recover());
+    expectProtectedFailure(() => outbox.enqueueAck(ackRequest()));
+    assert.equal(readFileSync(target, 'utf8'), canary);
+  });
+});
+
+test('AC02 dangling symlink and nonregular file fail closed', () => {
+  withOutbox((path) => {
+    const absentTarget = path + '.absent';
+    symlinkSync(absentTarget, path);
+    const outbox = new DurableOutbox(path);
+    expectProtectedFailure(() => outbox.recover());
+    expectProtectedFailure(() => outbox.enqueueAck(ackRequest()));
+    assert.equal(existsSync(absentTarget), false);
+  });
+  withOutbox((path) => {
+    mkdirSync(path);
+    const outbox = new DurableOutbox(path);
+    expectProtectedFailure(() => outbox.recover());
+    expectProtectedFailure(() => outbox.enqueueEvents(eventsRequest()));
+  });
+});
+
+test('AC03 regular outbox append and restart remain compatible', () => {
+  withOutbox((path) => {
+    assert.equal(existsSync(path), false);
+    const first = new DurableOutbox(path);
+    const ack = first.enqueueAck(ackRequest());
+    const events = first.enqueueEvents(eventsRequest());
+    const serialized = readFileSync(path, 'utf8');
+    assert.equal(serialized.split('\\n').filter(Boolean).length, 2);
+    const restarted = new DurableOutbox(path);
+    assert.deepEqual(restarted.recover().pending.map((item) => item.delivery_id),
+      [ack.delivery_id, events.delivery_id]);
+    assert.equal(restarted.enqueueAck(ackRequest()).delivery_id, ack.delivery_id);
+    assert.equal(readFileSync(path, 'utf8'), serialized);
+    restarted.markDelivered(ack.delivery_id);
+    assert.deepEqual(new DurableOutbox(path).recover().delivered.map((item) => item.delivery_id),
+      [ack.delivery_id]);
   });
 });
