@@ -108,25 +108,19 @@ function registrationRecord(value: unknown): Readonly<{
   });
 }
 
-function registrationEntry(value: unknown): BrowserRemoteDirectoryEntry {
-  const record = registrationRecord(value);
-  return Object.freeze({
-    profile: canonicalProfile(record.profile),
-    transport: sealedTransport(record.transport),
-  });
-}
-
 export class BrowserRemoteDirectory {
   readonly #byAlias = new Map<string, BrowserRemoteDirectoryEntry>();
 
   register(input: unknown): BrowserRemoteDirectoryEntry {
-    const entry = registrationEntry(input);
-
-    if (this.#byAlias.has(entry.profile.remote_alias)) {
+    const record = registrationRecord(input);
+    const profile = canonicalProfile(record.profile);
+    if (this.#byAlias.has(profile.remote_alias)) {
       throw new TypeError('remote_alias browser remoto duplicado.');
     }
 
-    this.#byAlias.set(entry.profile.remote_alias, entry);
+    // El transporte externo solo se sella si su alias está disponible.
+    const entry = Object.freeze({ profile, transport: sealedTransport(record.transport) });
+    this.#byAlias.set(profile.remote_alias, entry);
     return entry;
   }
 
