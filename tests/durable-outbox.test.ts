@@ -82,6 +82,61 @@ test('durable outbox keeps pending ack and events across restart with stable ide
   });
 });
 
+test('AC01 durable outbox denies conflicting top-level op declarations', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    outbox.enqueueAck(ackRequest());
+    const valid = readFileSync(path, 'utf8');
+    const ambiguous = valid.replace('"op":"enqueue"', '"op":"discard","op":"enqueue"');
+    assert.notEqual(ambiguous, valid);
+    assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+    writeFileSync(path, ambiguous, 'utf8');
+    assert.throws(() => new DurableOutbox(path).recover(), /no canónico/);
+    assert.equal(readFileSync(path, 'utf8'), ambiguous);
+  });
+});
+
+test('AC02 durable outbox denies nested duplicate fingerprints and requests', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    const delivery = outbox.enqueueAck(ackRequest());
+    const valid = readFileSync(path, 'utf8');
+    const fingerprint = '"fingerprint":"' + delivery.fingerprint + '"';
+    const fake = '"fingerprint":"' + 'f'.repeat(64) + '",' + fingerprint;
+    const changes = [
+      valid.replace(fingerprint, fake),
+      valid.replace('"request":', '"request":{"version":1},"request":'),
+    ];
+    for (const ambiguous of changes) {
+      assert.notEqual(ambiguous, valid);
+      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+      writeFileSync(path, ambiguous, 'utf8');
+      assert.throws(() => new DurableOutbox(path).recover(), /no canónico/);
+    }
+  });
+});
+
+test('AC03 durable outbox rejects noncanonical NDJSON but replays genuine append-only records', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    const ack = outbox.enqueueAck(ackRequest());
+    const valid = readFileSync(path, 'utf8');
+    for (const ambiguous of [
+      valid.replace('"op":"enqueue"', '"op": "enqueue"'),
+      valid.replace('"op":"enqueue"', '"\\u006fp":"enqueue"'),
+    ]) {
+      assert.notEqual(ambiguous, valid);
+      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+      writeFileSync(path, ambiguous, 'utf8');
+      assert.throws(() => new DurableOutbox(path).recover(), /no canónico/);
+    }
+    writeFileSync(path, valid, 'utf8');
+    assert.equal(new DurableOutbox(path).recover().pending[0]?.delivery_id, ack.delivery_id);
+    outbox.markDelivered(ack.delivery_id);
+    assert.equal(new DurableOutbox(path).recover().delivered[0]?.delivery_id, ack.delivery_id);
+  });
+});
+
 test('durable outbox fails closed on corrupt or conflicting delivery state', () => {
   withOutbox((path) => {
     const outbox = new DurableOutbox(path);
