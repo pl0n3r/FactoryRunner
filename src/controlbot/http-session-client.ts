@@ -105,15 +105,34 @@ const SAFETY = Object.freeze({
   external_mutation: false as const,
 });
 
-function jsonBytes(value: unknown, label: string): number {
+function snapshotResponseBody(input: JsonRecord, maxResponseBytes: number): JsonRecord {
+  // Serialize once: the bounded bytes, detached body and fingerprint must
+  // refer to the same observation, even if the injected transport holds aliases.
   let serialized: string | undefined;
   try {
-    serialized = JSON.stringify(value);
+    serialized = JSON.stringify(input);
   } catch {
-    throw new TypeError(`${label} no es JSON-safe.`);
+    throw new TypeError('body no es JSON-safe.');
   }
-  if (serialized === undefined) throw new TypeError(`${label} no es JSON-safe.`);
-  return new TextEncoder().encode(serialized).byteLength;
+  if (typeof serialized !== 'string') throw new TypeError('body no es JSON-safe.');
+  if (new TextEncoder().encode(serialized).byteLength > maxResponseBytes) {
+    throw new TypeError('HttpSessionTransportResponse excede el límite de bytes.');
+  }
+  // JSON.parse creates a detached tree of ordinary JSON objects and arrays.
+  // An explicit stack avoids recursive overflow on deeply nested input.
+  const snapshot: unknown = JSON.parse(serialized);
+  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new TypeError('HttpSessionTransportResponse body inválido.');
+  }
+  const pending: object[] = [snapshot];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const child of Object.values(current)) {
+      if (child !== null && typeof child === 'object') pending.push(child);
+    }
+    Object.freeze(current);
+  }
+  return snapshot as JsonRecord;
 }
 
 function assertAllowedOptions(options: HttpSessionClientOptions): void {
@@ -155,14 +174,12 @@ function boundedResponse(
   }
   const status = integer(record.status, 'status', 200, 299);
   const body = asRecord(record.body, 'body');
-  if (jsonBytes(body, 'body') > maxResponseBytes) {
-    throw new TypeError('HttpSessionTransportResponse excede el límite de bytes.');
-  }
+  const snapshot = snapshotResponseBody(body, maxResponseBytes);
   return Object.freeze({
     version: 1,
     request_fingerprint: record.request_fingerprint,
     status,
-    body: Object.freeze({ ...body }),
+    body: snapshot,
   });
 }
 
