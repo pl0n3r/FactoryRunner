@@ -447,3 +447,107 @@ test('AC01 bounded journal growth after fstat is capped without replay', () => {
     assert.equal(statSync(path).size, limit + 1);
   });
 });
+
+
+// FactoryRunner #521: short POSIX writes must not be mistaken for durable records.
+function withMockedJournalIo(
+  writeOverride: typeof fs.writeSync,
+  fsyncOverride: typeof fs.fsyncSync,
+  verify: () => void,
+): void {
+  const nativeWrite = fs.writeSync;
+  const nativeFsync = fs.fsyncSync;
+  try {
+    fs.writeSync = writeOverride;
+    fs.fsyncSync = fsyncOverride;
+    syncBuiltinESMExports();
+    verify();
+  } finally {
+    fs.writeSync = nativeWrite;
+    fs.fsyncSync = nativeFsync;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 journal short writes retry to full record before durable fsync', () => {
+  withJournal((path) => {
+    const nativeWrite = fs.writeSync;
+    const nativeFsync = fs.fsyncSync;
+    let writeCalls = 0;
+    let fsyncCalls = 0;
+    withMockedJournalIo(
+      ((fd: number, buffer: Buffer, offset: number, length: number, position: number | null) => {
+        writeCalls += 1;
+        return nativeWrite(fd, buffer, offset, Math.min(length, 1 + (writeCalls % 7)), position);
+      }) as typeof fs.writeSync,
+      ((fd: number) => {
+        fsyncCalls += 1;
+        const persisted = readFileSync(path);
+        assert.equal(persisted.at(-1), 0x0a, 'fsync must never precede the final newline');
+        assert.equal(
+          persisted.toString('utf8').split('\n').filter(Boolean).length,
+          fsyncCalls,
+          'each fsync must follow exactly one complete record',
+        );
+        return nativeFsync(fd);
+      }) as typeof fs.fsyncSync,
+      () => {
+        const journal = new DurableJournal(path);
+        journal.appendOrder(order());
+        journal.appendEvent(event());
+        assert.ok(writeCalls > 2, 'partial append must take multiple writes');
+        assert.equal(fsyncCalls, 2);
+        const restarted = new DurableJournal(path).recover();
+        assert.equal(restarted.orders.length, 1);
+        assert.equal(restarted.events.length, 1);
+        const beforeDuplicate = readFileSync(path);
+        journal.appendOrder(order());
+        journal.appendEvent(event());
+        assert.deepEqual(readFileSync(path), beforeDuplicate);
+        assert.equal(fsyncCalls, 2, 'replays must remain idempotent');
+      },
+    );
+  });
+});
+
+test('AC02 journal invalid write counts fail closed without syncing', () => {
+  for (const returned of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1_000_000]) {
+    withJournal((path) => {
+      let fsyncCalls = 0;
+      withMockedJournalIo(
+        (() => returned) as typeof fs.writeSync,
+        (() => { fsyncCalls += 1; }) as typeof fs.fsyncSync,
+        () => {
+          assert.throws(() => new DurableJournal(path).appendOrder(order()), (error: unknown) =>
+            error instanceof DurableJournalError && error.code === 'journal_io');
+          assert.equal(fsyncCalls, 0, 'invalid progress must never be committed');
+        },
+      );
+      assert.deepEqual(new DurableJournal(path).recover(), { orders: [], events: [] });
+    });
+  }
+});
+
+test('AC02 journal interrupted short write never reports success or replays', () => {
+  withJournal((path) => {
+    const nativeWrite = fs.writeSync;
+    let writes = 0;
+    let fsyncCalls = 0;
+    withMockedJournalIo(
+      ((fd: number, buffer: Buffer, offset: number, length: number, position: number | null) => {
+        writes += 1;
+        return writes === 1 ? nativeWrite(fd, buffer, offset, Math.min(4, length), position) : 0;
+      }) as typeof fs.writeSync,
+      (() => { fsyncCalls += 1; }) as typeof fs.fsyncSync,
+      () => {
+        assert.throws(() => new DurableJournal(path).appendOrder(order()), (error: unknown) =>
+          error instanceof DurableJournalError && error.code === 'journal_io');
+        assert.equal(writes, 2);
+        assert.equal(fsyncCalls, 0);
+      },
+    );
+    assert.equal(readFileSync(path).length, 4);
+    assert.throws(() => new DurableJournal(path).recover(), (error: unknown) =>
+      error instanceof DurableJournalError && error.code === 'journal_invalid');
+  });
+});
