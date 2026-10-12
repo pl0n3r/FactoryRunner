@@ -32,3 +32,29 @@ test('AC03 ordinary JSON hashes remain backward-compatible', () => {
   assert.equal(stableSha256({ fields: [3, 2, 1], active: true }), stableSha256({ active: true, fields: [3, 2, 1] }));
   assert.notEqual(stableSha256([1, 2]), stableSha256([2, 1]));
 });
+
+test('AC04 distinct Unicode keys with equal collation produce insertion-independent hashes', () => {
+  const composed = '\u00e9';
+  const decomposed = 'e\u0301';
+  assert.notEqual(composed, decomposed);
+  assert.equal(composed.localeCompare(decomposed, 'en'), 0);
+  const forward = { [composed]: 1, [decomposed]: 2 };
+  const reversed = { [decomposed]: 2, [composed]: 1 };
+  assert.equal(stableSha256(forward), stableSha256(reversed));
+  assert.notEqual(stableSha256(forward), stableSha256({ [composed]: 1 }));
+});
+
+test('AC05 nested Unicode collation ties remain insertion-independent', () => {
+  const composed = '\u00e9';
+  const decomposed = 'e\u0301';
+  const forward = {
+    outer: { [composed]: { active: true }, [decomposed]: [2, 1] },
+    other: 'ok',
+  };
+  const reversed = {
+    other: 'ok',
+    outer: { [decomposed]: [2, 1], [composed]: { active: true } },
+  };
+  assert.equal(stableSha256(forward), stableSha256(reversed));
+  assert.notEqual(stableSha256(forward), stableSha256({ outer: { [composed]: { active: true } }, other: 'ok' }));
+});
