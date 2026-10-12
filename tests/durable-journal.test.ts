@@ -70,6 +70,70 @@ test('durable journal recovers valid orders and events after restart', () => {
     assert.equal(readFileSync(path, 'utf8'), beforeDuplicate);
   });
 });
+
+test('AC01 durable journal denies duplicate top-level kind and version keys', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const valid = readFileSync(path, 'utf8');
+    const variants = [
+      valid.replace('"kind":"order"', '"kind":"event","kind":"order"'),
+      valid.replace('"version":1', '"version":2,"version":1'),
+    ];
+    for (const ambiguous of variants) {
+      assert.notEqual(ambiguous, valid);
+      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+      writeFileSync(path, ambiguous, 'utf8');
+      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
+      assert.throws(() => new DurableJournal(path).appendOrder(order()), /no canónico/);
+      assert.equal(readFileSync(path, 'utf8'), ambiguous);
+    }
+  });
+});
+
+test('AC02 durable journal denies duplicate nested payload keys without replay', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const valid = readFileSync(path, 'utf8');
+    const variants = [
+      valid.replace('"payload":', '"payload":{"version":1},"payload":'),
+      valid.replace('"order_id":"', '"order_id":"invalid","order_id":"'),
+    ];
+    for (const ambiguous of variants) {
+      assert.notEqual(ambiguous, valid);
+      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+      writeFileSync(path, ambiguous, 'utf8');
+      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
+      assert.equal(readFileSync(path, 'utf8'), ambiguous);
+    }
+  });
+});
+
+test('AC03 durable journal rejects noncanonical NDJSON but recovers writer records', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const valid = readFileSync(path, 'utf8');
+    const variants = [
+      valid.replace('"kind":"order"', '"kind": "order"'),
+      valid.replace('"kind":"order"', String.raw`"\\u006bind":"order"`),
+    ];
+    for (const ambiguous of variants) {
+      assert.notEqual(ambiguous, valid);
+      assert.deepEqual(JSON.parse(ambiguous), JSON.parse(valid));
+      writeFileSync(path, ambiguous, 'utf8');
+      assert.throws(() => new DurableJournal(path).recover(), /no canónico/);
+    }
+    writeFileSync(path, valid, 'utf8');
+    journal.appendEvent(event());
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    assert.equal(recovered.events[0]?.event_id, event().event_id);
+  });
+});
+
 test('durable journal fails closed on corrupt or conflicting records without replay', () => {
   withJournal((path) => {
     const journal = new DurableJournal(path);
