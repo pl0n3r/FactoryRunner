@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, constants, fstatSync, fsyncSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, constants, fstatSync, fsyncSync, openSync, readSync } from 'node:fs';
 import { parseExecutionEvent, type ExecutionEvent } from './event.ts';
 import type { ControlBotAckRequest, ControlBotEventsRequest } from './controlbot/transport.ts';
 import { asRecord, exactKeys, ref, stableSha256, uuid } from './validation.ts';
@@ -164,15 +164,37 @@ function secureOpenFlags(base: number): number {
   }
   return base | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 }
-function regularFile(descriptor: number): void {
-  if (!fstatSync(descriptor).isFile()) invalid('El outbox no es un archivo regular.');
+function regularFile(descriptor: number): number {
+  const stat = fstatSync(descriptor);
+  if (!stat.isFile()) invalid('El outbox no es un archivo regular.');
+  return stat.size;
+}
+
+/**
+ * Reads at most MAX_OUTBOX_BYTES + 1 bytes from an already verified descriptor.
+ * The extra byte detects concurrent growth; a huge file is rejected by fstat
+ * before allocating a buffer. No pathname is reopened.
+ */
+function boundedOutboxText(descriptor: number): string {
+  if (regularFile(descriptor) > MAX_OUTBOX_BYTES) invalid('Outbox excede el límite permitido.');
+
+  const chunks: Buffer[] = [];
+  let total = 0;
+  while (total <= MAX_OUTBOX_BYTES) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_OUTBOX_BYTES + 1 - total));
+    const read = readSync(descriptor, chunk, 0, chunk.length, null);
+    if (read === 0) return Buffer.concat(chunks, total).toString('utf8');
+    total += read;
+    if (total > MAX_OUTBOX_BYTES) invalid('Outbox excede el límite permitido.');
+    chunks.push(chunk.subarray(0, read));
+  }
+  return invalid('Outbox excede el límite permitido.');
 }
 function loadOutbox(path: string): OutboxRecord[] {
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, secureOpenFlags(constants.O_RDONLY));
-    regularFile(descriptor);
-    return decodeOutbox(readFileSync(descriptor, 'utf8'));
+    return decodeOutbox(boundedOutboxText(descriptor));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableOutboxError) throw error;
