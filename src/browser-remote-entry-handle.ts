@@ -35,17 +35,27 @@ function canonicalProfile(value: unknown): BrowserRemoteProfile {
   const record = asRecord(value, 'BrowserRemoteProfile');
   exactKeys(record, PROFILE_KEYS, 'BrowserRemoteProfile');
 
+  // Validate the complete nested profile by own data descriptors before
+  // accessing a single caller-owned value, including authority/fingerprint.
+  const values = Object.fromEntries(PROFILE_KEYS.map((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(`BrowserRemoteProfile.${key} requiere un campo de datos.`);
+    }
+    return [key, descriptor.value as unknown] as const;
+  })) as Record<(typeof PROFILE_KEYS)[number], unknown>;
+
   const canonical = browserRemoteProfile({
-    version: record.version,
-    runner_id: record.runner_id,
-    location: record.location,
-    capability: record.capability,
-    remote_alias: record.remote_alias,
+    version: values.version,
+    runner_id: values.runner_id,
+    location: values.location,
+    capability: values.capability,
+    remote_alias: values.remote_alias,
   });
 
   if (
-    record.authority !== canonical.authority
-    || record.fingerprint !== canonical.fingerprint
+    values.authority !== canonical.authority
+    || values.fingerprint !== canonical.fingerprint
   ) {
     throw new TypeError('BrowserRemoteProfile no es canónico.');
   }

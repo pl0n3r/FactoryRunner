@@ -62,17 +62,27 @@ export function browserRemoteProfile(input: unknown): BrowserRemoteProfile {
   const record = asRecord(input, 'BrowserRemoteProfileInput');
   exactKeys(record, PROFILE_KEYS, 'BrowserRemoteProfileInput');
 
-  if (record.version !== 1) {
+  // Presence and enumerability alone do not rule out an accessor. A caller
+  // may supply a getter whose side effects would run during validation.
+  const ownData = (key: (typeof PROFILE_KEYS)[number]): unknown => {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor === undefined || !Object.hasOwn(descriptor, 'value')) {
+      throw new TypeError(`BrowserRemoteProfileInput.${key} requiere un campo de datos.`);
+    }
+    return descriptor.value as unknown;
+  };
+
+  if (ownData('version') !== 1) {
     throw new TypeError('BrowserRemoteProfileInput version inválida.');
   }
 
   const core: BrowserRemoteProfileCore = {
     version: 1,
     authority: 'unchanged',
-    runner_id: uuid(record.runner_id, 'runner_id'),
-    location: slug(record.location, 'location'),
-    capability: browserCapability(record.capability),
-    remote_alias: opaqueAlias(record.remote_alias),
+    runner_id: uuid(ownData('runner_id'), 'runner_id'),
+    location: slug(ownData('location'), 'location'),
+    capability: browserCapability(ownData('capability')),
+    remote_alias: opaqueAlias(ownData('remote_alias')),
   };
 
   return Object.freeze({
