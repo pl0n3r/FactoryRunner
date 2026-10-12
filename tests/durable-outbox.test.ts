@@ -573,3 +573,77 @@ test('AC03 outbox close guard maintains recovery and idempotency', () => {
     assert.equal(new DurableOutbox(path).recover().delivered[0]?.delivery_id, first.delivery_id);
   });
 });
+
+/** Use only synthetic failures. Close the real descriptor before throwing EIO. */
+function withSyntheticPersistAndCloseFailures(
+  operation: 'append' | 'fsync',
+  run: (primary: Error, closed: () => number) => void,
+): void {
+  const originalAppend = fs.appendFileSync;
+  const originalFsync = fs.fsyncSync;
+  const originalClose = fs.closeSync;
+  const primary = Object.assign(
+    new Error(operation === 'append' ? 'synthetic append primary' : 'synthetic fsync primary'),
+    { code: operation === 'append' ? 'ENOSPC' : 'EIO' },
+  );
+  let closeCount = 0;
+  try {
+    if (operation === 'append') {
+      fs.appendFileSync = (() => { throw primary; }) as typeof fs.appendFileSync;
+    } else {
+      fs.fsyncSync = (() => { throw primary; }) as typeof fs.fsyncSync;
+    }
+    fs.closeSync = ((descriptor: number) => {
+      originalClose(descriptor);
+      closeCount += 1;
+      throw Object.assign(new Error('synthetic secondary close'), { code: 'EIO' });
+    }) as typeof fs.closeSync;
+    syncBuiltinESMExports();
+    run(primary, () => closeCount);
+  } finally {
+    fs.appendFileSync = originalAppend;
+    fs.fsyncSync = originalFsync;
+    fs.closeSync = originalClose;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 outbox append ENOSPC plus close EIO preserves primary', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticPersistAndCloseFailures('append', (primary, closed) => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.strictEqual(error.cause, primary);
+        assert.equal((error.cause as { code?: string })?.code, 'ENOSPC');
+        return true;
+      });
+      assert.equal(closed(), 1);
+    });
+    assert.equal(statSync(path).size, 0);
+    assert.deepEqual(outbox.recover().pending, []);
+    assert.deepEqual(outbox.recover().delivered, []);
+  });
+});
+
+test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticPersistAndCloseFailures('fsync', (primary, closed) => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.strictEqual(error.cause, primary);
+        assert.equal((error.cause as Error).message, 'synthetic fsync primary');
+        return true;
+      });
+      assert.equal(closed(), 1);
+    });
+    // An append can have persisted before fsync fails. Never claim rollback.
+    const pending = outbox.recover().pending;
+    assert.equal(pending.length, 1);
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, pending[0]?.delivery_id);
+    assert.equal(outbox.recover().pending.length, 1);
+  });
+});

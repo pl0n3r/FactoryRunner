@@ -33,7 +33,7 @@ export type ExecutionAdmissionDecision = {
   order_fingerprint: string | null;
   manifest_fingerprint: string | null;
   resource_fingerprint: string | null;
-  reasons: string[];
+  reasons: readonly string[];
   fingerprint: string;
 };
 
@@ -125,8 +125,9 @@ function verdict(
   reasonsInput: readonly string[],
   evidence: DecisionEvidence,
 ): ExecutionAdmissionDecision {
-  const reasons = Array.from(new Set(reasonsInput));
-  reasons.sort((left, right) => left.localeCompare(right, 'en'));
+  const reasons = Object.freeze(
+    Array.from(new Set(reasonsInput)).sort((left, right) => left.localeCompare(right, 'en')),
+  );
 
   const core: DecisionCore = {
     version: 1,
