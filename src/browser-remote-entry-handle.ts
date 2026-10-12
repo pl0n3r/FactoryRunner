@@ -59,17 +59,40 @@ export function browserRemoteEntryHandle(
   const record = asRecord(input, 'BrowserRemoteDirectoryEntry');
   exactKeys(record, ['profile', 'transport'], 'BrowserRemoteDirectoryEntry');
 
-  const profile = canonicalProfile(record.profile);
-  const transport = record.transport as BrowserRemoteTransport;
+  // The exported JS boundary must not read caller-owned accessors.
+  const profileDescriptor = Object.getOwnPropertyDescriptor(record, 'profile');
+  const transportDescriptor = Object.getOwnPropertyDescriptor(record, 'transport');
   if (
-    transport === null
-    || typeof transport !== 'object'
-    || typeof transport.execute !== 'function'
+    profileDescriptor === undefined
+    || !Object.hasOwn(profileDescriptor, 'value')
+    || transportDescriptor === undefined
+    || !Object.hasOwn(transportDescriptor, 'value')
   ) {
+    throw new TypeError('BrowserRemoteDirectoryEntry requiere campos de datos.');
+  }
+  const profile = canonicalProfile(profileDescriptor.value);
+  const candidate = transportDescriptor.value;
+  if (candidate === null || typeof candidate !== 'object') {
     throw new TypeError('BrowserRemoteTransport requerido.');
   }
 
-  const execute = transport.execute;
+  const transport = candidate as BrowserRemoteTransport;
+  let cursor: object | null = transport;
+  let execute: BrowserRemoteTransport['execute'] | null = null;
+  while (cursor !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(cursor, 'execute');
+    if (descriptor !== undefined) {
+      if (!Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'function') {
+        throw new TypeError('BrowserRemoteTransport requerido.');
+      }
+      execute = descriptor.value as BrowserRemoteTransport['execute'];
+      break;
+    }
+    cursor = Object.getPrototypeOf(cursor) as object | null;
+  }
+  if (execute === null) {
+    throw new TypeError('BrowserRemoteTransport requerido.');
+  }
   let consumed = false;
   const invoke = (request: BrowserRemoteTransportRequest): Promise<unknown> => {
     if (consumed) {
