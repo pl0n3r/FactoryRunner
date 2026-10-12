@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, constants, fstatSync, fsyncSync, openSync, readFileSync } from 'node:fs';
 import { parseExecutionEvent, type ExecutionEvent } from './event.ts';
 import type { ControlBotAckRequest, ControlBotEventsRequest } from './controlbot/transport.ts';
 import { asRecord, exactKeys, ref, stableSha256, uuid } from './validation.ts';
@@ -157,13 +157,28 @@ function decodeOutbox(raw: string): OutboxRecord[] {
     }
   });
 }
+/** POSIX: never follow the final path component; nonblocking opens also deny FIFO hangs. */
+function secureOpenFlags(base: number): number {
+  if (typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_NONBLOCK !== 'number') {
+    invalid('El entorno no permite abrir el outbox sin seguir enlaces simbólicos.');
+  }
+  return base | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+}
+function regularFile(descriptor: number): void {
+  if (!fstatSync(descriptor).isFile()) invalid('El outbox no es un archivo regular.');
+}
 function loadOutbox(path: string): OutboxRecord[] {
-  if (!existsSync(path)) return [];
+  let descriptor: number | undefined;
   try {
-    return decodeOutbox(readFileSync(path, 'utf8'));
+    descriptor = openSync(path, secureOpenFlags(constants.O_RDONLY));
+    regularFile(descriptor);
+    return decodeOutbox(readFileSync(descriptor, 'utf8'));
   } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableOutboxError) throw error;
     throw new DurableOutboxError('outbox_io', 'No fue posible leer el outbox.', { cause: error });
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
@@ -193,10 +208,16 @@ function persistRecord(path: string, record: OutboxRecord): void {
   if (Buffer.byteLength(serialized, 'utf8') > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
   let descriptor: number | undefined;
   try {
-    descriptor = openSync(path, 'a', 0o600);
+    descriptor = openSync(
+      path,
+      secureOpenFlags(constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT),
+      0o600,
+    );
+    regularFile(descriptor);
     appendFileSync(descriptor, serialized, { encoding: 'utf8' });
     fsyncSync(descriptor);
   } catch (error) {
+    if (error instanceof DurableOutboxError) throw error;
     throw new DurableOutboxError('outbox_io', 'No fue posible persistir el outbox.', { cause: error });
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
