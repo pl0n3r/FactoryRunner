@@ -135,5 +135,29 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
         )
 
 
+    def test_partial_write_retries_and_recovery_is_complete(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC01 journal short writes retry to full record before durable fsync"),
+        )
+
+    def test_zero_progress_write_never_reports_success(self):
+        for pattern in (
+            "AC02 journal invalid write counts fail closed without syncing",
+            "AC02 journal interrupted short write never reports success or replays",
+        ):
+            self.assertIn("pass 1", run_node_test(pattern))
+
+    def test_short_write_guard_preserves_normal_recovery_and_limits(self):
+        for pattern in (
+            "AC03 journal short-write guard retains normal recovery and idempotency",
+            "AC01 journal append rejects crossing size limit without changes",
+            "AC01 journal symlink denies recovery and append without touching target",
+            "AC03 bounded journal preserves ENOENT and nonregular fail closed",
+            "AC01 journal rejects malformed UTF-8 before replay or append",
+        ):
+            self.assertIn("pass 1", run_node_test(pattern))
+
+
 if __name__ == "__main__":
     unittest.main()
