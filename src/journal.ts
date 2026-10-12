@@ -71,6 +71,19 @@ function regularJournalSize(descriptor: number): number {
   return stat.size;
 }
 
+
+/** Close only once; a secondary close failure must not replace a typed primary failure. */
+function closeJournalDescriptor(descriptor: number | undefined, primaryError: DurableJournalError | null): void {
+  if (descriptor === undefined) return;
+  try {
+    closeSync(descriptor);
+  } catch (error) {
+    if (primaryError === null) {
+      throw new DurableJournalError('journal_io', 'No fue posible cerrar el journal.', { cause: error });
+    }
+  }
+}
+
 /** Read at most 16 MiB + 1 byte from the verified descriptor, including after fstat. */
 function boundedJournalBytes(descriptor: number): Buffer {
   if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
@@ -89,16 +102,19 @@ function boundedJournalBytes(descriptor: number): Buffer {
 
 function readRecords(path: string): JournalRecord[] {
   let descriptor: number | undefined;
+  let primaryError: DurableJournalError | null = null;
   let raw: Buffer;
   try {
     descriptor = openSync(path, journalOpenFlags(constants.O_RDONLY));
     raw = boundedJournalBytes(descriptor);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
-    if (error instanceof DurableJournalError) throw error;
-    throw new DurableJournalError('journal_io', 'No fue posible leer el journal.', { cause: error });
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT' && descriptor === undefined) return [];
+    primaryError = error instanceof DurableJournalError
+      ? error
+      : new DurableJournalError('journal_io', 'No fue posible leer el journal.', { cause: error });
+    throw primaryError;
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    closeJournalDescriptor(descriptor, primaryError);
   }
 
   if (raw.length === 0) return [];
@@ -187,6 +203,7 @@ function appendRecord(path: string, record: JournalRecord): void {
   if (encoded.length > MAX_RECORD_BYTES) invalid('Registro de journal excede el límite permitido.');
 
   let descriptor: number | undefined;
+  let primaryError: DurableJournalError | null = null;
   try {
     descriptor = openSync(path, journalOpenFlags(constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT), 0o600);
     // The same descriptor is checked before writing; no oversized journal may be persisted.
@@ -207,10 +224,12 @@ function appendRecord(path: string, record: JournalRecord): void {
     }
     fsyncSync(descriptor);
   } catch (error) {
-    if (error instanceof DurableJournalError) throw error;
-    throw new DurableJournalError('journal_io', 'No fue posible persistir el journal.', { cause: error });
+    primaryError = error instanceof DurableJournalError
+      ? error
+      : new DurableJournalError('journal_io', 'No fue posible persistir el journal.', { cause: error });
+    throw primaryError;
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    closeJournalDescriptor(descriptor, primaryError);
   }
 }
 export class DurableJournal {

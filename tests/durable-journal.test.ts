@@ -551,3 +551,101 @@ test('AC02 journal interrupted short write never reports success or replays', ()
       error instanceof DurableJournalError && error.code === 'journal_invalid');
   });
 });
+
+
+// FactoryRunner #526: closing errors are typed and never override earlier failures.
+function withFailingJournalClose(verify: (closeCalls: () => number) => void): void {
+  const nativeClose = fs.closeSync;
+  let calls = 0;
+  try {
+    fs.closeSync = ((fd: number) => {
+      nativeClose(fd);
+      calls += 1;
+      throw Object.assign(new Error('synthetic close EIO'), { code: 'EIO' });
+    }) as typeof fs.closeSync;
+    syncBuiltinESMExports();
+    verify(() => calls);
+  } finally {
+    fs.closeSync = nativeClose;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 journal close failure is typed for append and read', () => {
+  for (const operation of ['append', 'read'] as const) {
+    withJournal((path) => {
+      const journal = new DurableJournal(path);
+      if (operation === 'read') journal.appendOrder(order());
+      withFailingJournalClose((closeCalls) => {
+        assert.throws(
+          () => operation === 'read' ? journal.recover() : journal.appendOrder(order()),
+          (error: unknown) => {
+            assert.ok(error instanceof DurableJournalError);
+            assert.equal(error.code, 'journal_io');
+            assert.equal((error.cause as NodeJS.ErrnoException)?.code, 'EIO');
+            return true;
+          },
+        );
+        assert.equal(closeCalls(), 1);
+      });
+      assert.equal(journal.recover().orders.length, 1, 'close error does not roll back persisted bytes');
+    });
+  }
+});
+
+test('AC02 journal prior write or invalid read failure survives secondary close EIO', () => {
+  withJournal((path) => {
+    const originalWrite = fs.writeSync;
+    const primary = Object.assign(new Error('synthetic write ENOSPC'), { code: 'ENOSPC' });
+    try {
+      fs.writeSync = (() => { throw primary; }) as typeof fs.writeSync;
+      syncBuiltinESMExports();
+      withFailingJournalClose((closeCalls) => {
+        assert.throws(() => new DurableJournal(path).appendOrder(order()), (error: unknown) => {
+          assert.ok(error instanceof DurableJournalError);
+          assert.equal(error.code, 'journal_io');
+          assert.strictEqual(error.cause, primary);
+          return true;
+        });
+        assert.equal(closeCalls(), 1);
+      });
+    } finally {
+      fs.writeSync = originalWrite;
+      syncBuiltinESMExports();
+    }
+    assert.equal(new DurableJournal(path).recover().orders.length, 0);
+  });
+
+  withJournal((path) => {
+    writeFileSync(path, '');
+    truncateSync(path, 16 * 1024 * 1024 + 1);
+    withFailingJournalClose((closeCalls) => {
+      assert.throws(() => new DurableJournal(path).recover(), (error: unknown) => {
+        assert.ok(error instanceof DurableJournalError);
+        assert.equal(error.code, 'journal_invalid');
+        return true;
+      });
+      assert.equal(closeCalls(), 1);
+    });
+  });
+});
+
+test('AC03 journal close guard retains normal recovery and idempotency', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    const before = readFileSync(path);
+    withFailingJournalClose((closeCalls) => {
+      assert.throws(() => journal.recover(), (error: unknown) =>
+        error instanceof DurableJournalError && error.code === 'journal_io');
+      assert.equal(closeCalls(), 1);
+    });
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    assert.deepEqual(readFileSync(path), before);
+  });
+});
