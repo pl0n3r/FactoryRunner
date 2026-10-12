@@ -105,15 +105,84 @@ const SAFETY = Object.freeze({
   external_mutation: false as const,
 });
 
-function jsonBytes(value: unknown, label: string): number {
+function assertStrictResponseJson(root: JsonRecord, maxResponseBytes: number): void {
+  // JSON.stringify silently drops undefined/functions/symbols and maps
+  // NaN/Infinity to null. Never fingerprint a normalized non-JSON transport.
+  // Inspect property descriptors to avoid calling accessor getters during
+  // validation. Cycles remain denied by the serializer below.
+  const pending: unknown[] = [root];
+  const seen = new WeakSet<object>();
+  let count = 0;
+  while (pending.length > 0) {
+    if (++count > maxResponseBytes) throw new TypeError('body excede el límite JSON.');
+    const value = pending.pop();
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') continue;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value) || Object.is(value, -0)) {
+        throw new TypeError('body contiene un número JSON inválido.');
+      }
+      continue;
+    }
+    if (typeof value !== 'object') throw new TypeError('body no es JSON estricto.');
+    if (seen.has(value)) continue;
+    seen.add(value);
+    const array = Array.isArray(value);
+    const proto = Object.getPrototypeOf(value);
+    if (array ? proto !== Array.prototype : (proto !== Object.prototype && proto !== null)) {
+      throw new TypeError('body contiene un objeto JSON no canónico.');
+    }
+    if ((proto !== null && Object.getOwnPropertyDescriptor(proto, 'toJSON'))
+        || (array && Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON'))) {
+      throw new TypeError('body contiene toJSON heredado.');
+    }
+    const keys = Reflect.ownKeys(value);
+    if (array && keys.length !== value.length + 1) {
+      throw new TypeError('body contiene un array incompleto.');
+    }
+    for (const key of keys) {
+      if (typeof key !== 'string') throw new TypeError('body contiene clave Symbol.');
+      if (array && key === 'length') continue;
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (!desc || !('value' in desc) || !desc.enumerable) {
+        throw new TypeError('body contiene propiedades JSON no canónicas.');
+      }
+      if (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length)) {
+        throw new TypeError('body contiene campos extra de array.');
+      }
+      pending.push(desc.value);
+    }
+  }
+}
+
+function snapshotResponseBody(input: JsonRecord, maxResponseBytes: number): JsonRecord {
+  // Validate the transport as strict JSON before serializing the bounded,
+  // detached tree. The response hash is calculated from this frozen snapshot.
+  assertStrictResponseJson(input, maxResponseBytes);
   let serialized: string | undefined;
   try {
-    serialized = JSON.stringify(value);
+    serialized = JSON.stringify(input);
   } catch {
-    throw new TypeError(`${label} no es JSON-safe.`);
+    throw new TypeError('body no es JSON-safe.');
   }
-  if (serialized === undefined) throw new TypeError(`${label} no es JSON-safe.`);
-  return new TextEncoder().encode(serialized).byteLength;
+  if (typeof serialized !== 'string') throw new TypeError('body no es JSON-safe.');
+  if (new TextEncoder().encode(serialized).byteLength > maxResponseBytes) {
+    throw new TypeError('HttpSessionTransportResponse excede el límite de bytes.');
+  }
+  // JSON.parse creates a detached tree of ordinary JSON objects and arrays.
+  // An explicit stack avoids recursive overflow on deeply nested input.
+  const snapshot: unknown = JSON.parse(serialized);
+  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new TypeError('HttpSessionTransportResponse body inválido.');
+  }
+  const pending: object[] = [snapshot];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const child of Object.values(current)) {
+      if (child !== null && typeof child === 'object') pending.push(child);
+    }
+    Object.freeze(current);
+  }
+  return snapshot as JsonRecord;
 }
 
 function assertAllowedOptions(options: HttpSessionClientOptions): void {
@@ -145,24 +214,32 @@ function boundedResponse(
 ): HttpSessionTransportResponse {
   const record = asRecord(input, 'HttpSessionTransportResponse');
   exactKeys(record, ['version', 'request_fingerprint', 'status', 'body'], 'HttpSessionTransportResponse');
-  if (record.version !== 1) throw new TypeError('HttpSessionTransportResponse version inválida.');
+  // Require fixed own data properties and snapshot them exactly once.
+  // Transport accessors must not change identity after validation.
+  const fields = Object.getOwnPropertyDescriptors(record);
+  for (const field of ['version', 'request_fingerprint', 'status', 'body'] as const) {
+    const descriptor = fields[field];
+    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
+      throw new TypeError('HttpSessionTransportResponse contiene accessor.');
+    }
+  }
+  if (fields.version.value !== 1) throw new TypeError('HttpSessionTransportResponse version inválida.');
+  const observedFingerprint: unknown = fields.request_fingerprint.value;
   if (
-    typeof record.request_fingerprint !== 'string'
-    || !HASH_RE.test(record.request_fingerprint)
-    || record.request_fingerprint !== expectedRequestFingerprint
+    typeof observedFingerprint !== 'string'
+    || !HASH_RE.test(observedFingerprint)
+    || observedFingerprint !== expectedRequestFingerprint
   ) {
     throw new TypeError('HttpSessionTransportResponse request_fingerprint inválido.');
   }
-  const status = integer(record.status, 'status', 200, 299);
-  const body = asRecord(record.body, 'body');
-  if (jsonBytes(body, 'body') > maxResponseBytes) {
-    throw new TypeError('HttpSessionTransportResponse excede el límite de bytes.');
-  }
+  const status = integer(fields.status.value, 'status', 200, 299);
+  const body = asRecord(fields.body.value, 'body');
+  const snapshot = snapshotResponseBody(body, maxResponseBytes);
   return Object.freeze({
     version: 1,
-    request_fingerprint: record.request_fingerprint,
+    request_fingerprint: observedFingerprint,
     status,
-    body: Object.freeze({ ...body }),
+    body: snapshot,
   });
 }
 
