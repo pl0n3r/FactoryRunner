@@ -116,10 +116,11 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
             self.assertIn("pass 1", output)
 
     def test_journal_reader_rejects_oversize_without_unbounded_read(self):
-        self.assertIn(
-            "pass 1",
-            run_node_test("AC01 bounded journal rejects oversized sparse before unbounded read"),
-        )
+        for pattern in (
+            "AC01 bounded journal rejects oversized sparse before unbounded read",
+            "AC01 bounded journal growth after fstat is capped without replay",
+        ):
+            self.assertIn("pass 1", run_node_test(pattern))
 
     def test_bounded_reader_preserves_regular_recovery(self):
         self.assertIn(
