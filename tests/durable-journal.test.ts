@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -220,5 +221,89 @@ test('AC03 journal regular file creation restart and idempotency preserved', () 
     restarted.appendOrder(order());
     restarted.appendEvent(event());
     assert.equal(readFileSync(path, 'utf8'), previous);
+  });
+});
+
+
+const JOURNAL_LIMIT_BYTES = 16 * 1024 * 1024;
+
+function repeatedOrderFixture(path: string, count: number): number {
+  const line = JSON.stringify({ version: 1, kind: 'order', payload: order() }) + '\n';
+  writeFileSync(path, line.repeat(count), 'utf8');
+  return Buffer.byteLength(line, 'utf8');
+}
+
+function journalHash(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+test('AC01 journal append rejects crossing size limit without changes', () => {
+  withJournal((path) => {
+    const orderLineBytes = Buffer.byteLength(
+      JSON.stringify({ version: 1, kind: 'order', payload: order() }) + '\n',
+    );
+    const eventBytes = Buffer.byteLength(
+      JSON.stringify({ version: 1, kind: 'event', payload: event() }) + '\n',
+    );
+    const lineBytes = repeatedOrderFixture(path, Math.floor(JOURNAL_LIMIT_BYTES / orderLineBytes));
+    assert.equal(lineBytes, orderLineBytes);
+    const beforeSize = statSync(path).size;
+    const beforeHash = journalHash(path);
+    assert.ok(beforeSize <= JOURNAL_LIMIT_BYTES);
+    assert.ok(JOURNAL_LIMIT_BYTES - beforeSize < eventBytes);
+
+    const journal = new DurableJournal(path);
+    assert.throws(() => journal.appendEvent(event()), (error: unknown) => {
+      assert.ok(error instanceof DurableJournalError);
+      assert.equal(error.code, 'journal_invalid');
+      assert.match(error.message, /límite permitido/);
+      return true;
+    });
+    assert.equal(statSync(path).size, beforeSize);
+    assert.equal(journalHash(path), beforeHash);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 0);
+  });
+});
+
+test('AC02 journal append fits remaining size and recovers', () => {
+  withJournal((path) => {
+    const lineBytes = Buffer.byteLength(
+      JSON.stringify({ version: 1, kind: 'order', payload: order() }) + '\n',
+    );
+    const eventBytes = Buffer.byteLength(
+      JSON.stringify({ version: 1, kind: 'event', payload: event() }) + '\n',
+    );
+    repeatedOrderFixture(path, Math.floor((JOURNAL_LIMIT_BYTES - eventBytes) / lineBytes));
+    const beforeSize = statSync(path).size;
+    assert.ok(beforeSize + eventBytes <= JOURNAL_LIMIT_BYTES);
+    const journal = new DurableJournal(path);
+    journal.appendEvent(event());
+    assert.equal(statSync(path).size, beforeSize + eventBytes);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    assert.equal(recovered.events[0]?.event_id, event().event_id);
+    const afterHash = journalHash(path);
+    journal.appendEvent(event());
+    assert.equal(journalHash(path), afterHash);
+  });
+});
+
+test('AC03 oversized existing journal is never appended', () => {
+  withJournal((path) => {
+    const lineBytes = Buffer.byteLength(
+      JSON.stringify({ version: 1, kind: 'order', payload: order() }) + '\n',
+    );
+    repeatedOrderFixture(path, Math.floor(JOURNAL_LIMIT_BYTES / lineBytes) + 1);
+    const beforeSize = statSync(path).size;
+    const beforeHash = journalHash(path);
+    assert.ok(beforeSize > JOURNAL_LIMIT_BYTES);
+    const journal = new DurableJournal(path);
+    assert.throws(() => journal.recover(), /límite permitido/);
+    assert.throws(() => journal.appendEvent(event()), /límite permitido/);
+    assert.equal(statSync(path).size, beforeSize);
+    assert.equal(journalHash(path), beforeHash);
   });
 });

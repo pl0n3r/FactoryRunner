@@ -168,7 +168,11 @@ function appendRecord(path: string, record: JournalRecord): void {
   let descriptor: number | undefined;
   try {
     descriptor = openSync(path, journalOpenFlags(constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT), 0o600);
-    regularJournalSize(descriptor);
+    // The same descriptor is checked before writing; no oversized journal may be persisted.
+    // This assumes one writer; interprocess serialization is outside this contract.
+    if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES - encoded.length) {
+      invalid('Journal excede el límite permitido.');
+    }
     writeSync(descriptor, encoded, 0, encoded.length, null);
     fsyncSync(descriptor);
   } catch (error) {

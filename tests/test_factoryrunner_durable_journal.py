@@ -87,5 +87,24 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
             run_node_test("AC03 journal regular file creation restart and idempotency preserved"),
         )
 
+
+    def test_journal_append_rejects_crossing_size_limit_without_changes(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC01 journal append rejects crossing size limit without changes"),
+        )
+
+    def test_journal_append_fits_remaining_size_and_recovers(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC02 journal append fits remaining size and recovers"),
+        )
+
+    def test_oversized_existing_journal_is_never_appended(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC03 oversized existing journal is never appended"),
+        )
+
 if __name__ == "__main__":
     unittest.main()
