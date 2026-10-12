@@ -97,12 +97,33 @@ const getterClient = new ControlBotHttpSessionClient({
 });
 let accessorRejected = false;
 try { await getterClient.poll(poll); } catch { accessorRejected = true; }
+// Hostile transport fixtures: Proxy descriptors can differ from [[Get]].
+let proxyGetterCalls = 0;
+const mismatch = new Proxy({ count: 7 }, {
+  get(target, key, receiver) {
+    if (key === 'count') { proxyGetterCalls++; return Number.NaN; }
+    return Reflect.get(target, key, receiver);
+  },
+});
+const nestedProxyRejected = await rejects({ nested: mismatch });
+const rootBodyProxyRejected = await rejects(new Proxy({ ok: true }, {}));
+const arrayProxyRejected = await rejects({ items: [new Proxy({ id: 1 }, {})] });
+const rootResponseClient = new ControlBotHttpSessionClient({
+  enabled: true, test_mode: true, timeout_ms: 100, max_response_bytes: 512,
+  test_transport: async request => new Proxy({
+    version: 1, request_fingerprint: request.request_fingerprint,
+    status: 200, body: { ok: true },
+  }, {}),
+});
+let rootResponseProxyRejected = false;
+try { await rootResponseClient.poll(poll); } catch { rootResponseProxyRejected = true; }
 const signal = new AbortController(); signal.abort();
 let abortCode = null;
 try { await client.poll(poll, { signal: signal.signal }); }
 catch (error) { abortCode = error?.code ?? null; }
 console.log(JSON.stringify({
-  frozen, nestedDenied, arrayDenied, isolated, negatives, accessorRejected, getterReads: accessed, abortCode,
+  frozen, nestedDenied, arrayDenied, isolated, negatives, accessorRejected, getterReads: accessed,
+  nestedProxyRejected, rootBodyProxyRejected, arrayProxyRejected, rootResponseProxyRejected, proxyGetterCalls, abortCode,
   version: result.version, transport_mode: result.transport_mode,
   authority: result.authority, execution: result.execution,
   network_access: result.network_access, external_mutation: result.external_mutation,
@@ -127,6 +148,18 @@ class FactoryRunnerHttpResponseSnapshotTests(unittest.TestCase):
         self.assertTrue(self.report["frozen"])
         self.assertTrue(self.report["nestedDenied"])
         self.assertTrue(self.report["arrayDenied"])
+
+    def test_proxy_transport_is_rejected_before_get(self):
+        for key in (
+            "nestedProxyRejected",
+            "rootBodyProxyRejected",
+            "arrayProxyRejected",
+            "rootResponseProxyRejected",
+        ):
+            with self.subTest(proxy_case=key):
+                self.assertTrue(self.report[key])
+        # No attacker-controlled get trap may be invoked while validating.
+        self.assertEqual(self.report["proxyGetterCalls"], 0)
 
     def test_transport_source_mutation_isolated(self):
         self.assertTrue(self.report["isolated"])
