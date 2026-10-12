@@ -30,7 +30,12 @@ export function exactKeys(record: JsonRecord, expected: readonly string[], label
   }
   const actual = (ownKeys as string[]).sort((a, b) => a.localeCompare(b, 'en'));
   const wanted = [...expected].sort((a, b) => a.localeCompare(b, 'en'));
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+  // A required hidden own property cannot travel through ordinary JSON. Check
+  // descriptors without evaluating values or invoking accessors.
+  const hiddenRequired = wanted.some((key) =>
+    Object.getOwnPropertyDescriptor(record, key)?.enumerable !== true
+  );
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index]) || hiddenRequired) {
     throw new TypeError(`${label} contiene campos inválidos.`);
   }
 }
