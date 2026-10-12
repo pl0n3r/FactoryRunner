@@ -15,6 +15,7 @@ class FactoryRunnerAdmissionTests(unittest.TestCase):
         script = r"""
         import { capabilityManifest } from './src/capability-manifest.ts';
         import { executionAdmissionDecision } from './src/execution-admission.ts';
+        import { stableSha256 } from './src/validation.ts';
         import { resourceSnapshot } from './src/resource-snapshot.ts';
         import { parseRunnerIdentity } from './src/runner.ts';
 
@@ -143,6 +144,34 @@ class FactoryRunnerAdmissionTests(unittest.TestCase):
           NOW,
         );
 
+        function reasonsAreImmutable(decision) {
+          const original = JSON.stringify(decision);
+          const reasons = decision.reasons;
+          if (!Object.isFrozen(decision) || !Object.isFrozen(reasons)) return false;
+          for (const mutate of [
+            () => reasons.push('forged_reason'),
+            () => reasons.splice(0, 1),
+            () => { reasons[0] = 'forged_reason'; },
+          ]) {
+            let rejected = false;
+            try {
+              mutate();
+            } catch (error) {
+              rejected = error instanceof TypeError;
+            }
+            if (!rejected) return false;
+          }
+          const { fingerprint, ...core } = decision;
+          return JSON.stringify(decision) === original
+            && stableSha256(core) === fingerprint;
+        }
+
+        const immutableReasons = {
+          ALLOW: reasonsAreImmutable(allow),
+          WAIT_CAPACITY: reasonsAreImmutable(wait),
+          BLOCKED: reasonsAreImmutable(stale),
+        };
+
         console.log(JSON.stringify({
           allow,
           wait,
@@ -153,6 +182,7 @@ class FactoryRunnerAdmissionTests(unittest.TestCase):
           capacityDrift,
           expired,
           draining,
+          immutableReasons,
         }));
         """
         output = subprocess.check_output(
@@ -169,6 +199,12 @@ class FactoryRunnerAdmissionTests(unittest.TestCase):
             timeout=20,
         )
         cls.observed = json.loads(output)
+
+    def test_decision_reasons_are_immutable_and_fingerprint_stable(self):
+        self.assertEqual(
+            self.observed["immutableReasons"],
+            {"ALLOW": True, "WAIT_CAPACITY": True, "BLOCKED": True},
+        )
 
     def test_admission_allows_only_matching_executable_order_manifest_and_fresh_capacity(self):
         allow = self.observed["allow"]
