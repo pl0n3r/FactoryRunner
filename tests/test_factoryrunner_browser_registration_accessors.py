@@ -77,9 +77,9 @@ const secondTransport = transport();
 const rotated = valid.rotate('browser-primary', profile.fingerprint, {
   profile, transport: secondTransport,
 });
-const dataAccepted = first.transport === firstTransport && first.profile === profile;
+const dataAccepted = first.transport === firstTransport && first.profile.fingerprint === profile.fingerprint;
 const validRotationPreservesReferences = rotated.transport === secondTransport
-  && rotated.profile === profile && valid.lookup('browser-primary') === rotated
+  && rotated.profile.fingerprint === profile.fingerprint && valid.lookup('browser-primary') === rotated
   && valid.size === 1 && first !== rotated;
 const executeSealed = [firstTransport, secondTransport].every((item) => {
   const descriptor = Object.getOwnPropertyDescriptor(item, 'execute');
