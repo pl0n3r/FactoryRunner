@@ -204,11 +204,131 @@ console.log(JSON.stringify({
     )
     return json.loads(raw.strip().splitlines()[-1])
 
+def observe_owned_envelope() -> dict[str, object]:
+    script = r"""
+import { BrowserRemotePinRegistry } from './src/browser-remote-pin-registry.ts';
+
+const REQUEST = 'a'.repeat(64);
+const BINDING = 'b'.repeat(64);
+class MethodHandle { invoke() {} execute() {} }
+const handle = new MethodHandle();
+const entries = () => [];
+const validInput = () => ({
+  binding_fingerprint: BINDING,
+  handle,
+  directory_entries: entries,
+});
+const keys = ['binding_fingerprint', 'handle', 'directory_entries'];
+let getterCalls = 0;
+function attemptInherited(key) {
+  const registry = new BrowserRemotePinRegistry();
+  const input = validInput();
+  const inheritedValue = input[key];
+  delete input[key];
+  const parent = {};
+  Object.defineProperty(parent, key, {
+    enumerable: true,
+    value: inheritedValue,
+    writable: true,
+    configurable: true,
+  });
+  Object.setPrototypeOf(input, parent);
+  let rejected = false;
+  try { registry.pin(REQUEST, input); } catch (error) {
+    rejected = error instanceof TypeError;
+  }
+  return {
+    key,
+    rejected,
+    noOwn: !Object.prototype.hasOwnProperty.call(input, key),
+    unchanged: registry.size === 0 && registry.peek(REQUEST) === null,
+  };
+}
+const singleInherited = keys.map(attemptInherited);
+const prototypeOnlyRegistry = new BrowserRemotePinRegistry();
+const inherited = validInput();
+const prototypeOnlyInput = Object.create(inherited);
+let prototypeOnlyRejected = false;
+try { prototypeOnlyRegistry.pin(REQUEST, prototypeOnlyInput); } catch (error) {
+  prototypeOnlyRejected = error instanceof TypeError;
+}
+const prototypeOnlyNoOwn = keys.every(key =>
+  !Object.prototype.hasOwnProperty.call(prototypeOnlyInput, key));
+const prototypeOnlyUnchanged = prototypeOnlyRegistry.size === 0
+  && prototypeOnlyRegistry.peek(REQUEST) === null;
+
+const accepted = new BrowserRemotePinRegistry();
+const ownInput = validInput();
+const pinned = accepted.pin(REQUEST, ownInput);
+const sizeAfterPin = accepted.size;
+const idem = accepted.pin(REQUEST, ownInput) === pinned;
+const peek = accepted.peek(REQUEST) === pinned;
+const identity = pinned.handle === handle
+  && pinned.directory_entries === entries
+  && pinned.binding_fingerprint === BINDING;
+const methodsInherited = !Object.prototype.hasOwnProperty.call(handle, 'invoke')
+  && !Object.prototype.hasOwnProperty.call(handle, 'execute');
+const firstTake = accepted.take(REQUEST) === pinned;
+const secondTake = accepted.take(REQUEST) === null;
+accepted.drop(REQUEST);
+accepted.drop(REQUEST);
+console.log(JSON.stringify({
+  singleInherited,
+  prototypeOnlyRejected,
+  prototypeOnlyNoOwn,
+  prototypeOnlyUnchanged,
+  getterCalls,
+  valid: {
+    methodsInherited, identity, idem, peek,
+    firstTake, secondTake, sizeAfterPin,
+    emptyAfterDrop: accepted.size === 0,
+  },
+}));
+"""
+    raw = subprocess.check_output(
+        ("node", "--experimental-strip-types", "--input-type=module", "-e", script),
+        cwd=ROOT,
+        text=True,
+        stderr=subprocess.STDOUT,
+        timeout=20,
+    )
+    return json.loads(raw.strip().splitlines()[-1])
+
+
 class FactoryRunnerBrowserRemotePinRegistryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.observed = observe()
         cls.accessor_observed = observe_accessor_cases()
+        cls.owned_observed = observe_owned_envelope()
+
+    def test_pin_rejects_inherited_required_input_fields(self):
+        cases = self.owned_observed["singleInherited"]
+        self.assertEqual(len(cases), 3)
+        for case in cases:
+            with self.subTest(key=case["key"]):
+                self.assertTrue(case["rejected"])
+                self.assertTrue(case["noOwn"])
+                self.assertTrue(case["unchanged"])
+        self.assertEqual(self.owned_observed["getterCalls"], 0)
+
+    def test_pin_rejects_prototype_only_input(self):
+        self.assertTrue(self.owned_observed["prototypeOnlyRejected"])
+        self.assertTrue(self.owned_observed["prototypeOnlyNoOwn"])
+        self.assertTrue(self.owned_observed["prototypeOnlyUnchanged"])
+        self.assertEqual(self.owned_observed["getterCalls"], 0)
+
+    def test_pin_own_data_preserves_inherited_handle_methods(self):
+        self.assertEqual(self.owned_observed["valid"], {
+            "methodsInherited": True,
+            "identity": True,
+            "idem": True,
+            "peek": True,
+            "firstTake": True,
+            "secondTake": True,
+            "sizeAfterPin": 1,
+            "emptyAfterDrop": True,
+        })
 
     def test_registry_take_is_atomic_and_second_take_returns_no_handle(self):
         self.assertEqual(
