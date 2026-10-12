@@ -578,13 +578,14 @@ test('AC03 outbox close guard maintains recovery and idempotency', () => {
 function withSyntheticPersistAndCloseFailures(
   operation: 'append' | 'fsync',
   run: (primary: Error, closed: () => number) => void,
+  fsyncCode: 'EIO' | 'ENOSPC' = 'EIO',
 ): void {
   const originalAppend = fs.appendFileSync;
   const originalFsync = fs.fsyncSync;
   const originalClose = fs.closeSync;
   const primary = Object.assign(
     new Error(operation === 'append' ? 'synthetic append primary' : 'synthetic fsync primary'),
-    { code: operation === 'append' ? 'ENOSPC' : 'EIO' },
+    { code: operation === 'append' ? 'ENOSPC' : fsyncCode },
   );
   let closeCount = 0;
   try {
@@ -645,5 +646,29 @@ test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
     assert.equal(pending.length, 1);
     assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, pending[0]?.delivery_id);
     assert.equal(outbox.recover().pending.length, 1);
+  });
+});
+
+test('AC02 outbox fsync ENOSPC plus close EIO preserves primary', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticPersistAndCloseFailures('fsync', (primary, closed) => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.strictEqual(error.cause, primary);
+        assert.equal((error.cause as { code?: string })?.code, 'ENOSPC');
+        return true;
+      });
+      assert.equal(closed(), 1);
+    }, 'ENOSPC');
+    // A failed fsync is not a rollback: the append may already be present.
+    const recovered = outbox.recover();
+    assert.equal(recovered.pending.length, 1);
+    assert.equal(recovered.delivered.length, 0);
+    const bytes = readFileSync(path);
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, recovered.pending[0]?.delivery_id);
+    assert.deepEqual(readFileSync(path), bytes);
+    assert.equal(new DurableOutbox(path).recover().pending.length, 1);
   });
 });
