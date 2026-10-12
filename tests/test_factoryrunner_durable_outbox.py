@@ -31,6 +31,18 @@ def run_node_test(name: str) -> str:
 
 
 class FactoryRunnerDurableOutboxTests(unittest.TestCase):
+    def test_close_failure_is_typed_io(self):
+        output = run_node_test("AC01 outbox close failure returns typed IO error")
+        self.assertIn("pass 1", output)
+
+    def test_close_error_preserves_primary_failure(self):
+        output = run_node_test("AC02 outbox close failure preserves earlier invalid error")
+        self.assertIn("pass 1", output)
+
+    def test_close_guard_preserves_normal_recovery(self):
+        output = run_node_test("AC03 outbox close guard maintains recovery and idempotency")
+        self.assertIn("pass 1", output)
+
     def test_pending_ack_and_events_survive_restart_with_stable_idempotency(self):
         output = run_node_test(
             "durable outbox keeps pending ack and events across restart with stable idempotency"
