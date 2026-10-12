@@ -165,7 +165,7 @@ function expectProtectedJournalFailure(run: () => unknown): void {
 test('AC01 journal symlink denies recovery and append without touching target', () => {
   withJournal((path) => {
     const target = path + '.target';
-    const canary = 'PRIVATE_JOURNAL_CANARY\\n';
+    const canary = 'PRIVATE_JOURNAL_CANARY\n';
     writeFileSync(target, canary, 'utf8');
     symlinkSync(target, path);
     const journal = new DurableJournal(path);
@@ -213,7 +213,7 @@ test('AC03 journal regular file creation restart and idempotency preserved', () 
     journal.appendOrder(order());
     journal.appendEvent(event());
     const previous = readFileSync(path, 'utf8');
-    assert.equal(previous.split('\\n').filter(Boolean).length, 2);
+    assert.equal(previous.split('\n').filter(Boolean).length, 2);
     const restarted = new DurableJournal(path);
     assert.equal(restarted.recover().orders.length, 1);
     assert.equal(restarted.recover().events.length, 1);
