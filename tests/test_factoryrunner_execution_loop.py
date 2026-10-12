@@ -52,5 +52,23 @@ class FactoryRunnerExecutionLoopTests(unittest.TestCase):
         self.assertIn("pass 1", output)
 
 
+    def test_same_instance_concurrent_order_preserves_inflight_terminal_success(self):
+        output = run_node_test(
+            "AC01 same-instance concurrent order preserves in-flight terminal success"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_inflight_guard_released_on_timeout_and_cancel(self):
+        output = run_node_test("AC02 in-flight guard clears on timeout and cancel")
+        self.assertIn("pass 1", output)
+
+    def test_restart_interrupted_still_fails_closed(self):
+        output = run_node_test(
+            "timeout cancel and restart preserve terminal state without duplicate effect"
+        )
+        self.assertIn("pass 1", output)
+
+
+
 if __name__ == "__main__":
     unittest.main()
