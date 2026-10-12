@@ -65,11 +65,7 @@ function serializedPayload(input: unknown): string {
   }
 }
 
-function responseBody(value: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value !== 'string' || value.length > 65_536) {
-    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
-  }
+function rejectSensitiveResponseText(value: string): void {
   try {
     noSensitiveText(value, 'controlbot_response');
   } catch {
@@ -78,6 +74,36 @@ function responseBody(value: unknown): string | null {
   if (SENSITIVE_RESPONSE_KEY_RE.test(value)) {
     throw new ControlBotHttpsTransportError('controlbot_http_sensitive_output');
   }
+}
+
+function responseBody(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || value.length > 65_536) {
+    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
+  }
+
+  rejectSensitiveResponseText(value);
+  // JSON escapes may hide a sensitive key/value from raw-text scanners.
+  // Canonicalize only for validation; preserve the original response bytes.
+  try {
+    JSON.parse(value);
+  } catch {
+    // Non-JSON replies from ACK/events/heartbeat remain compatible.
+    return value;
+  }
+  // Decode every JSON string literal without rebuilding the parsed object:
+  // JSON.parse has last-key-wins semantics and would erase an earlier,
+  // sensitive value when a property name is duplicated. Token-wise decoding
+  // preserves both occurrences while exposing escaped Unicode for scanning.
+  let decodedTokens: string;
+  try {
+    decodedTokens = value.replace(/"(?:\\.|[^"\\])*"/g, (token) =>
+      JSON.stringify(JSON.parse(token))
+    );
+  } catch {
+    throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
+  }
+  rejectSensitiveResponseText(decodedTokens);
   return value;
 }
 

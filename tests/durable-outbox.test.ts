@@ -505,3 +505,158 @@ test('AC02 outbox append fills exact aggregate limit and survives restart', () =
     assert.deepEqual(readFileSync(path), before);
   });
 });
+
+/** The fake closes the real descriptor first to avoid leaking file handles. */
+function withSyntheticCloseFailure(run: () => void): void {
+  const realClose = fs.closeSync;
+  fs.closeSync = ((descriptor: number) => {
+    realClose(descriptor);
+    throw Object.assign(new Error('synthetic close failure'), { code: 'EIO' });
+  }) as typeof fs.closeSync;
+  syncBuiltinESMExports();
+  try {
+    run();
+  } finally {
+    fs.closeSync = realClose;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 outbox close failure returns typed IO error', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.equal((error.cause as { code?: string })?.code, 'EIO');
+        return true;
+      });
+    });
+    // A reported failure does not imply the preceding append/fsync was rolled back.
+    assert.equal(outbox.recover().pending.length, 1);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => outbox.recover(), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.equal((error.cause as { code?: string })?.code, 'EIO');
+        return true;
+      });
+    });
+  });
+});
+
+test('AC02 outbox close failure preserves earlier invalid error', () => {
+  withOutbox((path) => {
+    writeFileSync(path, '{"not_an_outbox_record":true}\n', 'utf8');
+    const before = readFileSync(path);
+    withSyntheticCloseFailure(() => {
+      assert.throws(() => new DurableOutbox(path).recover(), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_invalid');
+        assert.notEqual((error.cause as { code?: string } | undefined)?.code, 'EIO');
+        return true;
+      });
+    });
+    assert.deepEqual(readFileSync(path), before);
+  });
+});
+
+test('AC03 outbox close guard maintains recovery and idempotency', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    const first = outbox.enqueueAck(ackRequest());
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, first.delivery_id);
+    assert.equal(outbox.recover().pending[0]?.delivery_id, first.delivery_id);
+    outbox.markDelivered(first.delivery_id);
+    assert.deepEqual(new DurableOutbox(path).recover().pending, []);
+    assert.equal(new DurableOutbox(path).recover().delivered[0]?.delivery_id, first.delivery_id);
+  });
+});
+
+/** Use only synthetic failures. Close the real descriptor before throwing EIO. */
+function withSyntheticPersistAndCloseFailures(
+  operation: 'append' | 'fsync',
+  run: (primary: Error, closed: () => number) => void,
+  fsyncCode: 'EIO' | 'ENOSPC' = 'EIO',
+): void {
+  const originalAppend = fs.appendFileSync;
+  const originalFsync = fs.fsyncSync;
+  const originalClose = fs.closeSync;
+  const primary = Object.assign(
+    new Error(operation === 'append' ? 'synthetic append primary' : 'synthetic fsync primary'),
+    { code: operation === 'append' ? 'ENOSPC' : fsyncCode },
+  );
+  let closeCount = 0;
+  try {
+    if (operation === 'append') {
+      fs.appendFileSync = (() => { throw primary; }) as typeof fs.appendFileSync;
+    } else {
+      fs.fsyncSync = (() => { throw primary; }) as typeof fs.fsyncSync;
+    }
+    fs.closeSync = ((descriptor: number) => {
+      originalClose(descriptor);
+      closeCount += 1;
+      throw Object.assign(new Error('synthetic secondary close'), { code: 'EIO' });
+    }) as typeof fs.closeSync;
+    syncBuiltinESMExports();
+    run(primary, () => closeCount);
+  } finally {
+    fs.appendFileSync = originalAppend;
+    fs.fsyncSync = originalFsync;
+    fs.closeSync = originalClose;
+    syncBuiltinESMExports();
+  }
+}
+
+test('AC01 outbox append ENOSPC plus close EIO preserves primary', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticPersistAndCloseFailures('append', (primary, closed) => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.strictEqual(error.cause, primary);
+        assert.equal((error.cause as { code?: string })?.code, 'ENOSPC');
+        return true;
+      });
+      assert.equal(closed(), 1);
+    });
+    assert.equal(statSync(path).size, 0);
+    assert.deepEqual(outbox.recover().pending, []);
+    assert.deepEqual(outbox.recover().delivered, []);
+  });
+});
+
+/** Share one failure assertion across both fsync error codes; no duplicated scenario. */
+function assertFsyncFailurePreservesPrimary(code: 'EIO' | 'ENOSPC'): void {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    withSyntheticPersistAndCloseFailures('fsync', (primary, closed) => {
+      assert.throws(() => outbox.enqueueAck(ackRequest()), (error: unknown) => {
+        assert.ok(error instanceof DurableOutboxError);
+        assert.equal(error.code, 'outbox_io');
+        assert.strictEqual(error.cause, primary);
+        assert.equal((error.cause as { code?: string })?.code, code);
+        return true;
+      });
+      assert.equal(closed(), 1);
+    }, code);
+    // fsync failure does not imply rollback: the append can be durable.
+    const recovered = outbox.recover();
+    assert.equal(recovered.pending.length, 1);
+    assert.equal(recovered.delivered.length, 0);
+    const before = readFileSync(path);
+    assert.equal(outbox.enqueueAck(ackRequest()).delivery_id, recovered.pending[0]?.delivery_id);
+    assert.deepEqual(readFileSync(path), before);
+    assert.equal(new DurableOutbox(path).recover().pending.length, 1);
+  });
+}
+
+test('AC02 outbox fsync EIO plus close EIO preserves primary', () => {
+  assertFsyncFailurePreservesPrimary('EIO');
+});
+
+test('AC02 outbox fsync ENOSPC plus close EIO preserves primary', () => {
+  assertFsyncFailurePreservesPrimary('ENOSPC');
+});

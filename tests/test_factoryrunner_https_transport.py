@@ -121,6 +121,47 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
           status: 200,
           body: 'token=supersecretvalue',
         }));
+        // A Unicode-escaped key or value is invisible to raw string scans,
+        // but must be rejected after JSON decoding before reaching consumers.
+        const jsonEscape = String.fromCharCode(92);
+        const escapedSensitivePayloads = [
+          '{"tok' + jsonEscape + 'u0065n":"SYNTHETIC_VALUE"}',
+          '{"nested":{"pa' + jsonEscape + 'u0073sword":"SYNTHETIC_VALUE"}}',
+          '{"note":"Be' + jsonEscape + 'u0061rer SYNTHETICCANARY123"}',
+          // A duplicate property must not erase a previously sensitive value.
+          '{"note":"Be' + jsonEscape + 'u0061rer SYNTHETICCANARY123","note":"ok"}',
+          '{"tok' + jsonEscape + 'u0065n":"SYNTHETIC_VALUE","tokenless":"ok"}',
+        ];
+        const escapedSensitiveCases = [];
+        for (const body of escapedSensitivePayloads) {
+          escapedSensitiveCases.push(await failureCase(async () => ({
+            status: 200, body,
+          })));
+        }
+        const harmlessJson = await failureCase(async () => ({
+          status: 200,
+          body: JSON.stringify({ version: 1, cursor: null, orders: [] }),
+        }));
+
+        const nonJsonAck = { calls: 0, status: 'accepted' };
+        const ackTransport = new ControlBotHttpsTransport(
+          profile,
+          async () => {
+            nonJsonAck.calls += 1;
+            return { status: 200, body: 'acknowledged' };
+          },
+          async () => { throw new Error('unexpected_retry'); },
+        );
+        try {
+          await ackTransport.ack({
+            version: 1,
+            order_id: '22222222-2222-7222-8222-222222222222',
+            runner_id: '11111111-1111-7111-8111-111111111111',
+            fingerprint: 'a'.repeat(64),
+          });
+        } catch {
+          nonJsonAck.status = 'rejected';
+        }
 
 
         async function sleeperErrorCase(mode) {
@@ -190,6 +231,9 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
           unavailable,
           badRequest,
           sensitive,
+          escapedSensitiveCases,
+          harmlessJson,
+          nonJsonAck,
         }));
         """
         output = subprocess.check_output(
@@ -270,6 +314,23 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
         self.assertNotIn("private provider detail", serialized)
         self.assertNotIn("supersecretvalue", serialized)
 
+
+    def test_unicode_escaped_sensitive_json_fails_closed(self):
+        cases = self.observed["escapedSensitiveCases"]
+        self.assertEqual(len(cases), 5)
+        for case in cases:
+            self.assertEqual(case["error"], "controlbot_http_sensitive_output")
+            self.assertEqual(case["calls"], 1)
+            self.assertEqual(case["delays"], [])
+        # Canary values remain synthetic and are never included in evidence.
+        self.assertNotIn("SYNTHETICCANARY123", json.dumps(self.observed))
+
+    def test_ordinary_and_non_json_transport_responses_remain_compatible(self):
+        harmless = self.observed["harmlessJson"]
+        self.assertIsNone(harmless["error"])
+        self.assertEqual(harmless["calls"], 1)
+        self.assertEqual(harmless["delays"], [])
+        self.assertEqual(self.observed["nonJsonAck"], {"calls": 1, "status": "accepted"})
 
     def test_backoff_sleeper_error_is_sanitized_without_retrying_invalid_state(self):
         self.assertEqual(len(self.observed["sleeperFailures"]), 2)

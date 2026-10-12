@@ -170,6 +170,18 @@ function regularFile(descriptor: number): number {
   return stat.size;
 }
 
+/** A failed close cannot mask an earlier typed persistence/recovery error. */
+function closeOutboxDescriptor(descriptor: number | undefined, priorFailure: boolean): void {
+  if (descriptor === undefined) return;
+  try {
+    closeSync(descriptor);
+  } catch (error) {
+    if (!priorFailure) {
+      throw new DurableOutboxError('outbox_io', 'No fue posible cerrar el outbox.', { cause: error });
+    }
+  }
+}
+
 /**
  * Reads at most MAX_OUTBOX_BYTES + 1 bytes from an already verified descriptor.
  * The extra byte detects concurrent growth; a huge file is rejected by fstat
@@ -201,15 +213,17 @@ function boundedOutboxText(descriptor: number): string {
 }
 function loadOutbox(path: string): OutboxRecord[] {
   let descriptor: number | undefined;
+  let priorFailure = false;
   try {
     descriptor = openSync(path, secureOpenFlags(constants.O_RDONLY));
     return decodeOutbox(boundedOutboxText(descriptor));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
+    priorFailure = true;
+    if (descriptor === undefined && (error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableOutboxError) throw error;
     throw new DurableOutboxError('outbox_io', 'No fue posible leer el outbox.', { cause: error });
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    closeOutboxDescriptor(descriptor, priorFailure);
   }
 }
 function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
@@ -239,6 +253,7 @@ function persistRecord(path: string, record: OutboxRecord): void {
   const serializedBytes = Buffer.byteLength(serialized, 'utf8');
   if (serializedBytes > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
   let descriptor: number | undefined;
+  let priorFailure = false;
   try {
     descriptor = openSync(
       path,
@@ -250,10 +265,11 @@ function persistRecord(path: string, record: OutboxRecord): void {
     appendFileSync(descriptor, serialized, { encoding: 'utf8' });
     fsyncSync(descriptor);
   } catch (error) {
+    priorFailure = true;
     if (error instanceof DurableOutboxError) throw error;
     throw new DurableOutboxError('outbox_io', 'No fue posible persistir el outbox.', { cause: error });
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    closeOutboxDescriptor(descriptor, priorFailure);
   }
 }
 
