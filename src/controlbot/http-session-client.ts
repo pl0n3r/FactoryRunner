@@ -214,20 +214,30 @@ function boundedResponse(
 ): HttpSessionTransportResponse {
   const record = asRecord(input, 'HttpSessionTransportResponse');
   exactKeys(record, ['version', 'request_fingerprint', 'status', 'body'], 'HttpSessionTransportResponse');
-  if (record.version !== 1) throw new TypeError('HttpSessionTransportResponse version inválida.');
+  // Require fixed own data properties and snapshot them exactly once.
+  // Transport accessors must not change identity after validation.
+  const fields = Object.getOwnPropertyDescriptors(record);
+  for (const field of ['version', 'request_fingerprint', 'status', 'body'] as const) {
+    const descriptor = fields[field];
+    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) {
+      throw new TypeError('HttpSessionTransportResponse contiene accessor.');
+    }
+  }
+  if (fields.version.value !== 1) throw new TypeError('HttpSessionTransportResponse version inválida.');
+  const observedFingerprint: unknown = fields.request_fingerprint.value;
   if (
-    typeof record.request_fingerprint !== 'string'
-    || !HASH_RE.test(record.request_fingerprint)
-    || record.request_fingerprint !== expectedRequestFingerprint
+    typeof observedFingerprint !== 'string'
+    || !HASH_RE.test(observedFingerprint)
+    || observedFingerprint !== expectedRequestFingerprint
   ) {
     throw new TypeError('HttpSessionTransportResponse request_fingerprint inválido.');
   }
-  const status = integer(record.status, 'status', 200, 299);
-  const body = asRecord(record.body, 'body');
+  const status = integer(fields.status.value, 'status', 200, 299);
+  const body = asRecord(fields.body.value, 'body');
   const snapshot = snapshotResponseBody(body, maxResponseBytes);
   return Object.freeze({
     version: 1,
-    request_fingerprint: record.request_fingerprint,
+    request_fingerprint: observedFingerprint,
     status,
     body: snapshot,
   });
