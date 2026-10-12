@@ -270,5 +270,53 @@ class FactoryRunnerReadinessSnapshotTests(unittest.TestCase):
         )
 
 
+    def test_ready_and_blocked_reasons_are_immutable_and_fingerprint_stable(self):
+        observed = run_node(
+            FIXTURES
+            + r"""
+            import assert from 'node:assert/strict';
+            import { stableSha256 } from './src/validation.ts';
+
+            const ready = readinessSnapshot(
+              identity, adapters, protocol, heartbeat, queue, telemetry,
+              runtimeState, 1215, 30,
+            );
+            const blocked = readinessSnapshot(
+              identity, adapters, protocol, heartbeat, queue, telemetry,
+              { ...runtimeState, freshness: 'stale' }, 1215, 30,
+            );
+
+            const cases = [ready, blocked].map((snapshot) => {
+              const priorReasons = [...snapshot.reasons];
+              const priorFingerprint = snapshot.fingerprint;
+              assert.ok(Object.isFrozen(snapshot), 'root snapshot must be frozen');
+              assert.ok(Object.isFrozen(snapshot.reasons), 'reason list must be frozen');
+              assert.throws(() => snapshot.reasons.push('tampered'), TypeError);
+              assert.throws(() => snapshot.reasons.splice(0, 1), TypeError);
+              assert.throws(() => { snapshot.reasons[0] = 'tampered'; }, TypeError);
+              assert.deepEqual(snapshot.reasons, priorReasons);
+              assert.equal(snapshot.fingerprint, priorFingerprint);
+              const { fingerprint: ignored, ...core } = snapshot;
+              assert.equal(stableSha256(core), priorFingerprint);
+              return {
+                status: snapshot.status,
+                reasons: snapshot.reasons,
+                fingerprint: snapshot.fingerprint,
+                immutable: Object.isFrozen(snapshot.reasons),
+              };
+            });
+            console.log(JSON.stringify({ cases }));
+            """
+        )
+        rows = observed["cases"]
+        self.assertEqual([row["status"] for row in rows], ["READY", "BLOCKED"])
+        self.assertEqual(rows[0]["reasons"], ["readiness_evidence_coherent"])
+        self.assertIn("runtime_not_fresh", rows[1]["reasons"])
+        for row in rows:
+            self.assertTrue(row["immutable"])
+            self.assertRegex(str(row["fingerprint"]), r"^[0-9a-f]{64}$")
+
+
+
 if __name__ == "__main__":
     unittest.main()
