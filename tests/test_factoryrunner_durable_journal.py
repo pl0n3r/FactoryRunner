@@ -68,5 +68,24 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
         )
 
 
+
+    def test_symlink_journal_denies_recovery_and_append_without_touching_target(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC01 journal symlink denies recovery and append without touching target"),
+        )
+
+    def test_dangling_symlink_and_nonregular_journal_fail_closed(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC02 journal dangling symlink and nonregular file fail closed"),
+        )
+
+    def test_regular_journal_creation_restart_and_idempotency_preserved(self):
+        self.assertIn(
+            "pass 1",
+            run_node_test("AC03 journal regular file creation restart and idempotency preserved"),
+        )
+
 if __name__ == "__main__":
     unittest.main()

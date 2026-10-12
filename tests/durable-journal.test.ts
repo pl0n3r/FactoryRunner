@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { DurableJournal } from '../src/journal.ts';
+import { DurableJournal, DurableJournalError } from '../src/journal.ts';
 
 const runnerId = '11111111-1111-7111-8111-111111111111';
 const orderId = '22222222-2222-7222-8222-222222222222';
@@ -149,5 +150,75 @@ test('durable journal fails closed on corrupt or conflicting records without rep
       /Journal truncado/,
     );
     assert.equal(readFileSync(path, 'utf8'), corrupted);
+  });
+});
+
+function expectProtectedJournalFailure(run: () => unknown): void {
+  assert.throws(run, (error: unknown) => {
+    assert.ok(error instanceof DurableJournalError);
+    assert.ok(error.code === 'journal_io' || error.code === 'journal_invalid');
+    assert.ok(!error.message.includes('PRIVATE_JOURNAL_CANARY'));
+    return true;
+  });
+}
+
+test('AC01 journal symlink denies recovery and append without touching target', () => {
+  withJournal((path) => {
+    const target = path + '.target';
+    const canary = 'PRIVATE_JOURNAL_CANARY\n';
+    writeFileSync(target, canary, 'utf8');
+    symlinkSync(target, path);
+    const journal = new DurableJournal(path);
+    assert.throws(() => journal.recover(), (error: unknown) => {
+      assert.ok(error instanceof DurableJournalError);
+      assert.equal(error.code, 'journal_io');
+      assert.ok(!error.message.includes(canary.trim()));
+      return true;
+    });
+    expectProtectedJournalFailure(() => journal.appendOrder(order()));
+    assert.equal(readFileSync(target, 'utf8'), canary);
+  });
+});
+
+test('AC02 journal dangling symlink and nonregular file fail closed', () => {
+  withJournal((path) => {
+    const missing = path + '.missing';
+    symlinkSync(missing, path);
+    const journal = new DurableJournal(path);
+    expectProtectedJournalFailure(() => journal.recover());
+    expectProtectedJournalFailure(() => journal.appendOrder(order()));
+    assert.equal(existsSync(missing), false);
+  });
+  withJournal((path) => {
+    mkdirSync(path);
+    const journal = new DurableJournal(path);
+    expectProtectedJournalFailure(() => journal.recover());
+    expectProtectedJournalFailure(() => journal.appendOrder(order()));
+  });
+  if (process.platform !== 'win32') {
+    withJournal((path) => {
+      execFileSync('mkfifo', [path]);
+      const journal = new DurableJournal(path);
+      expectProtectedJournalFailure(() => journal.recover());
+      expectProtectedJournalFailure(() => journal.appendOrder(order()));
+    });
+  }
+});
+
+test('AC03 journal regular file creation restart and idempotency preserved', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    assert.equal(existsSync(path), false);
+    assert.deepEqual(journal.recover(), { orders: [], events: [] });
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    const previous = readFileSync(path, 'utf8');
+    assert.equal(previous.split('\n').filter(Boolean).length, 2);
+    const restarted = new DurableJournal(path);
+    assert.equal(restarted.recover().orders.length, 1);
+    assert.equal(restarted.recover().events.length, 1);
+    restarted.appendOrder(order());
+    restarted.appendEvent(event());
+    assert.equal(readFileSync(path, 'utf8'), previous);
   });
 });

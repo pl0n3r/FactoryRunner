@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 import type { ExecutionEvent, ExecutionState } from './event.ts';
 import { assertEventTransition, assertInitialEventMatchesOrder, parseExecutionEvent } from './event.ts';
 import type { ExecutionOrder } from './order.ts';
@@ -57,16 +57,34 @@ function parseRecord(input: unknown, lineNumber: number): JournalRecord {
   return invalid(`Tipo de journal inválido en línea ${lineNumber}.`);
 }
 
-function readRecords(path: string): JournalRecord[] {
-  if (!existsSync(path)) return [];
+/** Deniega symlinks en el componente final y FIFOs potencialmente bloqueantes. */
+function journalOpenFlags(base: number): number {
+  if (typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_NONBLOCK !== 'number') {
+    invalid('El entorno no permite abrir el journal de forma segura.');
+  }
+  return base | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+}
 
+function regularJournalSize(descriptor: number): number {
+  const stat = fstatSync(descriptor);
+  if (!stat.isFile()) invalid('El journal no es un archivo regular.');
+  return stat.size;
+}
+
+function readRecords(path: string): JournalRecord[] {
+  let descriptor: number | undefined;
   let raw: Buffer;
   try {
-    if (statSync(path).size > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
-    raw = readFileSync(path);
+    descriptor = openSync(path, journalOpenFlags(constants.O_RDONLY));
+    if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
+    raw = readFileSync(descriptor);
+    if (raw.length > MAX_JOURNAL_BYTES) invalid('Journal excede el límite permitido.');
   } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableJournalError) throw error;
     throw new DurableJournalError('journal_io', 'No fue posible leer el journal.', { cause: error });
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 
   if (raw.length === 0) return [];
@@ -149,10 +167,12 @@ function appendRecord(path: string, record: JournalRecord): void {
 
   let descriptor: number | undefined;
   try {
-    descriptor = openSync(path, 'a', 0o600);
+    descriptor = openSync(path, journalOpenFlags(constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT), 0o600);
+    regularJournalSize(descriptor);
     writeSync(descriptor, encoded, 0, encoded.length, null);
     fsyncSync(descriptor);
   } catch (error) {
+    if (error instanceof DurableJournalError) throw error;
     throw new DurableJournalError('journal_io', 'No fue posible persistir el journal.', { cause: error });
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
