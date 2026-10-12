@@ -127,10 +127,88 @@ console.log(JSON.stringify({
     return json.loads(raw.strip().splitlines()[-1])
 
 
+def observe_accessor_cases() -> dict[str, object]:
+    script = r"""
+import { BrowserRemotePinRegistry } from './src/browser-remote-pin-registry.ts';
+const REQUEST = 'a'.repeat(64);
+const BINDING = 'b'.repeat(64);
+const validHandle = { invoke() {}, execute() {} };
+const validEntries = () => [];
+const validInput = () => ({
+  binding_fingerprint: BINDING,
+  handle: validHandle,
+  directory_entries: validEntries,
+});
+function attempt(targetKind, key, inherited, preexisting) {
+  const registry = new BrowserRemotePinRegistry();
+  const original = preexisting ? registry.pin(REQUEST, validInput()) : null;
+  const input = validInput();
+  let target = input;
+  if (targetKind === 'handle') {
+    target = { ...validHandle };
+    input.handle = target;
+  }
+  const originalValue = target[key];
+  let getterCalls = 0;
+  if (inherited) {
+    delete target[key];
+    const parent = {};
+    Object.defineProperty(parent, key, {
+      get() { getterCalls += 1; return originalValue; },
+    });
+    Object.setPrototypeOf(target, parent);
+  } else {
+    Object.defineProperty(target, key, {
+      get() { getterCalls += 1; return originalValue; },
+    });
+  }
+  let rejected = false;
+  try { registry.pin(REQUEST, input); } catch (error) {
+    rejected = error instanceof TypeError;
+  }
+  return {
+    key,
+    inherited,
+    rejected,
+    getterCalls,
+    unchanged: registry.size === (preexisting ? 1 : 0)
+      && registry.peek(REQUEST) === original,
+  };
+}
+const inputCases = ['binding_fingerprint', 'handle', 'directory_entries']
+  .flatMap(key => [false, true].map(inherited => attempt('input', key, inherited, false)));
+const handleCases = ['invoke', 'execute']
+  .flatMap(key => [false, true].map(inherited => attempt('handle', key, inherited, true)));
+class MethodHandle { invoke() {} execute() {} }
+const accepted = new BrowserRemotePinRegistry();
+const handle = new MethodHandle();
+const directoryEntries = () => [];
+const candidate = { binding_fingerprint: BINDING, handle, directory_entries: directoryEntries };
+const pinned = accepted.pin(REQUEST, candidate);
+const idempotent = accepted.pin(REQUEST, candidate) === pinned;
+const identity = pinned.handle === handle && pinned.directory_entries === directoryEntries;
+const atomic = accepted.take(REQUEST) === pinned && accepted.take(REQUEST) === null;
+accepted.drop(REQUEST);
+console.log(JSON.stringify({
+  inputCases,
+  handleCases,
+  valid: { idempotent, identity, atomic, empty: accepted.size === 0 },
+}));
+"""
+    raw = subprocess.check_output(
+        ("node", "--experimental-strip-types", "--input-type=module", "-e", script),
+        cwd=ROOT,
+        text=True,
+        stderr=subprocess.STDOUT,
+        timeout=20,
+    )
+    return json.loads(raw.strip().splitlines()[-1])
+
 class FactoryRunnerBrowserRemotePinRegistryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.observed = observe()
+        cls.accessor_observed = observe_accessor_cases()
 
     def test_registry_take_is_atomic_and_second_take_returns_no_handle(self):
         self.assertEqual(
@@ -160,6 +238,32 @@ class FactoryRunnerBrowserRemotePinRegistryTests(unittest.TestCase):
             },
         )
 
+
+    def test_pin_rejects_input_accessors_without_invoking_getters(self):
+        cases = self.accessor_observed["inputCases"]
+        self.assertEqual(len(cases), 6)
+        for case in cases:
+            with self.subTest(key=case["key"], inherited=case["inherited"]):
+                self.assertTrue(case["rejected"])
+                self.assertEqual(case["getterCalls"], 0)
+                self.assertTrue(case["unchanged"])
+
+    def test_pin_rejects_accessor_handle_methods_without_invocation(self):
+        cases = self.accessor_observed["handleCases"]
+        self.assertEqual(len(cases), 4)
+        for case in cases:
+            with self.subTest(key=case["key"], inherited=case["inherited"]):
+                self.assertTrue(case["rejected"])
+                self.assertEqual(case["getterCalls"], 0)
+                self.assertTrue(case["unchanged"])
+
+    def test_data_handle_pin_remains_atomic_and_idempotent(self):
+        self.assertEqual(self.accessor_observed["valid"], {
+            "idempotent": True,
+            "identity": True,
+            "atomic": True,
+            "empty": True,
+        })
 
 if __name__ == "__main__":
     unittest.main()
