@@ -132,6 +132,7 @@ export class ExecutionLoop {
   readonly #identity: RunnerIdentity;
   readonly #now: () => number;
   readonly #eventId: () => string;
+  readonly #inFlight = new Set<string>();
 
   constructor(dependencies: ExecutionLoopDependencies) {
     this.#journal = dependencies.journal;
@@ -214,99 +215,107 @@ export class ExecutionLoop {
     ) => Promise<AdapterOutcome<TAdapterResult>>,
     completedEvidence: (result: TAdapterResult) => ExecutionEvent['evidence'],
   ): Promise<ExecutionLoopResult<TAdapterResult>> {
-    const recoveredExecution = this.#journal.recoverExecution(incoming.order_id);
-    const existing = recoveredExecution?.order;
-
-    let order: ExecutionOrder;
-    if (existing) {
-      assertIdempotentOrder(existing, incoming);
-      order = existing;
-    } else {
-      assertOrderExecutable(incoming, this.#identity, this.#timestamp());
-      order = this.#journal.appendOrder(incoming);
+    if (this.#inFlight.has(incoming.order_id)) {
+      throw new TypeError('Orden ya en ejecución en esta instancia.');
     }
-
-    let history = recoveredExecution?.events ?? [];
-    const last = recoveredExecution?.last_event ?? null;
-    if (recoveredExecution?.recovery === 'terminal' && last) {
-      return { order, event: last, adapter_result: null, reused: true };
-    }
-
-    if (recoveredExecution?.recovery === 'interrupted' && last) {
-      const interrupted = this.#append(order, last.sequence + 1, 'failed', {
-        code: 'restart-interrupted',
-        summary: 'Recovered non-terminal execution; retry refused to avoid duplicate effect',
-        ref: null,
-      });
-      return { order, event: interrupted, adapter_result: null, reused: true };
-    }
-
-    if (
-      order.runner_id !== this.#identity.runner_id
-      || !this.#identity.capabilities.includes(order.capability)
-    ) {
-      throw new TypeError('Orden no pertenece a este runner o capability.');
-    }
-
-    const now = this.#timestamp();
+    this.#inFlight.add(incoming.order_id);
     try {
-      assertOrderExecutable(order, this.#identity, now);
-    } catch {
-      if (last?.state === 'accepted') {
-        const expired = this.#append(order, last.sequence + 1, 'failed', {
-          code: 'order-not-executable',
-          summary: 'Recovered order is no longer executable',
+      const recoveredExecution = this.#journal.recoverExecution(incoming.order_id);
+      const existing = recoveredExecution?.order;
+
+      let order: ExecutionOrder;
+      if (existing) {
+        assertIdempotentOrder(existing, incoming);
+        order = existing;
+      } else {
+        assertOrderExecutable(incoming, this.#identity, this.#timestamp());
+        order = this.#journal.appendOrder(incoming);
+      }
+
+      let history = recoveredExecution?.events ?? [];
+      const last = recoveredExecution?.last_event ?? null;
+      if (recoveredExecution?.recovery === 'terminal' && last) {
+        return { order, event: last, adapter_result: null, reused: true };
+      }
+
+      if (recoveredExecution?.recovery === 'interrupted' && last) {
+        const interrupted = this.#append(order, last.sequence + 1, 'failed', {
+          code: 'restart-interrupted',
+          summary: 'Recovered non-terminal execution; retry refused to avoid duplicate effect',
           ref: null,
         });
-        return { order, event: expired, adapter_result: null, reused: true };
+        return { order, event: interrupted, adapter_result: null, reused: true };
       }
-      throw new TypeError('Orden no ejecutable.');
-    }
 
-    if (!last) {
-      this.#append(order, 1, 'accepted', {
-        code: 'accepted',
-        summary: 'Validated order accepted by execution loop',
+      if (
+        order.runner_id !== this.#identity.runner_id
+        || !this.#identity.capabilities.includes(order.capability)
+      ) {
+        throw new TypeError('Orden no pertenece a este runner o capability.');
+      }
+
+      const now = this.#timestamp();
+      try {
+        assertOrderExecutable(order, this.#identity, now);
+      } catch {
+        if (last?.state === 'accepted') {
+          const expired = this.#append(order, last.sequence + 1, 'failed', {
+            code: 'order-not-executable',
+            summary: 'Recovered order is no longer executable',
+            ref: null,
+          });
+          return { order, event: expired, adapter_result: null, reused: true };
+        }
+        throw new TypeError('Orden no ejecutable.');
+      }
+
+      if (!last) {
+        this.#append(order, 1, 'accepted', {
+          code: 'accepted',
+          summary: 'Validated order accepted by execution loop',
+          ref: null,
+        });
+        history = this.#events(order.order_id);
+      }
+
+      const accepted = history.at(-1);
+      if (!accepted || accepted.state !== 'accepted') {
+        throw new TypeError('Estado de ejecución inconsistente.');
+      }
+
+      const timeoutMs = integer(options.timeout_ms ?? 30_000, 'timeout_ms', 1, 30_000);
+      if (options.signal?.aborted) {
+        const cancelled = this.#append(order, accepted.sequence + 1, 'cancelled', {
+          code: 'cancelled',
+          summary: 'Execution cancelled before adapter dispatch',
+          ref: null,
+        });
+        return { order, event: cancelled, adapter_result: null, reused: false };
+      }
+
+      const started = this.#append(order, accepted.sequence + 1, 'started', {
+        code: 'started',
+        summary: 'Adapter dispatch started',
         ref: null,
       });
-      history = this.#events(order.order_id);
+      const outcome = await dispatch(timeoutMs, options.signal);
+
+      if (outcome.kind === 'completed') {
+        const completed = this.#append(order, started.sequence + 1, 'completed', completedEvidence(outcome.result));
+        return { order, event: completed, adapter_result: outcome.result, reused: false };
+      }
+
+      const state: ExecutionState = outcome.kind === 'cancelled' ? 'cancelled' : 'failed';
+      const evidence = outcome.kind === 'timeout'
+        ? { code: 'timeout', summary: 'Adapter execution timed out', ref: null }
+        : outcome.kind === 'cancelled'
+          ? { code: 'cancelled', summary: 'Adapter execution cancelled', ref: null }
+          : { code: 'adapter-failed', summary: 'Adapter execution failed', ref: null };
+      const terminal = this.#append(order, started.sequence + 1, state, evidence);
+      return { order, event: terminal, adapter_result: null, reused: false };
+    } finally {
+      this.#inFlight.delete(incoming.order_id);
     }
-
-    const accepted = history.at(-1);
-    if (!accepted || accepted.state !== 'accepted') {
-      throw new TypeError('Estado de ejecución inconsistente.');
-    }
-
-    const timeoutMs = integer(options.timeout_ms ?? 30_000, 'timeout_ms', 1, 30_000);
-    if (options.signal?.aborted) {
-      const cancelled = this.#append(order, accepted.sequence + 1, 'cancelled', {
-        code: 'cancelled',
-        summary: 'Execution cancelled before adapter dispatch',
-        ref: null,
-      });
-      return { order, event: cancelled, adapter_result: null, reused: false };
-    }
-
-    const started = this.#append(order, accepted.sequence + 1, 'started', {
-      code: 'started',
-      summary: 'Adapter dispatch started',
-      ref: null,
-    });
-    const outcome = await dispatch(timeoutMs, options.signal);
-
-    if (outcome.kind === 'completed') {
-      const completed = this.#append(order, started.sequence + 1, 'completed', completedEvidence(outcome.result));
-      return { order, event: completed, adapter_result: outcome.result, reused: false };
-    }
-
-    const state: ExecutionState = outcome.kind === 'cancelled' ? 'cancelled' : 'failed';
-    const evidence = outcome.kind === 'timeout'
-      ? { code: 'timeout', summary: 'Adapter execution timed out', ref: null }
-      : outcome.kind === 'cancelled'
-        ? { code: 'cancelled', summary: 'Adapter execution cancelled', ref: null }
-        : { code: 'adapter-failed', summary: 'Adapter execution failed', ref: null };
-    const terminal = this.#append(order, started.sequence + 1, state, evidence);
-    return { order, event: terminal, adapter_result: null, reused: false };
   }
 
   #events(orderId: string): ExecutionEvent[] {
