@@ -150,7 +150,7 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
 
     def test_short_write_guard_preserves_normal_recovery_and_limits(self):
         for pattern in (
-            "AC03 journal short-write guard retains normal recovery and idempotency",
+            "durable journal recovers valid orders and events after restart",
             "AC01 journal append rejects crossing size limit without changes",
             "AC01 journal symlink denies recovery and append without touching target",
             "AC03 bounded journal preserves ENOENT and nonregular fail closed",
