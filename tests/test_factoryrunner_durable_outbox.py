@@ -143,5 +143,28 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
             self.assertIn("pass 1", run_node_test(pattern))
 
 
+
+    def test_append_over_16mib_is_rejected_without_modifying_file(self):
+        """AC-01 #512: execute the actual Node no-write boundary regression."""
+        output = run_node_test(
+            "AC01 outbox append rejects crossing aggregate size cap without changes"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_append_within_remaining_budget_recovers_and_is_idempotent(self):
+        """AC-02 #512: assert real append, restart, and delivery idempotency."""
+        output = run_node_test(
+            "AC02 outbox append within remaining aggregate size recovers on restart"
+        )
+        self.assertIn("pass 1", output)
+
+    def test_oversized_existing_outbox_denies_append_and_recovery(self):
+        """AC-03 #512: reject both append and recovery without changing bytes."""
+        output = run_node_test(
+            "AC03 existing oversized outbox refuses new append and preserves bytes"
+        )
+        self.assertIn("pass 1", output)
+
+
 if __name__ == "__main__":
     unittest.main()
