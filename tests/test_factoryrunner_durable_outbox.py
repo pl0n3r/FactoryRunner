@@ -150,6 +150,9 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
             "AC01 outbox append rejects crossing aggregate size cap without changes"
         )
         self.assertIn("pass 1", output)
+        self.assertIn("pass 1", run_node_test(
+            "AC01 outbox rejects one byte over exact aggregate limit"
+        ))
 
     def test_append_within_remaining_budget_recovers_and_is_idempotent(self):
         """AC-02 #512: assert real append, restart, and delivery idempotency."""
@@ -157,6 +160,9 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
             "AC02 outbox append within remaining aggregate size recovers on restart"
         )
         self.assertIn("pass 1", output)
+        self.assertIn("pass 1", run_node_test(
+            "AC02 outbox append fills exact aggregate limit and survives restart"
+        ))
 
     def test_oversized_existing_outbox_denies_append_and_recovery(self):
         """AC-03 #512: reject both append and recovery without changing bytes."""
