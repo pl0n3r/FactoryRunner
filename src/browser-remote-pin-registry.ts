@@ -16,27 +16,49 @@ function fingerprint(value: unknown, label: string): string {
   return parsed;
 }
 
+// Inspeccionar descriptores sin invocar getters sobre entradas programáticas.
+// Admitir métodos de clase heredados que sean descriptores de datos.
+function dataMember(input: object, name: string): unknown {
+  let current: object | null = input;
+  while (current !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, name);
+    if (descriptor !== undefined) {
+      if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+        throw new TypeError(name + ' no admite accessors.');
+      }
+      return descriptor.value;
+    }
+    current = Object.getPrototypeOf(current) as object | null;
+  }
+  throw new TypeError(name + ' requerido.');
+}
+
 function pinRecord(input: BrowserRemotePin): BrowserRemotePin {
+  if (input === null || typeof input !== 'object') {
+    throw new TypeError('BrowserRemotePin requerido.');
+  }
   const bindingFingerprint = fingerprint(
-    input.binding_fingerprint,
+    dataMember(input, 'binding_fingerprint'),
     'binding_fingerprint',
   );
+  const handle = dataMember(input, 'handle');
   if (
-    input.handle === null
-    || typeof input.handle !== 'object'
-    || typeof input.handle.invoke !== 'function'
-    || typeof input.handle.execute !== 'function'
+    handle === null
+    || typeof handle !== 'object'
+    || typeof dataMember(handle, 'invoke') !== 'function'
+    || typeof dataMember(handle, 'execute') !== 'function'
   ) {
     throw new TypeError('BrowserRemoteEntryHandle requerido.');
   }
-  if (typeof input.directory_entries !== 'function') {
+  const directoryEntries = dataMember(input, 'directory_entries');
+  if (typeof directoryEntries !== 'function') {
     throw new TypeError('Referencia BrowserRemoteDirectory.entries requerida.');
   }
 
   return Object.freeze({
     binding_fingerprint: bindingFingerprint,
-    handle: input.handle,
-    directory_entries: input.directory_entries,
+    handle: handle as BrowserRemoteEntryHandle,
+    directory_entries: directoryEntries as BrowserRemoteDirectory['entries'],
   });
 }
 
