@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -346,5 +347,103 @@ test('AC03 journal authentic Unicode including U+FFFD round-trips unchanged', ()
     assert.equal(recovered.events[0]?.evidence.summary, summary);
     journal.appendEvent(event({ evidence: { code: 'accepted', summary, ref: null } }));
     assert.deepEqual(readFileSync(path), bytes);
+  });
+});
+
+test('AC01 bounded journal rejects oversized sparse before unbounded read', () => {
+  withJournal((path) => {
+    writeFileSync(path, '');
+    truncateSync(path, 16 * 1024 * 1024 + 1);
+    const before = statSync(path).size;
+    assert.throws(
+      () => new DurableJournal(path).recover(),
+      (error: unknown) => error instanceof DurableJournalError
+        && error.code === 'journal_invalid',
+    );
+    assert.equal(statSync(path).size, before);
+    const source = readFileSync(new URL('../src/journal.ts', import.meta.url), 'utf8');
+    assert.match(source, /readSync\(descriptor, chunk, 0, chunk\.length, null\)/);
+    assert.doesNotMatch(source, /readFileSync\(descriptor\)/);
+  });
+});
+
+test('AC02 bounded journal preserves regular recovery and idempotency', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    const original = readFileSync(path);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    assert.deepEqual(readFileSync(path), original);
+  });
+});
+
+test('AC03 bounded journal preserves ENOENT and nonregular fail closed', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    assert.deepEqual(journal.recover(), { orders: [], events: [] });
+    const target = path + '.target';
+    const canary = 'PRIVATE_JOURNAL_CANARY\n';
+    writeFileSync(target, canary, 'utf8');
+    symlinkSync(target, path);
+    assert.throws(() => journal.recover(), DurableJournalError);
+    assert.equal(readFileSync(target, 'utf8'), canary);
+  });
+  withJournal((path) => {
+    mkdirSync(path);
+    assert.throws(() => new DurableJournal(path).recover(), DurableJournalError);
+  });
+});
+
+// AC-01: inject a deterministic growth *after fstat*, at the first actual
+// readSync call, and account for the number of bytes really requested/read.
+// Keep the monkey-patch scoped to this synchronous test and restore the
+// Node ESM named builtins even if the assertion throws.
+test('AC01 bounded journal growth after fstat is capped without replay', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    const initialSize = statSync(path).size;
+    const limit = 16 * 1024 * 1024;
+    assert.ok(initialSize > 0 && initialSize < limit);
+    const originalReadSync = fs.readSync;
+    let grew = false;
+    let requestedBytes = 0;
+    let readBytes = 0;
+    try {
+      fs.readSync = ((
+        descriptor: number, buffer: Buffer, offset: number,
+        length: number, position: number | null,
+      ) => {
+        if (!grew) {
+          // readRecords has already passed regularJournalSize(descriptor).
+          // Grow the same inode before its first read occurs.
+          truncateSync(path, limit + 1);
+          grew = true;
+        }
+        requestedBytes += length;
+        const count = originalReadSync(descriptor, buffer, offset, length, position);
+        readBytes += count;
+        return count;
+      }) as typeof fs.readSync;
+      syncBuiltinESMExports();
+      assert.throws(
+        () => journal.recover(),
+        (error: unknown) => error instanceof DurableJournalError
+          && error.code === 'journal_invalid',
+      );
+    } finally {
+      fs.readSync = originalReadSync;
+      syncBuiltinESMExports();
+    }
+    assert.equal(grew, true);
+    assert.equal(readBytes, limit + 1);
+    assert.ok(requestedBytes <= limit + 1, 'read requests must remain bounded');
+    assert.ok(readBytes <= limit + 1, 'physical bytes read must remain bounded');
+    assert.equal(statSync(path).size, limit + 1);
   });
 });
