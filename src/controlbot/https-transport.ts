@@ -85,20 +85,25 @@ function responseBody(value: unknown): string | null {
   rejectSensitiveResponseText(value);
   // JSON escapes may hide a sensitive key/value from raw-text scanners.
   // Canonicalize only for validation; preserve the original response bytes.
-  let decoded: unknown;
   try {
-    decoded = JSON.parse(value);
+    JSON.parse(value);
   } catch {
     // Non-JSON replies from ACK/events/heartbeat remain compatible.
     return value;
   }
-  let canonical: string;
+  // Decode every JSON string literal without rebuilding the parsed object:
+  // JSON.parse has last-key-wins semantics and would erase an earlier,
+  // sensitive value when a property name is duplicated. Token-wise decoding
+  // preserves both occurrences while exposing escaped Unicode for scanning.
+  let decodedTokens: string;
   try {
-    canonical = JSON.stringify(decoded);
+    decodedTokens = value.replace(/"(?:\\.|[^"\\])*"/g, (token) =>
+      JSON.stringify(JSON.parse(token))
+    );
   } catch {
     throw new ControlBotHttpsTransportError('controlbot_http_response_invalid');
   }
-  rejectSensitiveResponseText(canonical);
+  rejectSensitiveResponseText(decodedTokens);
   return value;
 }
 
