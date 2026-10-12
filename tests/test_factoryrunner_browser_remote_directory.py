@@ -107,6 +107,66 @@ const invalidLookupAliasRejected = rejected(() => {
   directory.lookup('https://remote.example.test');
 });
 
+
+const secondaryProfile = browserRemoteProfile({ ...baseInput, remote_alias: 'browser-secondary' });
+let ownGetterReads = 0;
+const ownAccessorTransport = {
+  get execute() {
+    ownGetterReads += 1;
+    throw new Error('execute getter must not be invoked');
+  },
+};
+const ownAccessorBefore = Object.getOwnPropertyDescriptor(ownAccessorTransport, 'execute');
+const ownAccessorRegistrationRejected = rejected(() => {
+  directory.register({ profile: secondaryProfile, transport: ownAccessorTransport });
+});
+const ownAccessorAfter = Object.getOwnPropertyDescriptor(ownAccessorTransport, 'execute');
+const ownAccessorUnchanged = ownAccessorBefore?.get === ownAccessorAfter?.get
+  && ownAccessorBefore?.configurable === ownAccessorAfter?.configurable
+  && !Object.hasOwn(ownAccessorAfter ?? {}, 'value');
+
+let inheritedGetterReads = 0;
+const inheritedAccessorPrototype = {
+  get execute() {
+    inheritedGetterReads += 1;
+    throw new Error('inherited execute getter must not be invoked');
+  },
+};
+const inheritedAccessorTransport = Object.create(inheritedAccessorPrototype);
+const inheritedAccessorRegistrationRejected = rejected(() => {
+  directory.register({ profile: secondaryProfile, transport: inheritedAccessorTransport });
+});
+const inheritedAccessorUnchanged = !Object.hasOwn(inheritedAccessorTransport, 'execute')
+  && Object.getOwnPropertyDescriptor(inheritedAccessorPrototype, 'execute')?.get !== undefined;
+
+const ownAccessorRotationRejected = rejected(() => {
+  directory.rotate('browser-primary', profile.fingerprint, { profile, transport: ownAccessorTransport });
+});
+const inheritedAccessorRotationRejected = rejected(() => {
+  directory.rotate('browser-primary', profile.fingerprint, { profile, transport: inheritedAccessorTransport });
+});
+const entryPreservedAfterAccessorRejections = directory.lookup('browser-primary') === registered
+  && directory.size === 1 && directory.lookup('browser-secondary') === null;
+
+let inheritedMethodCalls = 0;
+class ClassMethodTransport {
+  async execute() {
+    inheritedMethodCalls += 1;
+    throw new Error('method must not execute during registration');
+  }
+}
+const inheritedMethodTransport = new ClassMethodTransport();
+const originalMethod = Object.getOwnPropertyDescriptor(ClassMethodTransport.prototype, 'execute')?.value;
+const inheritedMethodDirectory = new BrowserRemoteDirectory();
+const inheritedMethodEntry = inheritedMethodDirectory.register({
+  profile: secondaryProfile, transport: inheritedMethodTransport,
+});
+const inheritedMethodSealed = inheritedMethodEntry.transport === inheritedMethodTransport
+  && Object.getOwnPropertyDescriptor(inheritedMethodTransport, 'execute')?.value === originalMethod
+  && Object.getOwnPropertyDescriptor(inheritedMethodTransport, 'execute')?.writable === false
+  && Object.getOwnPropertyDescriptor(inheritedMethodTransport, 'execute')?.configurable === false
+  && inheritedMethodCalls === 0;
+
 console.log(JSON.stringify({
   registeredAlias: registered.profile.remote_alias,
   foundAlias: found?.profile.remote_alias ?? null,
@@ -122,6 +182,17 @@ console.log(JSON.stringify({
   rejectedTransportUnchanged,
   entryUnchangedAfterDuplicate,
   acceptedTransportSealed,
+  ownAccessorRegistrationRejected,
+  inheritedAccessorRegistrationRejected,
+  ownAccessorUnchanged,
+  inheritedAccessorUnchanged,
+  ownGetterReads,
+  inheritedGetterReads,
+  ownAccessorRotationRejected,
+  inheritedAccessorRotationRejected,
+  entryPreservedAfterAccessorRejections,
+  inheritedMethodSealed,
+  inheritedMethodCalls,
   tamperedFingerprintRejected,
   tamperedAuthorityRejected,
   extraProfileFieldRejected,
@@ -160,6 +231,30 @@ class FactoryRunnerBrowserRemoteDirectoryTests(unittest.TestCase):
         self.assertTrue(self.observed["rejectedTransportUnchanged"])
         self.assertTrue(self.observed["entryUnchangedAfterDuplicate"])
         self.assertTrue(self.observed["acceptedTransportSealed"])
+        self.assertEqual(self.observed["transportCalls"], 0)
+
+    def test_accessor_execute_is_denied_without_getter_invocation(self):
+        self.assertTrue(self.observed["ownAccessorRegistrationRejected"])
+        self.assertTrue(self.observed["inheritedAccessorRegistrationRejected"])
+        self.assertTrue(self.observed["ownAccessorUnchanged"])
+        self.assertTrue(self.observed["inheritedAccessorUnchanged"])
+        self.assertEqual(self.observed["ownGetterReads"], 0)
+        self.assertEqual(self.observed["inheritedGetterReads"], 0)
+        self.assertTrue(self.observed["entryPreservedAfterAccessorRejections"])
+        self.assertEqual(self.observed["transportCalls"], 0)
+
+    def test_rotate_accessor_execute_keeps_original_entry(self):
+        self.assertTrue(self.observed["ownAccessorRotationRejected"])
+        self.assertTrue(self.observed["inheritedAccessorRotationRejected"])
+        self.assertTrue(self.observed["entryPreservedAfterAccessorRejections"])
+        self.assertEqual(self.observed["ownGetterReads"], 0)
+        self.assertEqual(self.observed["inheritedGetterReads"], 0)
+        self.assertEqual(self.observed["transportCalls"], 0)
+
+    def test_data_and_inherited_method_transports_still_seal(self):
+        self.assertTrue(self.observed["acceptedTransportSealed"])
+        self.assertTrue(self.observed["inheritedMethodSealed"])
+        self.assertEqual(self.observed["inheritedMethodCalls"], 0)
         self.assertEqual(self.observed["transportCalls"], 0)
 
     def test_duplicate_or_tampered_profiles_fail_closed(self):
