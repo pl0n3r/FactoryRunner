@@ -87,7 +87,7 @@ function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => canonicalValue(item));
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    const ordered: Record<string, unknown> = {};
+    const ordered: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b, 'en'))) {
       ordered[key] = canonicalValue(record[key]);
     }
