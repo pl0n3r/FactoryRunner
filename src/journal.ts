@@ -194,7 +194,17 @@ function appendRecord(path: string, record: JournalRecord): void {
     if (regularJournalSize(descriptor) > MAX_JOURNAL_BYTES - encoded.length) {
       invalid('Journal excede el límite permitido.');
     }
-    writeSync(descriptor, encoded, 0, encoded.length, null);
+    // A successful POSIX write may still persist fewer bytes than requested.
+    // Never acknowledge a record until every byte is written and fsynced.
+    let written = 0;
+    while (written < encoded.length) {
+      const remaining = encoded.length - written;
+      const count = writeSync(descriptor, encoded, written, remaining, null);
+      if (!Number.isInteger(count) || count <= 0 || count > remaining) {
+        throw new DurableJournalError('journal_io', 'Escritura incompleta del journal.');
+      }
+      written += count;
+    }
     fsyncSync(descriptor);
   } catch (error) {
     if (error instanceof DurableJournalError) throw error;
