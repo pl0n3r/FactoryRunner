@@ -317,3 +317,79 @@ test('AC03 outbox authentic Unicode including U+FFFD round-trips unchanged', () 
     assert.deepEqual(readFileSync(path), bytes);
   });
 });
+
+
+const OUTBOX_TOTAL_LIMIT = 16 * 1024 * 1024;
+
+/** Fill a valid append-only outbox near its total cap without using real data. */
+function denseOutbox(path: string, reserveBytes: number): {
+  remaining: number;
+  ackId: string;
+  deliveredLineBytes: number;
+} {
+  const outbox = new DurableOutbox(path);
+  const ack = outbox.enqueueAck(ackRequest());
+  outbox.markDelivered(ack.delivery_id);
+  const initial = readFileSync(path, 'utf8');
+  const records = initial.trimEnd().split('\n');
+  assert.equal(records.length, 2);
+  const deliveredLine = records[1] + '\n';
+  const lineBytes = Buffer.byteLength(deliveredLine, 'utf8');
+  const copies = Math.floor((OUTBOX_TOTAL_LIMIT - Buffer.byteLength(initial, 'utf8') - reserveBytes) / lineBytes);
+  assert.ok(copies > 0);
+  writeFileSync(path, initial + deliveredLine.repeat(copies), 'utf8');
+  const remaining = OUTBOX_TOTAL_LIMIT - statSync(path).size;
+  assert.ok(remaining >= reserveBytes && remaining < reserveBytes + lineBytes);
+  assert.equal(new DurableOutbox(path).recover().delivered[0]?.delivery_id, ack.delivery_id);
+  return { remaining, ackId: ack.delivery_id, deliveredLineBytes: lineBytes };
+}
+
+test('AC01 outbox append rejects crossing aggregate size cap without changes', () => {
+  withOutbox((path) => {
+    const nextPath = path + '.next';
+    new DurableOutbox(nextPath).enqueueEvents(eventsRequest());
+    const eventBytes = statSync(nextPath).size;
+    const { remaining } = denseOutbox(path, 0);
+    assert.ok(eventBytes > remaining);
+    const before = readFileSync(path);
+    assert.throws(() => new DurableOutbox(path).enqueueEvents(eventsRequest()),
+      (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+    assert.deepEqual(readFileSync(path), before);
+    assert.equal(statSync(path).size, before.byteLength);
+    assert.equal(new DurableOutbox(path).recover().pending.length, 0);
+  });
+});
+
+test('AC02 outbox append within remaining aggregate size recovers on restart', () => {
+  withOutbox((path) => {
+    const nextPath = path + '.next';
+    new DurableOutbox(nextPath).enqueueEvents(eventsRequest());
+    const eventBytes = statSync(nextPath).size;
+    const { remaining, ackId } = denseOutbox(path, eventBytes);
+    assert.ok(remaining >= eventBytes);
+    const eventsDelivery = new DurableOutbox(path).enqueueEvents(eventsRequest());
+    assert.ok(statSync(path).size <= OUTBOX_TOTAL_LIMIT);
+    const recovered = new DurableOutbox(path).recover();
+    assert.deepEqual(recovered.pending.map(item => item.delivery_id), [eventsDelivery.delivery_id]);
+    assert.deepEqual(recovered.delivered.map(item => item.delivery_id), [ackId]);
+    const before = readFileSync(path);
+    assert.equal(new DurableOutbox(path).enqueueEvents(eventsRequest()).delivery_id, eventsDelivery.delivery_id);
+    assert.deepEqual(readFileSync(path), before);
+  });
+});
+
+test('AC03 existing oversized outbox refuses new append and preserves bytes', () => {
+  withOutbox((path) => {
+    const outbox = new DurableOutbox(path);
+    outbox.enqueueAck(ackRequest());
+    const prefix = readFileSync(path);
+    truncateSync(path, OUTBOX_TOTAL_LIMIT + 1);
+    const size = statSync(path).size;
+    assert.throws(() => outbox.enqueueEvents(eventsRequest()),
+      (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+    assert.equal(statSync(path).size, size);
+    assert.deepEqual(readFileSync(path).subarray(0, prefix.length), prefix);
+    assert.throws(() => new DurableOutbox(path).recover(),
+      (error: unknown) => error instanceof DurableOutboxError && error.code === 'outbox_invalid');
+  });
+});

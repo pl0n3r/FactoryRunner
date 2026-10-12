@@ -113,5 +113,18 @@ class FactoryRunnerDurableOutboxTests(unittest.TestCase):
             output = run_node_test(pattern)
             self.assertIn("pass 1", output)
 
+    def test_outbox_append_rejects_crossing_size_limit_without_changes(self):
+        output = run_node_test("AC01 outbox append rejects crossing aggregate size cap without changes")
+        self.assertIn("pass 1", output)
+
+    def test_outbox_append_fits_remaining_size_and_recovers(self):
+        output = run_node_test("AC02 outbox append within remaining aggregate size recovers on restart")
+        self.assertIn("pass 1", output)
+
+    def test_oversized_existing_outbox_is_never_appended(self):
+        output = run_node_test("AC03 existing oversized outbox refuses new append and preserves bytes")
+        self.assertIn("pass 1", output)
+
+
 if __name__ == "__main__":
     unittest.main()
