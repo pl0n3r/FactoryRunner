@@ -12,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SUITE = ROOT / "tests" / "stable-sha256.test.ts"
 COUNTS = {
-    name: re.compile(r"(?m)^# " + re.escape(name) + r"\\s+(\\d+)\\s*$")
+    name: re.compile(r"(?m)^# " + re.escape(name) + r"\s+(\d+)\s*$")
     for name in ("tests", "pass", "fail", "skipped", "cancelled")
 }
 
