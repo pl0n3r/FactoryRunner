@@ -50,6 +50,30 @@ const duplicateRejected = rejected(() => {
   directory.register({ profile, transport });
 });
 
+const rejectedTransport = {
+  async execute() {
+    transportCalls += 1;
+    throw new Error('rejected duplicate transport must not execute');
+  },
+};
+const descriptorBefore = Object.getOwnPropertyDescriptor(rejectedTransport, 'execute');
+const duplicateWithNewTransportRejected = rejected(() => {
+  directory.register({ profile, transport: rejectedTransport });
+});
+const descriptorAfter = Object.getOwnPropertyDescriptor(rejectedTransport, 'execute');
+const rejectedTransportUnchanged = descriptorBefore !== undefined
+  && descriptorAfter !== undefined
+  && descriptorBefore.value === descriptorAfter.value
+  && descriptorBefore.writable === true
+  && descriptorAfter.writable === true
+  && descriptorBefore.configurable === true
+  && descriptorAfter.configurable === true
+  && descriptorBefore.enumerable === descriptorAfter.enumerable;
+const entryUnchangedAfterDuplicate = directory.size === 1
+  && directory.lookup('browser-primary') === registered;
+const acceptedTransportSealed = Object.getOwnPropertyDescriptor(transport, 'execute')?.writable === false
+  && Object.getOwnPropertyDescriptor(transport, 'execute')?.configurable === false;
+
 const tamperedFingerprintRejected = rejected(() => {
   const candidate = new BrowserRemoteDirectory();
   candidate.register({
@@ -94,6 +118,10 @@ console.log(JSON.stringify({
   profileFrozen: Object.isFrozen(registered.profile),
   transportCalls,
   duplicateRejected,
+  duplicateWithNewTransportRejected,
+  rejectedTransportUnchanged,
+  entryUnchangedAfterDuplicate,
+  acceptedTransportSealed,
   tamperedFingerprintRejected,
   tamperedAuthorityRejected,
   extraProfileFieldRejected,
@@ -125,6 +153,13 @@ class FactoryRunnerBrowserRemoteDirectoryTests(unittest.TestCase):
         self.assertTrue(self.observed["entriesFrozen"])
         self.assertTrue(self.observed["entryFrozen"])
         self.assertTrue(self.observed["profileFrozen"])
+        self.assertEqual(self.observed["transportCalls"], 0)
+
+    def test_duplicate_registration_does_not_seal_rejected_transport(self):
+        self.assertTrue(self.observed["duplicateWithNewTransportRejected"])
+        self.assertTrue(self.observed["rejectedTransportUnchanged"])
+        self.assertTrue(self.observed["entryUnchangedAfterDuplicate"])
+        self.assertTrue(self.observed["acceptedTransportSealed"])
         self.assertEqual(self.observed["transportCalls"], 0)
 
     def test_duplicate_or_tampered_profiles_fail_closed(self):
