@@ -52,7 +52,7 @@ export type ReadinessSnapshot = {
   manifest_fingerprint: string | null;
   resource_fingerprint: string | null;
   telemetry_fingerprint: string | null;
-  reasons: string[];
+  reasons: readonly string[];
   fingerprint: string;
 };
 
@@ -115,6 +115,8 @@ function verdict(
 ): ReadinessSnapshot {
   const normalizedReasons = Array.from(new Set(reasonsInput));
   normalizedReasons.sort((left, right) => left.localeCompare(right, 'en'));
+  // Keep the reason evidence immutable before calculating its fingerprint.
+  Object.freeze(normalizedReasons);
 
   const snapshot: SnapshotCore = Object.assign(
     {
