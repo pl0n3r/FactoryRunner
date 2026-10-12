@@ -33,15 +33,28 @@ function dataMember(input: object, name: string): unknown {
   throw new TypeError(name + ' requerido.');
 }
 
+// La envoltura del pin exige campos de datos PROPIOS. Los métodos del
+// handle sí pueden heredarse de clases; se validan con dataMember().
+function ownDataMember(input: object, name: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(input, name);
+  if (descriptor === undefined) {
+    throw new TypeError(name + ' requerido.');
+  }
+  if (!Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    throw new TypeError(name + ' no admite accessors.');
+  }
+  return descriptor.value;
+}
+
 function pinRecord(input: BrowserRemotePin): BrowserRemotePin {
   if (input === null || typeof input !== 'object') {
     throw new TypeError('BrowserRemotePin requerido.');
   }
   const bindingFingerprint = fingerprint(
-    dataMember(input, 'binding_fingerprint'),
+    ownDataMember(input, 'binding_fingerprint'),
     'binding_fingerprint',
   );
-  const handle = dataMember(input, 'handle');
+  const handle = ownDataMember(input, 'handle');
   if (
     handle === null
     || typeof handle !== 'object'
@@ -50,7 +63,7 @@ function pinRecord(input: BrowserRemotePin): BrowserRemotePin {
   ) {
     throw new TypeError('BrowserRemoteEntryHandle requerido.');
   }
-  const directoryEntries = dataMember(input, 'directory_entries');
+  const directoryEntries = ownDataMember(input, 'directory_entries');
   if (typeof directoryEntries !== 'function') {
     throw new TypeError('Referencia BrowserRemoteDirectory.entries requerida.');
   }
