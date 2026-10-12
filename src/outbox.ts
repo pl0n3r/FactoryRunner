@@ -219,7 +219,7 @@ function loadOutbox(path: string): OutboxRecord[] {
     return decodeOutbox(boundedOutboxText(descriptor));
   } catch (error) {
     priorFailure = true;
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
+    if (descriptor === undefined && (error as NodeJS.ErrnoException)?.code === 'ENOENT') return [];
     if (error instanceof DurableOutboxError) throw error;
     throw new DurableOutboxError('outbox_io', 'No fue posible leer el outbox.', { cause: error });
   } finally {
