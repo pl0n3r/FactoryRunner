@@ -78,7 +78,14 @@ function readRecords(path: string): JournalRecord[] {
       return invalid(`Registro de journal inválido en línea ${lineNumber}.`);
     }
     try {
-      return parseRecord(JSON.parse(line), lineNumber);
+      const decoded: unknown = JSON.parse(line);
+      // The append-only writer emits compact JSON.stringify records.
+      // Reject duplicate keys (including nested declarations), alternate
+      // escapes and whitespace rather than accepting JSON.parse's last value.
+      if (JSON.stringify(decoded) !== line) {
+        return invalid(`Registro de journal no canónico en línea ${lineNumber}.`);
+      }
+      return parseRecord(decoded, lineNumber);
     } catch (error) {
       if (error instanceof DurableJournalError) throw error;
       return invalid(`Registro corrupto en línea ${lineNumber}.`, error);
