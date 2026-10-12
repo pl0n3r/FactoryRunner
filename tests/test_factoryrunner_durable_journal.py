@@ -159,5 +159,24 @@ class FactoryRunnerDurableJournalTests(unittest.TestCase):
             self.assertIn("pass 1", run_node_test(pattern))
 
 
+
+    def test_close_failure_is_typed_journal_io(self):
+        output = run_node_test("AC01 journal close failure is typed for append and read")
+        self.assertIn("pass 1", output)
+
+    def test_close_failure_preserves_primary_journal_error(self):
+        output = run_node_test("AC02 journal prior write or invalid read failure survives secondary close EIO")
+        self.assertIn("pass 1", output)
+
+    def test_close_guard_preserves_recovery_and_limits(self):
+        for pattern in (
+            "AC03 journal close guard retains normal recovery and idempotency",
+            "AC01 journal short writes retry to full record before durable fsync",
+            "AC01 journal append rejects crossing size limit without changes",
+            "AC01 journal symlink denies recovery and append without touching target",
+            "AC01 journal rejects malformed UTF-8 before replay or append",
+        ):
+            self.assertIn("pass 1", run_node_test(pattern))
+
 if __name__ == "__main__":
     unittest.main()
