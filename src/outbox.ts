@@ -236,7 +236,8 @@ function recoverRecords(records: readonly OutboxRecord[]): RecoveredOutbox {
 }
 function persistRecord(path: string, record: OutboxRecord): void {
   const serialized = `${JSON.stringify(record)}\n`;
-  if (Buffer.byteLength(serialized, 'utf8') > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
+  const serializedBytes = Buffer.byteLength(serialized, 'utf8');
+  if (serializedBytes > MAX_RECORD_BYTES) invalid('Registro de outbox excede el límite permitido.');
   let descriptor: number | undefined;
   try {
     descriptor = openSync(
@@ -244,7 +245,8 @@ function persistRecord(path: string, record: OutboxRecord): void {
       secureOpenFlags(constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT),
       0o600,
     );
-    regularFile(descriptor);
+    const currentSize = regularFile(descriptor);
+    if (currentSize > MAX_OUTBOX_BYTES - serializedBytes) invalid('Outbox excede el límite permitido.');
     appendFileSync(descriptor, serialized, { encoding: 'utf8' });
     fsyncSync(descriptor);
   } catch (error) {
