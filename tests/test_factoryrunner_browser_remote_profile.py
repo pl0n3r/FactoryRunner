@@ -67,6 +67,23 @@ const capabilityRejected = rejected({
   capability: 'browser.remote.admin',
 });
 
+// AC-01: a required enumerable getter must never run even once.
+const requiredAccessorNames = ['version', 'runner_id', 'location', 'capability', 'remote_alias'];
+const accessorCases = Object.fromEntries(requiredAccessorNames.map((key) => {
+  let getterCalls = 0;
+  const candidate = { ...input };
+  Object.defineProperty(candidate, key, {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return input[key];
+    },
+  });
+  return [key, { rejected: rejected(candidate), getterCalls }];
+}));
+const repeatedFingerprintEqual = browserRemoteProfile({ ...input }).fingerprint
+  === profile.fingerprint;
+
 console.log(JSON.stringify({
   profile,
   frozen: Object.isFrozen(profile),
@@ -74,6 +91,8 @@ console.log(JSON.stringify({
   sensitiveRejected,
   aliasesRejected,
   capabilityRejected,
+  accessorCases,
+  repeatedFingerprintEqual,
 }));
 """
     raw = subprocess.check_output(
@@ -130,6 +149,13 @@ class FactoryRunnerBrowserRemoteProfileTests(unittest.TestCase):
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, serialized)
+
+    def test_profile_rejects_own_accessors_without_getters(self):
+        for key, result in self.observed["accessorCases"].items():
+            with self.subTest(field=key):
+                self.assertTrue(result["rejected"])
+                self.assertEqual(result["getterCalls"], 0)
+        self.assertTrue(self.observed["repeatedFingerprintEqual"])
 
     def test_sensitive_endpoint_or_credential_fields_are_rejected(self):
         for key, rejected in self.observed["sensitiveRejected"].items():
