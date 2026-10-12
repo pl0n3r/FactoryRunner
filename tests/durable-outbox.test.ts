@@ -172,7 +172,7 @@ function expectProtectedFailure(action: () => unknown): void {
 test('AC01 symlink outbox does not read or write target', () => {
   withOutbox((path) => {
     const target = path + '.target';
-    const canary = 'PRIVATE_TARGET_SENTINEL\\n';
+    const canary = 'PRIVATE_TARGET_SENTINEL\n';
     writeFileSync(target, canary, 'utf8');
     symlinkSync(target, path);
     const outbox = new DurableOutbox(path);
@@ -206,7 +206,7 @@ test('AC03 regular outbox append and restart remain compatible', () => {
     const ack = first.enqueueAck(ackRequest());
     const events = first.enqueueEvents(eventsRequest());
     const serialized = readFileSync(path, 'utf8');
-    assert.equal(serialized.split('\\n').filter(Boolean).length, 2);
+    assert.equal(serialized.split('\n').filter(Boolean).length, 2);
     const restarted = new DurableOutbox(path);
     assert.deepEqual(restarted.recover().pending.map((item) => item.delivery_id),
       [ack.delivery_id, events.delivery_id]);
