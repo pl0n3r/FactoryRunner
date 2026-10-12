@@ -128,6 +128,9 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
           '{"tok' + jsonEscape + 'u0065n":"SYNTHETIC_VALUE"}',
           '{"nested":{"pa' + jsonEscape + 'u0073sword":"SYNTHETIC_VALUE"}}',
           '{"note":"Be' + jsonEscape + 'u0061rer SYNTHETICCANARY123"}',
+          // A duplicate property must not erase a previously sensitive value.
+          '{"note":"Be' + jsonEscape + 'u0061rer SYNTHETICCANARY123","note":"ok"}',
+          '{"tok' + jsonEscape + 'u0065n":"SYNTHETIC_VALUE","tokenless":"ok"}',
         ];
         const escapedSensitiveCases = [];
         for (const body of escapedSensitivePayloads) {
@@ -314,7 +317,7 @@ class FactoryRunnerHttpsTransportTests(unittest.TestCase):
 
     def test_unicode_escaped_sensitive_json_fails_closed(self):
         cases = self.observed["escapedSensitiveCases"]
-        self.assertEqual(len(cases), 3)
+        self.assertEqual(len(cases), 5)
         for case in cases:
             self.assertEqual(case["error"], "controlbot_http_sensitive_output")
             self.assertEqual(case["calls"], 1)
