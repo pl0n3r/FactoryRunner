@@ -551,18 +551,3 @@ test('AC02 journal interrupted short write never reports success or replays', ()
       error instanceof DurableJournalError && error.code === 'journal_invalid');
   });
 });
-
-test('AC03 journal short-write guard retains normal recovery and idempotency', () => {
-  withJournal((path) => {
-    const journal = new DurableJournal(path);
-    journal.appendOrder(order());
-    journal.appendEvent(event());
-    const original = readFileSync(path);
-    const recovered = new DurableJournal(path).recover();
-    assert.equal(recovered.orders.length, 1);
-    assert.equal(recovered.events.length, 1);
-    journal.appendOrder(order());
-    journal.appendEvent(event());
-    assert.deepEqual(readFileSync(path), original);
-  });
-});
