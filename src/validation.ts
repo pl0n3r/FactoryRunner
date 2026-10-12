@@ -23,7 +23,12 @@ export function asRecord(value: unknown, label: string): JsonRecord {
 }
 
 export function exactKeys(record: JsonRecord, expected: readonly string[], label: string): void {
-  const actual = Object.keys(record).sort((a, b) => a.localeCompare(b, 'en'));
+  // Check every own key, not only enumerable strings. This never reads extra getters.
+  const ownKeys = Reflect.ownKeys(record);
+  if (ownKeys.some((key) => typeof key !== 'string')) {
+    throw new TypeError(`${label} contiene campos inválidos.`);
+  }
+  const actual = (ownKeys as string[]).sort((a, b) => a.localeCompare(b, 'en'));
   const wanted = [...expected].sort((a, b) => a.localeCompare(b, 'en'));
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new TypeError(`${label} contiene campos inválidos.`);
