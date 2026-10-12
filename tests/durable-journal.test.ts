@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -346,5 +346,54 @@ test('AC03 journal authentic Unicode including U+FFFD round-trips unchanged', ()
     assert.equal(recovered.events[0]?.evidence.summary, summary);
     journal.appendEvent(event({ evidence: { code: 'accepted', summary, ref: null } }));
     assert.deepEqual(readFileSync(path), bytes);
+  });
+});
+
+test('AC01 bounded journal rejects oversized sparse before unbounded read', () => {
+  withJournal((path) => {
+    writeFileSync(path, '');
+    truncateSync(path, 16 * 1024 * 1024 + 1);
+    const before = statSync(path).size;
+    assert.throws(
+      () => new DurableJournal(path).recover(),
+      (error: unknown) => error instanceof DurableJournalError
+        && error.code === 'journal_invalid',
+    );
+    assert.equal(statSync(path).size, before);
+    const source = readFileSync(new URL('../src/journal.ts', import.meta.url), 'utf8');
+    assert.match(source, /readSync\(descriptor, chunk, 0, chunk\.length, null\)/);
+    assert.doesNotMatch(source, /readFileSync\(descriptor\)/);
+  });
+});
+
+test('AC02 bounded journal preserves regular recovery and idempotency', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    const original = readFileSync(path);
+    const recovered = new DurableJournal(path).recover();
+    assert.equal(recovered.orders.length, 1);
+    assert.equal(recovered.events.length, 1);
+    journal.appendOrder(order());
+    journal.appendEvent(event());
+    assert.deepEqual(readFileSync(path), original);
+  });
+});
+
+test('AC03 bounded journal preserves ENOENT and nonregular fail closed', () => {
+  withJournal((path) => {
+    const journal = new DurableJournal(path);
+    assert.deepEqual(journal.recover(), { orders: [], events: [] });
+    const target = path + '.target';
+    const canary = 'PRIVATE_JOURNAL_CANARY\n';
+    writeFileSync(target, canary, 'utf8');
+    symlinkSync(target, path);
+    assert.throws(() => journal.recover(), DurableJournalError);
+    assert.equal(readFileSync(target, 'utf8'), canary);
+  });
+  withJournal((path) => {
+    mkdirSync(path);
+    assert.throws(() => new DurableJournal(path).recover(), DurableJournalError);
   });
 });
