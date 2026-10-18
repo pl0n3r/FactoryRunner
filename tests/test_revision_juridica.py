@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from scripts.generar_revision_juridica import tree_sha
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,16 +51,17 @@ class RevisionJuridicaTests(unittest.TestCase):
         self.assertIn("Hostinger", readme)
         self.assertIn("no demuestra", readme)
 
-    def test_source_sha_tracks_uncommitted_bytes(self) -> None:
-        sources = {name: (SOURCE / name).read_bytes() for name in NAMES}
-        current = tree_sha(sources)
+    def test_source_sha_refuses_uncommitted_legal_edits(self) -> None:
+        current = tree_sha()
         self.assertEqual(
             current,
             (OUT / "00-LEEME.md").read_text(encoding="utf-8").splitlines()[0][-40:],
         )
-        changed = dict(sources)
-        changed[NAMES[0]] += b"extra-change"
-        self.assertNotEqual(current, tree_sha(changed))
+        with patch("scripts.generar_revision_juridica.subprocess.run") as runner:
+            runner.return_value.returncode = 1
+            with self.assertRaisesRegex(ValueError, "sin commit"):
+                tree_sha()
+            self.assertEqual("diff", runner.call_args.args[0][1])
 
     def test_workflow_uses_minimum_permissions_and_sync_trigger(self) -> None:
         workflow = (ROOT / ".github/workflows/revision-juridica-sync.yml").read_text(

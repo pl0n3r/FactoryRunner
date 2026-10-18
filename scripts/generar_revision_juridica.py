@@ -2,9 +2,9 @@
 """Regenera copias exactas para revisión jurídica, sin aprobar su contenido."""
 from __future__ import annotations
 import argparse
-import hashlib
 import json
 import re
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,17 +20,22 @@ STAMP = re.compile(
     r" · SHA de origen de docs/privacidad: ([0-9a-f]{40})"
 )
 
-def tree_sha(files: dict[str, bytes]) -> str:
-    """SHA del árbol Git calculado sobre las copias reales (incluidas ediciones sin commit)."""
-    tree = b""
-    for name, content in sorted(files.items()):
-        blob = hashlib.sha1(
-            b"blob " + str(len(content)).encode("ascii") + b"\0" + content
-        ).digest()
-        tree += b"100644 " + name.encode("utf-8") + b"\0" + blob
-    return hashlib.sha1(
-        b"tree " + str(len(tree)).encode("ascii") + b"\0" + tree
-    ).hexdigest()
+def tree_sha() -> str:
+    """La procedencia Git exige que las fuentes estén iguales a HEAD."""
+    diff = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", "docs/privacidad"],
+        cwd=ROOT, timeout=15, check=False,
+    )
+    if diff.returncode != 0:
+        raise ValueError("Fuentes jurídicas modificadas sin commit; no generar")
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD:docs/privacidad"],
+        cwd=ROOT, capture_output=True, text=True, timeout=15, check=True,
+    )
+    sha = result.stdout.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("SHA Git de fuentes inválido")
+    return sha
 
 def generation_date(check: bool) -> str:
     if not check:
@@ -61,7 +66,7 @@ def expected_files(date: str) -> dict[str, bytes]:
         name: (ROOT / "docs" / "privacidad" / name).read_bytes()
         for name in SOURCES
     }
-    sha = tree_sha(files)
+    sha = tree_sha()
     index = f"""Última actualización automática: {date} UTC · SHA de origen de docs/privacidad: {sha}
 
 # Carpeta para revisión jurídica · FactoryRunner
@@ -153,7 +158,7 @@ def run(check: bool) -> int:
                 p.write_bytes(content)
         print("Paquete jurídico generado")
         return 0
-    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, IndexError, subprocess.SubprocessError) as exc:
         print("No se pudo verificar el paquete: " + str(exc), file=sys.stderr)
         return 2
 
