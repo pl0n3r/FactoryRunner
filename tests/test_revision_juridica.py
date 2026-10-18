@@ -1,10 +1,12 @@
 """Contrato reproducible del paquete jurídico FactoryRunner #573."""
 from __future__ import annotations
 import subprocess
+import tempfile
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import scripts.generar_revision_juridica as generator
 from scripts.generar_revision_juridica import tree_sha
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +64,30 @@ class RevisionJuridicaTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "sin commit"):
                 tree_sha()
             self.assertEqual("diff", runner.call_args.args[0][1])
+
+    def test_missing_or_invalid_index_is_drift_after_source_validation(self) -> None:
+        valid_sha = "a" * 40
+        cases = (
+            None, b"", b"not an index\n", b"\xff",
+            f"Última actualización automática: 2026-02-30 UTC · SHA de origen de docs/privacidad: {valid_sha}\n".encode(),
+        )
+        for contents in cases:
+            with self.subTest(index=repr(contents)), tempfile.TemporaryDirectory() as scratch:
+                output = Path(scratch)
+                if contents is not None:
+                    (output / "00-LEEME.md").write_bytes(contents)
+                with patch.object(generator, "OUT", output), patch.object(
+                    generator, "expected_files", return_value={"00-LEEME.md": b"expected"}
+                ) as verify_sources:
+                    self.assertEqual(1, generator.run(check=True))
+                    verify_sources.assert_called_once()
+
+    def test_missing_index_does_not_mask_source_verification_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            with patch.object(generator, "OUT", Path(scratch)), patch.object(
+                generator, "expected_files", side_effect=ValueError("source not valid")
+            ):
+                self.assertEqual(2, generator.run(check=True))
 
     def test_workflow_uses_minimum_permissions_and_sync_trigger(self) -> None:
         workflow = (ROOT / ".github/workflows/revision-juridica-sync.yml").read_text(

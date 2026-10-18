@@ -37,14 +37,24 @@ def tree_sha() -> str:
         raise ValueError("SHA Git de fuentes inválido")
     return sha
 
-def generation_date(check: bool) -> str:
+def generation_date(check: bool) -> str | None:
+    """Un índice generado inválido es desfase, no fallo de las fuentes."""
     if not check:
         return datetime.now(timezone.utc).date().isoformat()
-    heading = (OUT / "00-LEEME.md").read_text(encoding="utf-8").splitlines()[0]
-    match = STAMP.fullmatch(heading)
+    index_path = OUT / "00-LEEME.md"
+    if index_path.is_symlink():
+        return None
+    try:
+        lines = index_path.read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, IsADirectoryError, UnicodeError):
+        return None
+    match = STAMP.fullmatch(lines[0]) if lines else None
     if not match:
-        raise ValueError("Fecha/SHA de generación no canónicos")
-    datetime.strptime(match.group(1), "%Y-%m-%d")
+        return None
+    try:
+        datetime.strptime(match.group(1), "%Y-%m-%d")
+    except ValueError:
+        return None
     return match.group(1)
 
 def expected_files(date: str) -> dict[str, bytes]:
@@ -132,8 +142,14 @@ los cambios y abre un Issue único de desfase, sin escribir en main.
 
 def run(check: bool) -> int:
     try:
-        expected = expected_files(generation_date(check))
+        date = generation_date(check)
+        # Aunque falte el índice, comprobar primero las fuentes: un fallo de
+        # lectura/procedencia conserva exit 2, nunca se disfraza como desfase.
+        expected = expected_files(date if date is not None else datetime.now(timezone.utc).date().isoformat())
         if check:
+            if date is None:
+                print("Índice jurídico ausente o inválido", file=sys.stderr)
+                return 1
             if not OUT.is_dir() or OUT.is_symlink():
                 print("Carpeta jurídica no disponible", file=sys.stderr)
                 return 1
