@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from scripts.generar_revision_juridica import tree_sha
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "revision-juridica"
@@ -49,12 +50,26 @@ class RevisionJuridicaTests(unittest.TestCase):
         self.assertIn("Hostinger", readme)
         self.assertIn("no demuestra", readme)
 
+    def test_source_sha_tracks_uncommitted_bytes(self) -> None:
+        sources = {name: (SOURCE / name).read_bytes() for name in NAMES}
+        current = tree_sha(sources)
+        self.assertEqual(
+            current,
+            (OUT / "00-LEEME.md").read_text(encoding="utf-8").splitlines()[0][-40:],
+        )
+        changed = dict(sources)
+        changed[NAMES[0]] += b"extra-change"
+        self.assertNotEqual(current, tree_sha(changed))
+
     def test_workflow_uses_minimum_permissions_and_sync_trigger(self) -> None:
         workflow = (ROOT / ".github/workflows/revision-juridica-sync.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn("branches: [main]", workflow)
         self.assertIn("docs/privacidad/**", workflow)
+        self.assertIn("revision-juridica/**", workflow)
+        self.assertIn("scripts/generar_revision_juridica.py", workflow)
+        self.assertIn('case "$status" in', workflow)
         self.assertIn("schedule:", workflow)
         self.assertIn("cron:", workflow)
         self.assertIn("contents: read", workflow)

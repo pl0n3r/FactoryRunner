@@ -6,6 +6,9 @@ on:
       - 'docs/privacidad/**'
       - 'datos.yml'
       - 'package.json'
+      - 'revision-juridica/**'
+      - 'scripts/generar_revision_juridica.py'
+      - 'tests/test_revision_juridica.py'
   schedule:
     - cron: '41 4 * * *'
   workflow_dispatch:
@@ -30,11 +33,15 @@ jobs:
         id: compare
         shell: bash
         run: |
-          if python3 scripts/generar_revision_juridica.py --check; then
-            echo "drift=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "drift=true" >> "$GITHUB_OUTPUT"
-          fi
+          set +e
+          python3 scripts/generar_revision_juridica.py --check
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            1) echo "drift=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Verificación jurídica no ejecutable (código $status)"; exit "$status" ;;
+          esac
       - name: Abrir un único Issue canónico de desfase
         if: steps.compare.outputs.drift == 'true'
         env:
@@ -68,10 +75,8 @@ jobs:
           while True:
               items = request("GET", "/issues?state=open&per_page=100&page=" + str(page))
               if any(
-                  not issue.get("pull_request") and (
-                      issue["title"] == title or
-                      any(item["name"] == label for item in issue.get("labels", []))
-                  )
+                  not issue.get("pull_request") and
+                  any(item["name"] == label for item in issue.get("labels", []))
                   for issue in items
               ):
                   print("Ya existe un Issue abierto de desfase")
