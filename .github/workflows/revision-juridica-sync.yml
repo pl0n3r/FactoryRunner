@@ -1,0 +1,123 @@
+name: Sincronizar revisión jurídica
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/privacidad/**'
+      - 'datos.yml'
+      - 'package.json'
+      - 'revision-juridica/**'
+      - 'scripts/generar_revision_juridica.py'
+      - 'tests/test_revision_juridica.py'
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: revision-juridica-sync
+  cancel-in-progress: false
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Comprobar fuentes legales sin mutar
+        id: compare
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/generar_revision_juridica.py --check
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            1) echo "drift=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Verificación jurídica no ejecutable (código $status)"; exit "$status" ;;
+          esac
+      - name: Abrir un único Issue canónico de desfase
+        if: steps.compare.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          token = os.environ["GH_TOKEN"]
+          url = "https://api.github.com/repos/" + os.environ["GH_REPO"]
+          label = "revision-juridica-desfase"
+          title = "[AUTO] revision-juridica-desfase: paquete jurídico desactualizado"
+
+          def request(method, path, body=None):
+              payload = None if body is None else json.dumps(body).encode("utf-8")
+              headers = {
+                  "Authorization": "Bearer " + token,
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              }
+              if payload is not None:
+                  headers["Content-Type"] = "application/json"
+              with urlopen(Request(url + path, data=payload, headers=headers, method=method), timeout=20) as response:
+                  return json.load(response)
+
+          page = 1
+          while True:
+              items = request("GET", "/issues?state=open&per_page=100&page=" + str(page))
+              if any(
+                  not issue.get("pull_request") and
+                  any(item["name"] == label for item in issue.get("labels", []))
+                  for issue in items
+              ):
+                  print("Ya existe un Issue abierto de desfase")
+                  raise SystemExit(0)
+              if len(items) < 100:
+                  break
+              page += 1
+
+          try:
+              request("POST", "/labels", {"name": label, "color": "B60205"})
+          except HTTPError as error:
+              if error.code != 422:
+                  raise
+          body = "\n".join([
+              "### Contexto",
+              "Desfase automático entre docs/privacidad y revision-juridica/. No constituye aprobación legal.",
+              "",
+              "### Alcance",
+              "Regenerar revision-juridica/ con python3 scripts/generar_revision_juridica.py y abrir PR con gates normales.",
+              "",
+              "### Fuera de alcance",
+              "No editar fuentes jurídicas, secretos, datos reales, despliegues ni go-live.",
+              "",
+              "### Criterios de aceptación",
+              "- [ ] [AC-01] La carpeta supera el test ejecutable de sincronización.",
+              "",
+              "### Contrato ejecutable",
+              '<!-- factory-acceptance {"version":1,"criteria":[{"id":"AC-01","kind":"test","target":"tests/test_revision_juridica.py::RevisionJuridicaTests::test_current_repo_bundle_is_in_sync"}]} -->',
+              "",
+              "### Rutas reclamadas",
+              "- revision-juridica/",
+              "",
+              '<!-- factory-plan-task {"version":1,"epic":431,"task_key":"REGENERAR_REVISION_JURIDICA","order":1,"owner":"pl0n3r","roles":["legal-privacidad","documentacion"],"depends_on":[],"paths":["revision-juridica/"]} -->',
+          ])
+          request("POST", "/issues", {
+              "title": title,
+              "body": body,
+              "labels": [label, "tipo: documentación", "prioridad: media", "estado: disponible"],
+          })
+          print("Issue de desfase creado; main permanece intacta")
+          PY
+      - name: Fallar cerrado ante desfase
+        if: steps.compare.outputs.drift == 'true'
+        run: exit 1
