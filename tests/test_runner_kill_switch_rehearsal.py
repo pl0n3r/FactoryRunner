@@ -48,6 +48,19 @@ class RunnerKillSwitchTests(unittest.TestCase):
             self.assertEqual(rejected.stdout, "")
             self.assertIn("invalid_offline_rehearsal_request", rejected.stderr)
 
+        # The CLI must not accidentally accept missing or trailing arguments.
+        for argv in ((), ("--source-sha",),
+                     ("--source-sha", BASE_SHA, "--extra"), ("--sha", BASE_SHA)):
+            with self.subTest(argv=argv):
+                rejected = subprocess.run(
+                    ["node", "--experimental-strip-types", str(SCRIPT), *argv],
+                    cwd=ROOT, capture_output=True, text=True, timeout=30,
+                    check=False,
+                )
+                self.assertEqual(rejected.returncode, 2, rejected.stderr)
+                self.assertEqual(rejected.stdout, "")
+                self.assertIn("invalid_offline_rehearsal_request", rejected.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
