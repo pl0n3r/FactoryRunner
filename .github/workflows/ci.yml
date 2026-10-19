@@ -109,3 +109,22 @@ jobs:
     with:
       version_source: config/version.json
       version_format: json
+
+  validate:
+    name: validate
+    needs: [ci, node-typecheck]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Acreditar CI canónico real y Typecheck
+        shell: bash
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          TYPECHECK_RESULT: ${{ needs['node-typecheck'].result }}
+        run: |
+          set -euo pipefail
+          [[ "$CI_RESULT" == "success" ]] || { echo '::error::ci_not_success'; exit 1; }
+          [[ "$TYPECHECK_RESULT" == "success" ]] || { echo '::error::typecheck_not_success'; exit 1; }
