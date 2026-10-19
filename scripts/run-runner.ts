@@ -26,6 +26,8 @@ function localMockTransport(originInput: unknown): ControlBotTransport {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
+      // Never follow redirects off the trusted loopback test origin.
+      redirect: 'error',
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) throw new TypeError('mock_transport_failed');

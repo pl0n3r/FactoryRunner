@@ -121,5 +121,73 @@ class RunnerEntrypointTests(unittest.TestCase):
             self.assertNotIn("example.invalid", result.stdout + result.stderr)
 
 
+    def test_transport_never_follows_redirect(self):
+        """A local mock cannot redirect an order/heartbeat to another server."""
+        observed = []
+
+        class RedirectTarget(BaseHTTPRequestHandler):
+            def log_message(self, _format, *_args):
+                pass
+
+            def do_POST(self):
+                observed.append(("POST", self.path))
+                self.send_response(204)
+                self.end_headers()
+
+            def do_GET(self):
+                observed.append(("GET", self.path))
+                self.send_response(204)
+                self.end_headers()
+
+        target = ThreadingHTTPServer(("127.0.0.1", 0), RedirectTarget)
+        target_thread = threading.Thread(target=target.serve_forever, daemon=True)
+        target_thread.start()
+
+        class RedirectSource(BaseHTTPRequestHandler):
+            def log_message(self, _format, *_args):
+                pass
+
+            def do_POST(self):
+                self.send_response(307)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{target.server_port}/unexpected",
+                )
+                self.end_headers()
+
+        source = ThreadingHTTPServer(("127.0.0.1", 0), RedirectSource)
+        source_thread = threading.Thread(target=source.serve_forever, daemon=True)
+        source_thread.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="runner-575-redirect-") as folder:
+                config = {
+                    "identity": {
+                        "version": 1, "runner_id": RUNNER_ID,
+                        "protocol_version": 1, "runtime": "node",
+                        "runtime_version": "24.0.0", "platform": "linux",
+                        "location": "mock", "capabilities": ["git.head"],
+                        "max_parallel": 1,
+                    },
+                    "origin": f"http://127.0.0.1:{source.server_port}",
+                    "journal_path": str(Path(folder) / "journal.ndjson"),
+                    "outbox_path": str(Path(folder) / "outbox.ndjson"),
+                    "cycles": 1,
+                }
+                result = subprocess.run(
+                    ["npm", "start", "--silent"], cwd=ROOT,
+                    env={**os.environ, "FACTORYRUNNER_TEST_CONFIG": json.dumps(config)},
+                    text=True, capture_output=True, check=False, timeout=20,
+                )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stderr.strip(), "runner_failed")
+            self.assertEqual(observed, [], "redirect escaped the mock transport boundary")
+        finally:
+            source.shutdown()
+            source_thread.join(timeout=5)
+            source.server_close()
+            target.shutdown()
+            target_thread.join(timeout=5)
+            target.server_close()
+
 if __name__ == "__main__":
     unittest.main()
