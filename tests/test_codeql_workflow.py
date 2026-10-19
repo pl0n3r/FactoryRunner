@@ -12,7 +12,9 @@ class CodeQLWorkflowTests(unittest.TestCase):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("name: CodeQL", content)
         self.assertIn("on:\n  pull_request:\n  push:\n    branches: [main]", content)
-        self.assertIn("    name: CodeQL\n", content)
+        self.assertIn("    name: Escanear JS-TS y Python\n", content)
+        # Only the official github-advanced-security app may emit check `CodeQL`.
+        self.assertNotIn("    name: CodeQL\n", content)
         self.assertIn("    timeout-minutes: 30\n", content)
         self.assertIn("      security-events: write\n", content)
         self.assertIn("      contents: read\n", content)

@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL
+    name: Escanear JS-TS y Python
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
