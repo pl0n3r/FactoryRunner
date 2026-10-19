@@ -63,6 +63,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "start": "node --experimental-strip-types scripts/run-runner.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "build": "node --experimental-strip-types scripts/build.ts",
     "typecheck": "tsc --noEmit"
