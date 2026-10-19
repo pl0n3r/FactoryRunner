@@ -128,3 +128,27 @@ jobs:
           set -euo pipefail
           [[ "$CI_RESULT" == "success" ]] || { echo '::error::ci_not_success'; exit 1; }
           [[ "$TYPECHECK_RESULT" == "success" ]] || { echo '::error::typecheck_not_success'; exit 1; }
+
+  tests:
+    name: tests
+    needs: [ci, node-typecheck]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Acreditar CI real antes de repetir la aceptación
+        shell: bash
+        env:
+          CI_RESULT: ${{ needs.ci.result }}
+          TYPECHECK_RESULT: ${{ needs['node-typecheck'].result }}
+        run: |
+          set -euo pipefail
+          [[ "$CI_RESULT" == "success" ]] || { echo "::error::ci_not_success"; exit 1; }
+          [[ "$TYPECHECK_RESULT" == "success" ]] || { echo "::error::typecheck_not_success"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Ejecutar aceptación independiente del alias validate
+        run: python3 -m unittest discover -s tests -p 'test_ci_policy_validate_alias.py'
