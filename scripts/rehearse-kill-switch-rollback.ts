@@ -3,6 +3,8 @@
  * no importa clientes HTTP, tokens ni APIs de ejecución de FactoryRunner.
  */
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const FAKE_ORDER = /^fake-[a-z0-9-]{1,48}$/;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
@@ -158,4 +160,34 @@ export function rehearseKillSwitchRollback(input: {
     ...summary,
     evidence_sha256: createHash('sha256').update(JSON.stringify(summary)).digest('hex'),
   });
+}
+
+
+/** CLI de evidencia fake-only. El SHA pinnea la revision de origen, no una release. */
+export function emitRehearsalReceiptCli(args: readonly string[]): {
+  source_sha: string;
+  receipt: RehearsalReceipt;
+} {
+  if (args.length !== 2 || args[0] !== '--source-sha'
+      || !/^[0-9a-f]{40}$/.test(args[1] ?? '')) {
+    throw new TypeError('invalid_source_sha');
+  }
+  return Object.freeze({
+    source_sha: args[1],
+    receipt: rehearseKillSwitchRollback({
+      runner: new FakeRehearsalRunner(false, ['fake-already-accepted']),
+      controlBot: new FakeRehearsalControlBot(false),
+      fakeOrderId: 'fake-execution-0001',
+      observedAt: '2026-10-11T08:00:00Z',
+    }),
+  });
+}
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  try {
+    process.stdout.write(JSON.stringify(emitRehearsalReceiptCli(process.argv.slice(2))) + '\n');
+  } catch {
+    process.stderr.write('invalid_offline_rehearsal_request\n');
+    process.exitCode = 2;
+  }
 }
