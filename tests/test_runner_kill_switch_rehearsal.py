@@ -1,6 +1,7 @@
 """AC-01 #577: recibo sintético de kill switch/rollback fijado a SHA."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -31,6 +32,15 @@ class RunnerKillSwitchTests(unittest.TestCase):
         self.assertTrue(receipt["paused_rejected_at_runner"])
         self.assertTrue(receipt["rollback_restored"])
         self.assertRegex(receipt["evidence_sha256"], r"^[a-f0-9]{64}$")
+        # Verify the archived digest independently of the Node CLI.
+        # The producer hashes the JSON summary before appending evidence_sha256.
+        unsigned = {key: value for key, value in receipt.items()
+                    if key != "evidence_sha256"}
+        canonical = json.dumps(unsigned, ensure_ascii=False, separators=(",", ":"))
+        self.assertEqual(
+            hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+            receipt["evidence_sha256"],
+        )
         self.assertNotIn("fake-execution-0001", json.dumps(archive))
         for _ in range(2):
             result = subprocess.run(
