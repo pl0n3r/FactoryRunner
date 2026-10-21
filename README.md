@@ -2,91 +2,59 @@
 
 > Execution plane programático y auditable para ejecutar órdenes gobernadas por ControlBot.
 
-**Rol en la fábrica:** execution plane · **Fase:** construction · **Roadmap:** GitHub Issues + [Factory #168](https://github.com/pl0n3r/Factory/issues/168)
+**Rol:** execution plane · **Fase:** construcción (sin go-live) · **Roadmap:** [FactoryRunner #1](https://github.com/pl0n3r/FactoryRunner/issues/1) + [Factory #168](https://github.com/pl0n3r/Factory/issues/168)
 
-FactoryRunner ejecuta trabajo; no decide prioridades, no amplía autoridad y no almacena secretos del dueño. Su runtime objetivo es Node.js 24 + TypeScript con contratos Factory, portable al hosting disponible y con ejecución local solo como fallback operativo.
+FactoryRunner implementa contratos verificables de ejecución. ControlBot gobierna el despacho y conserva el estado durable. El código usa [Node.js 24 + TypeScript](AGENTES.md), pero **no hay integración live ni despliegue acreditado**: [#431](https://github.com/pl0n3r/FactoryRunner/issues/431) autoriza solo preparación offline.
 
 ## Operational Cockpit
 
-<!-- factory:status:start -->
-| Señal | Estado |
-| --- | --- |
-| main SHA | UNKNOWN |
-| versión | UNKNOWN |
-| CI | UNKNOWN |
-| release | UNKNOWN |
-| health | UNKNOWN |
-| smoke/observer | UNKNOWN |
-| quality/security | UNKNOWN |
-| Issue activo | UNKNOWN |
-| PR activo | UNKNOWN |
-| último release | UNKNOWN |
-<!-- factory:status:end -->
+[![CI en main](https://github.com/pl0n3r/FactoryRunner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pl0n3r/FactoryRunner/actions/workflows/ci.yml)
+[![Última release](https://img.shields.io/github/v/release/pl0n3r/FactoryRunner?label=release)](https://github.com/pl0n3r/FactoryRunner/releases)
 
-### Progress + Readiness
+[GitHub Actions](https://github.com/pl0n3r/FactoryRunner/actions) · [GitHub Releases](https://github.com/pl0n3r/FactoryRunner/releases) · [Orquestador de ControlBot](https://control.condorapp.com.co/) (acceso restringido; el enlace no certifica conexión del Runner).
 
-<!-- factory:progress-readiness:start -->
-| Señal | Estado |
-| --- | --- |
-| Target | UNKNOWN |
-| Progress | UNKNOWN |
-| Readiness | UNKNOWN |
-| Evidence freshness | UNKNOWN |
-| Critical blockers | UNKNOWN |
-| Trend | UNKNOWN |
-
-| Dimensión | Progress | Readiness |
-| --- | --- | --- |
-| UNKNOWN | UNKNOWN | UNKNOWN |
-<!-- factory:progress-readiness:end -->
-
-> Los bloques anteriores son derivados. UNKNOWN/PENDING significa que falta evidencia canónica; nunca equivale a GREEN.
+No se muestra un `/health` público: el [observador local](docs/local-observer.md) es una **demo sintética local**, no un servicio productivo. Estas señales se actualizan al visualizar GitHub, sin commits de refresco ni porcentajes inferidos.
 
 ## Work Queue
 
-- **NOW:** sin hoja disponible para ejecutar; el inventario completo, incluidos Issues bloqueados, está en [FactoryRunner Issues](https://github.com/pl0n3r/FactoryRunner/issues).
-- **NEXT:** ninguno materializado. El siguiente trabajo debe nacer como Issue gobernado antes de reservarse o implementarse.
-- **LATER:** ampliar adapters de ejecución y browser únicamente mediante Issues gobernados y capacidades explícitas.
-- **BLOCKED:** [#431 — activación live](https://github.com/pl0n3r/FactoryRunner/issues/431) continúa bloqueado por puerta exclusiva del dueño y evidencia pendiente de compatibilidad ControlBot, health/readiness, observabilidad y rollback. No representa una hoja disponible ni autoriza go-live. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
+- **NOW:** [Issues abiertos y estado de reservas](https://github.com/pl0n3r/FactoryRunner/issues); comprobar dependencias antes de tomar trabajo.
+- **NEXT:** [preflight offline #585](https://github.com/pl0n3r/FactoryRunner/issues/585), con pruebas y gates propios; no habilita activación.
+- **LATER:** [observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465), pendiente de autoridad y privacidad verificadas.
+- **BLOCKED:** [go-live #431](https://github.com/pl0n3r/FactoryRunner/issues/431) requiere decisión humana y evidencia real de ControlBot, health, restore y rollback.
 
-Referencias de baseline: [#20 — README Contract v1](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168 — bootstrap/arquitectura](https://github.com/pl0n3r/Factory/issues/168).
-
-Esta cola es un resumen operativo; los Issues son la planificación canónica y el README no funciona como changelog.
+Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación; su estado vivo está en Issues.
 
 ## Qué hace el producto
 
-FactoryRunner materializa el plano de ejecución de la fábrica:
+El [roadmap #1](https://github.com/pl0n3r/FactoryRunner/issues/1) documenta contratos implementados y probados para:
 
-- identidad, heartbeat y manifest de capacidades del runner;
-- validación y ejecución idempotente de órdenes emitidas por ControlBot;
-- publicación de eventos de ejecución y ACKs;
-- adapters de browser/runtime con límites explícitos;
-- aislamiento de autoridad: recibe trabajo gobernado, pero no decide qué trabajo priorizar.
+- [identidad, capacidades y heartbeat](src/runner.ts) con capacidad fail-closed;
+- [órdenes idempotentes](src/order.ts) y [eventos](src/event.ts), con validación de referencias;
+- [adapters programáticos](src/adapters/) y browser portable, sin ejecución remota habilitada;
+- [cliente tipado ControlBot](src/controlbot/) y [observador sintético](docs/local-observer.md), **sin captura de sesiones ni datos reales**.
 
-El estado durable y la dirección de negocio pertenecen a ControlBot; FactoryRunner conserva únicamente el estado mínimo necesario para ejecutar contratos de forma segura.
+El estado durable y la prioridad pertenecen a [ControlBot](https://github.com/pl0n3r/ControlBot), no al Runner.
 
 ## Arquitectura en 60 segundos
 
 ```mermaid
 flowchart LR
-    F[Factory · governance/kit] --> C[ControlBot · control plane]
-    C -->|ExecutionOrder| R[FactoryRunner · execution plane]
-    R -->|ExecutionEvent / heartbeat / ACK| C
-    R --> A[Adapters y runtimes autorizados]
-    A --> X[Git / browser / procesos soportados]
-    O[Owner] --> C
+    F[Factory · contratos] --> C[ControlBot · control plane]
+    C -.->|ExecutionOrder · no conectado| R[FactoryRunner · execution plane]
+    R -.->|ExecutionEvent / ACK / heartbeat| C
+    R --> A[Adapters verificables offline]
+    A --> X[Git / browser por capabilities]
 ```
 
-ControlBot decide elegibilidad y despacho. FactoryRunner valida la orden, ejecuta solo capacidades permitidas y devuelve evidencia. AutoFactory permanece separado como herramienta local/manual.
+Las flechas discontinuas describen **interfaces, no conexiones desplegadas**: [cliente ControlBot](src/controlbot/) y [puerta humana #431](https://github.com/pl0n3r/FactoryRunner/issues/431). [AutoFactory](https://github.com/pl0n3r/AutoFactory) permanece local/manual e independiente.
 
 ## Stack e infraestructura
 
-- **Runtime:** Node.js 24 LTS + TypeScript.
-- **Contratos compartidos:** Factory Kit v1.
-- **Transporte:** cliente ControlBot tipado para polling, heartbeat, ACK y eventos.
-- **Hosting objetivo actual:** Hostinger Shared/Web Hosting, sin asumir Docker, root ni Chromium local.
-- **Fallback:** ejecución local en macOS solo cuando una capacidad no sea viable en hosting compartido.
-- **Estado durable de negocio:** ControlBot; FactoryRunner no introduce una base de datos paralela por defecto.
+- **Código:** [Node.js 24 LTS + TypeScript](package.json), tests Node/Python y [CI Factory@v1](.github/workflows/ci.yml).
+- **Transporte:** [contratos del cliente ControlBot](src/controlbot/) para polling, heartbeat, ACK y eventos, todavía **sin endpoint real conectado**.
+- **Target:** [Hostinger Shared/Web Hosting](AGENTES.md), sin asumir Docker, root o Chromium; macOS local solo como fallback condicionado.
+- **Observación:** [servidor `--demo`](docs/local-observer.md), opt-in y limitado a loopback/fixtures; no representa `/health` público real.
+- **Estado durable:** corresponde a ControlBot, no a una base paralela del Runner.
 
 ## Ciclo de entrega
 
@@ -105,15 +73,14 @@ Una ejecución o merge no demuestra por sí solo salud del runtime. Cualquier fu
 
 ## Roadmap y fuentes de verdad
 
-- Gobierno común: [pl0n3r/Factory](https://github.com/pl0n3r/Factory) y su `PLAN-AGENTES.md`.
-- Bootstrap/arquitectura del Runner: [Factory #168](https://github.com/pl0n3r/Factory/issues/168).
-- Trabajo propio: [FactoryRunner Issues](https://github.com/pl0n3r/FactoryRunner/issues).
-- Decisiones vigentes: `decisiones.yml`.
-- Datos y tratamiento: `datos.yml`.
-- Contrato operativo del agente: `AGENTES.md`.
-- Documentación profunda: `docs/`.
+- [FactoryRunner #1](https://github.com/pl0n3r/FactoryRunner/issues/1): roadmap del execution plane.
+- [Issues](https://github.com/pl0n3r/FactoryRunner/issues) y [PRs](https://github.com/pl0n3r/FactoryRunner/pulls): trabajo y evidencia operativa.
+- [PLAN-AGENTES.md](https://github.com/pl0n3r/factory/blob/main/PLAN-AGENTES.md): gobernanza y orden de despacho.
+- [AGENTES.md](AGENTES.md) y [decisiones.yml](decisiones.yml): límites y decisiones.
+- [datos.yml](datos.yml) y [docs/](docs/): privacidad y documentación profunda.
+- [#431](https://github.com/pl0n3r/FactoryRunner/issues/431) y [#465](https://github.com/pl0n3r/FactoryRunner/issues/465): autorización live y fuente real pendientes.
 
-Estas fuentes mandan sobre snapshots históricos del README.
+La evidencia exacta en Issues, PRs y pruebas manda sobre cualquier texto histórico de esta portada.
 
 ## Desarrollo local
 
