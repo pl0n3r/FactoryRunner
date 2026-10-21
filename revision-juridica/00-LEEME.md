@@ -1,10 +1,10 @@
-Última actualización automática: 2026-10-18 UTC · SHA de origen de docs/privacidad: 3939a6fa55e6c609a3f8cb00b1bf222cbe61c4a7
+Última actualización automática: 2026-10-18 UTC · SHA de origen de docs/privacidad: 4931b797bd0c3bc1d289edd9d6a7bfe94844d8b5
 
 # Carpeta para revisión jurídica · FactoryRunner
 
 **Estado literal:** documented_not_legally_approved.
 **Producto:** pl0n3r/FactoryRunner · **Versión del repo:** 0.1.0 (package.json).
-**Origen verificable:** árbol Git docs/privacidad con SHA 3939a6fa55e6c609a3f8cb00b1bf222cbe61c4a7; no es el SHA de un commit completo.
+**Origen verificable:** árbol Git docs/privacidad con SHA 4931b797bd0c3bc1d289edd9d6a7bfe94844d8b5; no es el SHA de un commit completo.
 
 **Para entregar:** toma estos seis archivos o paquete-completo.md y envíalos al abogado.
 Son borradores técnicos; la revisión y aprobación jurídica siguen pendientes. No autorizan go-live.
