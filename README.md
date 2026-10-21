@@ -17,12 +17,12 @@ No se muestra un `/health` público: el [observador local](docs/local-observer.m
 
 ## Work Queue
 
-- **NOW:** [Issues abiertos y estado de reservas](https://github.com/pl0n3r/FactoryRunner/issues); comprobar dependencias antes de tomar trabajo.
+- **NOW:** sin hoja disponible preasignada por esta portada; consultar [Issues abiertos y estado de reservas](https://github.com/pl0n3r/FactoryRunner/issues) para determinar trabajo ejecutable, dependencias y reservas vigentes.
 - **NEXT:** [preflight offline #585](https://github.com/pl0n3r/FactoryRunner/issues/585), con pruebas y gates propios; no habilita activación.
 - **LATER:** [observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465), pendiente de autoridad y privacidad verificadas.
-- **BLOCKED:** [go-live #431](https://github.com/pl0n3r/FactoryRunner/issues/431) requiere decisión humana y evidencia real de ControlBot, health, restore y rollback.
+- **BLOCKED:** [go-live #431](https://github.com/pl0n3r/FactoryRunner/issues/431) sigue bajo puerta exclusiva del dueño; exige evidencia de ControlBot, health/readiness, observabilidad y rollback. No representa una hoja disponible ni autoriza go-live.
 
-Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación; su estado vivo está en Issues.
+Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación; su estado vivo está en Issues. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
 
 ## Qué hace el producto
 
