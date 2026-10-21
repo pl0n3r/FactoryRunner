@@ -1,4 +1,4 @@
-"""Regresiones locales de adopción de README Contract v1 para FactoryRunner."""
+"""Regresiones de adopción de README Contract v2 para FactoryRunner."""
 from __future__ import annotations
 
 import json
@@ -51,46 +51,38 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
         self.assertEqual(metadata["phase"], "construction")
         self.assertEqual(metadata["role"], "execution plane")
 
-    def test_readme_has_contract_v1_anatomy(self):
+    def test_readme_is_contract_v2_without_unknown_blocks(self):
         readme = self.readme()
-        for heading in REQUIRED_SECTIONS:
-            self.assertEqual(readme.count(f"## {heading}"), 1, heading)
         self.assertTrue(readme.startswith("# FactoryRunner\n"))
 
-    def test_derived_blocks_fail_closed_without_evidence(self):
-        readme = self.readme()
-        self.assertEqual(readme.count("<!-- factory:status:start -->"), 1)
-        self.assertEqual(readme.count("<!-- factory:status:end -->"), 1)
-        self.assertEqual(readme.count("<!-- factory:progress-readiness:start -->"), 1)
-        self.assertEqual(readme.count("<!-- factory:progress-readiness:end -->"), 1)
+        # Hero más diez secciones: once superficies v2 en orden, sin duplicados.
+        offsets = [readme.index(f"## {h}") for h in REQUIRED_SECTIONS]
+        self.assertEqual(offsets, sorted(offsets))
+        for heading in REQUIRED_SECTIONS:
+            self.assertEqual(readme.count(f"## {heading}"), 1, heading)
 
-        status = readme.split("<!-- factory:status:start -->", 1)[1].split(
-            "<!-- factory:status:end -->", 1
-        )[0]
-        for label in (
-            "main SHA",
-            "versión",
-            "CI",
-            "release",
-            "health",
-            "smoke/observer",
-            "quality/security",
-            "Issue activo",
-            "PR activo",
-            "último release",
+        for legacy in (
+            "UNKNOWN", "factory:status", "factory:progress-readiness",
+            "Progress + Readiness", "| main SHA |", "| Target |",
+            "| Readiness |", "| Señal | Estado |",
         ):
-            self.assertIn(f"| {label} | UNKNOWN |", status)
-        self.assertNotIn("| CI | GREEN |", status)
-        self.assertNotIn("| health | GREEN |", status)
-        self.assertNotIn("| smoke/observer | GREEN |", status)
-        self.assertNotIn("| quality/security | GREEN |", status)
+            self.assertNotIn(legacy, readme, legacy)
 
-        progress = readme.split(
-            "<!-- factory:progress-readiness:start -->", 1
-        )[1].split("<!-- factory:progress-readiness:end -->", 1)[0]
-        self.assertIn("| Target | UNKNOWN |", progress)
-        self.assertIn("| Progress | UNKNOWN |", progress)
-        self.assertIn("| Readiness | UNKNOWN |", progress)
+        cockpit = readme.split("## Operational Cockpit", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("actions/workflows/ci.yml/badge.svg?branch=main", cockpit)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/actions", cockpit)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/releases", cockpit)
+        self.assertIn("https://img.shields.io/github/v/release/pl0n3r/FactoryRunner", cockpit)
+        self.assertIn("https://control.condorapp.com.co/", cockpit)
+        self.assertIn("docs/local-observer.md", cockpit)
+        self.assertIn("demo sintética local", cockpit)
+        self.assertIn("sin commits de refresco", cockpit)
+        self.assertNotIn("https://example.com", cockpit)
+
+        # Sin falsos positivos de health/readiness o autorización live.
+        self.assertIn("sin go-live", readme)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/431", readme)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/465", readme)
 
     def test_consumer_workflow_uses_factory_v1(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

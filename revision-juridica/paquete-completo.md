@@ -4,13 +4,13 @@ Estado: documented_not_legally_approved. Contiene índice y fuentes íntegras.
 
 ## Índice de entrega
 
-Última actualización automática: 2026-10-18 UTC · SHA de origen de docs/privacidad: 3939a6fa55e6c609a3f8cb00b1bf222cbe61c4a7
+Última actualización automática: 2026-10-18 UTC · SHA de origen de docs/privacidad: 4931b797bd0c3bc1d289edd9d6a7bfe94844d8b5
 
 # Carpeta para revisión jurídica · FactoryRunner
 
 **Estado literal:** documented_not_legally_approved.
 **Producto:** pl0n3r/FactoryRunner · **Versión del repo:** 0.1.0 (package.json).
-**Origen verificable:** árbol Git docs/privacidad con SHA 3939a6fa55e6c609a3f8cb00b1bf222cbe61c4a7; no es el SHA de un commit completo.
+**Origen verificable:** árbol Git docs/privacidad con SHA 4931b797bd0c3bc1d289edd9d6a7bfe94844d8b5; no es el SHA de un commit completo.
 
 **Para entregar:** toma estos seis archivos o paquete-completo.md y envíalos al abogado.
 Son borradores técnicos; la revisión y aprobación jurídica siguen pendientes. No autorizan go-live.
@@ -106,7 +106,7 @@ Producto: `pl0n3r/FactoryRunner`
 - Flujo interno de atención: [COMPLETAR POR EL DUEÑO] — revisión jurídica requerida.
 - Plazos aplicables: [COMPLETAR POR EL DUEÑO] — deben ser definidos con revisión jurídica; este kit no inventa un plazo legal.
 
-El canal debe permitir solicitudes de acceso, corrección, actualización, supresión o revocación según corresponda. Este documento describe una frontera técnica y no constituye aprobación jurídica.
+El canal debe contemplar solicitudes de acceso, rectificación/corrección, actualización, portabilidad, supresión/eliminación o revocación del consentimiento cuando corresponda. La identidad, legitimación y representación deben verificarse antes de tramitar solicitudes; los procedimientos y plazos siguen sujetos a revisión jurídica. Este documento describe una frontera técnica y no constituye aprobación jurídica.
 
 ## Fuente: docs/privacidad/politica-tratamiento.md
 
@@ -133,7 +133,7 @@ El canal debe permitir solicitudes de acceso, corrección, actualización, supre
 
 ## Derechos y revisión
 
-Las solicitudes de acceso, corrección, actualización, supresión o revocación se canalizan mediante el canal de derechos indicado arriba. Las finalidades, bases, consentimientos, proveedores y retenciones aquí documentadas requieren la revisión jurídica aplicable antes de declararse aprobadas.
+Las solicitudes de acceso, rectificación/corrección, actualización, portabilidad, supresión/eliminación o revocación del consentimiento, cuando corresponda, se canalizan mediante el canal de derechos indicado arriba, previa verificación de identidad y legitimación. La portabilidad no implica que exista un servicio automatizado de exportación. Las finalidades, bases, consentimientos, proveedores y retenciones aquí documentadas requieren la revisión jurídica aplicable antes de declararse aprobadas.
 
 ## Fuente: docs/privacidad/registro-tratamientos.md
 
