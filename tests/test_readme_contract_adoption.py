@@ -98,6 +98,13 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
             self.assertIn(f"**{lane}:**", queue)
         self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/20", queue)
         self.assertIn("https://github.com/pl0n3r/Factory/issues/168", queue)
+        # La cola se resuelve con Issues ABIERTOS, no con hojas ya cerradas.
+        self.assertIn("issues?q=is%3Aissue%20is%3Aopen", queue)
+        for state in ("disponible", "planificado", "bloqueado"):
+            self.assertIn(f"label%3A%22estado%3A%20{state}%22", queue)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/465", queue)
+        for closed_issue in (431, 585):
+            self.assertNotIn(f"https://github.com/pl0n3r/FactoryRunner/issues/{closed_issue}", queue)
 
     def test_factory_map_preserves_roles(self):
         readme = self.readme()

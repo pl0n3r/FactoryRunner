@@ -17,10 +17,10 @@ No se muestra un `/health` público: el [observador local](docs/local-observer.m
 
 ## Work Queue
 
-- **NOW:** sin hoja disponible preasignada por esta portada; consultar [Issues abiertos y estado de reservas](https://github.com/pl0n3r/FactoryRunner/issues) para determinar trabajo ejecutable, dependencias y reservas vigentes.
-- **NEXT:** [preflight offline #585](https://github.com/pl0n3r/FactoryRunner/issues/585), con pruebas y gates propios; no habilita activación.
-- **LATER:** [observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465), pendiente de autoridad y privacidad verificadas.
-- **BLOCKED:** [go-live #431](https://github.com/pl0n3r/FactoryRunner/issues/431) sigue bajo puerta exclusiva del dueño; exige evidencia de ControlBot, health/readiness, observabilidad y rollback. No representa una hoja disponible ni autoriza go-live.
+- **NOW:** [Issues disponibles abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20disponible%22) — verificar reservas y claims vigentes antes de tomar trabajo.
+- **NEXT:** [Issues planificados abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20planificado%22) — solo convertir en hojas ejecutables tras aceptación y autoridad.
+- **LATER:** [Observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465) — pendiente de procedencia, privacidad y autorización específica.
+- **BLOCKED:** [Issues bloqueados abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20bloqueado%22) — las decisiones humanas históricas no constituyen un issue abierto ni autorizan go-live.
 
 Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación; su estado vivo está en Issues. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
 
