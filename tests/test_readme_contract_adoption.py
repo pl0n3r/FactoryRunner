@@ -97,7 +97,7 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
         readme = self.readme()
         queue = readme.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
 
-        # Las cuatro carriles consultan Issues abiertos del repositorio por
+        # Los cuatro carriles consultan Issues abiertos del repositorio por
         # etiquetas canónicas: nunca se fijan IDs históricos de tareas cerradas.
         lanes = {
             "NOW": "reservado",
@@ -107,10 +107,14 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
         }
         for lane, state in lanes.items():
             with self.subTest(lane=lane):
+                line = next(
+                    (candidate for candidate in queue.splitlines()
+                     if candidate.startswith(f"- **{lane}:**")),
+                    "",
+                )
                 match = re.search(
-                    rf"\\*\\*{lane}:\\*\\* \\[[^\\]]+\\]\\((https://github\\.com/"
-                    rf"pl0n3r/FactoryRunner/issues\\?[^)]+)\\)",
-                    queue,
+                    r"\]\((https://github\.com/pl0n3r/FactoryRunner/issues\?[^)]+)\)",
+                    line,
                 )
                 self.assertIsNotNone(match, f"{lane}: falta búsqueda viva")
                 parsed = urlsplit(match.group(1))
