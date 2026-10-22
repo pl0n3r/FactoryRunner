@@ -47,10 +47,15 @@ class BootstrapClosureTests(unittest.TestCase):
         now_entry = next(
             line for line in queue.splitlines() if line.startswith("- **NOW:**")
         )
-        self.assertIn("**NOW:** sin hoja disponible", now_entry)
+        # NOW nunca apunta a una hoja histórica ya cerrada ni finge que la
+        # cola está vacía: la búsqueda queda ligada a Issues abiertos con V3.
+        self.assertIn("issues?q=is%3Aissue%20is%3Aopen", now_entry)
+        self.assertIn("label%3A%22estado%3A%20reservado%22", now_entry)
+        self.assertNotIn("sin hoja disponible", now_entry)
         self.assertNotIn("sin Issues abiertos", now_entry)
-        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues", now_entry)
         self.assertNotIn("#22", now_entry)
+        self.assertNotIn("/issues/431", queue)
+        self.assertNotIn("/issues/585", queue)
         for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
             self.assertIn(f"**{lane}:**", queue)
 
@@ -63,14 +68,18 @@ class BootstrapClosureTests(unittest.TestCase):
         blocked_entry = next(
             line for line in queue.splitlines() if line.startswith("- **BLOCKED:**")
         )
+        # #431 CLOSED no pertenece a BLOCKED; esta vista filtra Issues OPEN.
+        self.assertIn("issues?q=is%3Aissue%20is%3Aopen", blocked_entry)
+        self.assertIn("label%3A%22estado%3A%20bloqueado%22", blocked_entry)
+        self.assertNotIn("/issues/431", queue)
+        self.assertNotIn("#431", now_entry)
         self.assertNotIn("sin Issues abiertos", queue)
         self.assertNotIn("**BLOCKED:** ninguno", queue)
-        self.assertNotIn("#431", now_entry)
-        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/431", blocked_entry)
-        self.assertIn("puerta exclusiva del dueño", blocked_entry)
-        self.assertIn("health/readiness", blocked_entry)
-        self.assertIn("observabilidad y rollback", blocked_entry)
-        self.assertIn("No representa una hoja disponible ni autoriza go-live", blocked_entry)
+        # La autorización OWNER A sigue constando en el contexto documental,
+        # sin conceder live ni despliegue por el cierre del Issue.
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/431", text)
+        self.assertIn("sin go-live", text)
+        self.assertIn("no hay integración live ni despliegue acreditado", text)
 
     def test_post_bootstrap_work_queue_points_to_canonical_issues(self) -> None:
         text = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
@@ -94,10 +96,50 @@ class ReadmeContractAdoptionTests(unittest.TestCase):
     def test_work_queue_links_canonical_roadmap(self):
         readme = self.readme()
         queue = readme.split("## Work Queue", 1)[1].split("\n## ", 1)[0]
-        for lane in ("NOW", "NEXT", "LATER", "BLOCKED"):
-            self.assertIn(f"**{lane}:**", queue)
+
+        # Los cuatro carriles consultan Issues abiertos del repositorio por
+        # etiquetas canónicas: nunca se fijan IDs históricos de tareas cerradas.
+        lanes = {
+            "NOW": "reservado",
+            "NEXT": "disponible",
+            "LATER": "planificado",
+            "BLOCKED": "bloqueado",
+        }
+        for lane, state in lanes.items():
+            with self.subTest(lane=lane):
+                line = next(
+                    (candidate for candidate in queue.splitlines()
+                     if candidate.startswith(f"- **{lane}:**")),
+                    "",
+                )
+                match = re.search(
+                    r"\]\((https://github\.com/pl0n3r/FactoryRunner/issues\?[^)]+)\)",
+                    line,
+                )
+                self.assertIsNotNone(match, f"{lane}: falta búsqueda viva")
+                parsed = urlsplit(match.group(1))
+                self.assertEqual(parsed.path, "/pl0n3r/FactoryRunner/issues")
+                self.assertEqual(
+                    parse_qs(parsed.query).get("q"),
+                    [f'is:issue is:open label:"estado: {state}"'],
+                )
+
+        for closed_id in (585, 431):
+            self.assertNotIn(
+                f"https://github.com/pl0n3r/FactoryRunner/issues/{closed_id}",
+                queue,
+                f"El issue cerrado #{closed_id} no puede estar en Work Queue",
+            )
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/465", queue)
         self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/20", queue)
         self.assertIn("https://github.com/pl0n3r/Factory/issues/168", queue)
+        # La cola se resuelve con Issues ABIERTOS, no con hojas ya cerradas.
+        self.assertIn("issues?q=is%3Aissue%20is%3Aopen", queue)
+        for state in ("disponible", "planificado", "bloqueado"):
+            self.assertIn(f"label%3A%22estado%3A%20{state}%22", queue)
+        self.assertIn("https://github.com/pl0n3r/FactoryRunner/issues/465", queue)
+        for closed_issue in (431, 585):
+            self.assertNotIn(f"https://github.com/pl0n3r/FactoryRunner/issues/{closed_issue}", queue)
 
     def test_factory_map_preserves_roles(self):
         readme = self.readme()
