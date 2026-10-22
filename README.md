@@ -17,12 +17,12 @@ No se muestra un `/health` público: el [observador local](docs/local-observer.m
 
 ## Work Queue
 
-- **NOW:** [Issues disponibles abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20disponible%22) — verificar reservas y claims vigentes antes de tomar trabajo.
-- **NEXT:** [Issues planificados abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20planificado%22) — solo convertir en hojas ejecutables tras aceptación y autoridad.
-- **LATER:** [Observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465) — pendiente de procedencia, privacidad y autorización específica.
-- **BLOCKED:** [Issues bloqueados abiertos](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20bloqueado%22) — las decisiones humanas históricas no constituyen un issue abierto ni autorizan go-live.
+- **NOW:** [Issues abiertos con reserva activa](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20reservado%22); verificar el UUID V3 y el PR antes de continuar.
+- **NEXT:** [Issues abiertos disponibles](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20disponible%22); tomar trabajo solo tras validar dependencias, claims y autorización.
+- **LATER:** [Issues abiertos planificados](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20planificado%22); el [observador con fuente auténtica #465](https://github.com/pl0n3r/FactoryRunner/issues/465) permanece como dirección de producto, no como trabajo ya habilitado.
+- **BLOCKED:** [Issues abiertos bloqueados](https://github.com/pl0n3r/FactoryRunner/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22estado%3A%20bloqueado%22); no convertir cierre histórico o ausencia de evidencia en autorización operativa.
 
-Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación; su estado vivo está en Issues. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
+Historial de adopción: [#20](https://github.com/pl0n3r/FactoryRunner/issues/20) · [Factory #168](https://github.com/pl0n3r/Factory/issues/168). Esta cola es navegación dinámica filtrada por estado y apertura; la fuente de verdad son los Issues en GitHub. El repositorio público es el estado canónico según D-062; PII, credenciales, cookies y secretos siguen prohibidos en el repositorio.
 
 ## Qué hace el producto
 
