@@ -27,7 +27,7 @@ Las capas están integradas en el repositorio, pero **no están conectadas a una
 
 El candidato `kind=in_process_candidate` tiene `sample_freshness=FRESH|STALE|OFFLINE|UNKNOWN`, pero esa frescura describe **solo la edad de los datos suministrados**, no prueba que se estén observando runners. Incluso si un fixture resulta FRESH, `readiness=UNKNOWN`, `capacity.available=null`, la cola global y el último resultado siguen siendo UNKNOWN. **FRESH no autoriza READY ni live**.
 
-El candidato **no se importa ni se sirve** desde `scripts/local-observer-server.ts`. El servidor sigue `synthetic_only`: `GET /health` responde `{"mode":"synthetic_only","readiness":"UNKNOWN"}`. Ninguna capa inicia servicios, lee procesos, chats o sesiones del Mac, envía órdenes ni modifica ControlBot/AutoFactory. Para una fuente real se requieren otro contrato, consentimiento/autorización y una interfaz autenticada separada; #465 permanece abierto y el go-live #431 está bloqueado.
+El candidato **no se importa ni se sirve** desde `scripts/local-observer-server.ts`. El servidor sigue `synthetic_only`: `GET /health` responde `{"mode":"synthetic_only","readiness":"UNKNOWN"}`. Ninguna capa inicia servicios, lee procesos, chats o sesiones del Mac, envía órdenes ni modifica ControlBot/AutoFactory. Para una fuente real se requieren otro contrato, consentimiento/autorización y una interfaz autenticada separada; #465 permanece abierto. El issue de go-live #431 está CLOSED/completed tras la decisión OWNER A, limitada a preflight offline reversible. La activación live sigue sin autorización y exige otra decisión explícita del dueño, además de evidencia real de seguridad, privacidad y operación.
 
 ## Seguridad
 

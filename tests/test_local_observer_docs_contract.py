@@ -48,6 +48,15 @@ class LocalObserverDocsContractTests(unittest.TestCase):
         for ref in ("#478", "#480", "#482", "#483", "#488"):
             self.assertIn(ref, docs)
 
+    def test_go_live_431_owner_a_offline_only(self) -> None:
+        """Closing the human gate grants offline preflight, never real go-live."""
+        docs = self.doc
+        self.assertIn("go-live #431 está CLOSED/completed", docs)
+        self.assertIn("OWNER A, limitada a preflight offline reversible", docs)
+        self.assertIn("La activación live sigue sin autorización", docs)
+        self.assertIn("otra decisión explícita del dueño", docs)
+        self.assertNotIn("go-live #431 está bloqueado", docs)
+
     def test_demo_remains_synthetic_and_not_deployed(self) -> None:
         docs = self.doc
         for phrase in (
