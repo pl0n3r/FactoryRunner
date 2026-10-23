@@ -8,6 +8,22 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/codeql.yml"
 
 
 class CodeQLWorkflowTests(unittest.TestCase):
+    def test_codeql_init_analyze_share_exact_commit(self):
+        """A one-sided Dependabot bump must not silently split action pins."""
+        content = WORKFLOW.read_text(encoding="utf-8")
+        refs = {}
+        for action in ("init", "analyze"):
+            prefix = f"uses: github/codeql-action/{action}@"
+            matches = [
+                line.strip().removeprefix(prefix)
+                for line in content.splitlines()
+                if line.strip().startswith(prefix)
+            ]
+            self.assertEqual(len(matches), 1, f"expected one {action} pin")
+            self.assertRegex(matches[0], r"^[0-9a-f]{40}$")
+            refs[action] = matches[0]
+        self.assertEqual(refs["init"], refs["analyze"])
+
     def test_codeql_workflow_is_bounded_and_minimal(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("name: CodeQL", content)
@@ -28,8 +44,8 @@ class CodeQLWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(actions, [
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-            "github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2",
-            "github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2",
+            "github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+            "github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
         ])
         for forbidden in (
             "pull_request_target:", "workflow_dispatch:", "workflow_run:",
