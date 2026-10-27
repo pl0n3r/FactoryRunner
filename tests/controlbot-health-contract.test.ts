@@ -33,7 +33,7 @@ function fixture() {
   const response = simulator.issue({
     observed_at: OBSERVED_AT,
     nonce: NONCE,
-    health: 'healthy',
+    status: 'healthy',
   });
   return { simulator, trust, response };
 }
@@ -53,7 +53,7 @@ test('accepts only a signed, fresh ControlBot identity/version/SHA bound to chal
     release_sha: RELEASE_SHA,
     observed_at: OBSERVED_AT,
     nonce: NONCE,
-    health: 'healthy',
+    status: 'healthy',
   });
   assert.match(response.signature, /^[A-Za-z0-9_-]{86}$/);
 });
@@ -91,7 +91,7 @@ test('unsigned, malformed, changed or untrusted evidence fails closed', () => {
     { ...response, payload: { ...response.payload, extra: true } },
     { ...response, payload: { ...response.payload, release_sha: 'b'.repeat(40) } },
     { ...response, payload: { ...response.payload, observed_at: OBSERVED_AT + 1 } },
-    { ...response, payload: { ...response.payload, health: 'degraded' } },
+    { ...response, payload: { ...response.payload, status: 'degraded' } },
     { ...response, payload: { ...response.payload, version: 2 } },
   ];
   for (const candidate of cases) {
@@ -127,7 +127,7 @@ test('a valid signature cannot change verifier-pinned version, SHA or nonce', ()
   const secondResponse = simulator.issue({
     observed_at: OBSERVED_AT,
     nonce: '55555555-5555-7555-8555-555555555555',
-    health: 'healthy',
+    status: 'healthy',
   });
   assert.equal(assessControlBotHealth(secondResponse, trust).status, 'UNKNOWN');
   assert.equal(assessControlBotHealth(secondResponse, {
@@ -141,7 +141,7 @@ test('signed degraded status is authenticated but not an OK readiness grant', ()
   const response = simulator.issue({
     observed_at: OBSERVED_AT,
     nonce: NONCE,
-    health: 'degraded',
+    status: 'degraded',
   });
   assert.deepEqual(assessControlBotHealth(response, trust), {
     status: 'UNKNOWN',
@@ -160,7 +160,7 @@ test('simulator has no network, persistent credentials or exposed signing key', 
   assert.throws(() => simulator.issue({
     observed_at: OBSERVED_AT,
     nonce: NONCE,
-    health: 'healthy',
+    status: 'healthy',
     extra: 'unexpected',
   }), /campos inválidos/);
   const malicious = { ...response, payload: { ...response.payload, nonce: 'unexpected' } };
