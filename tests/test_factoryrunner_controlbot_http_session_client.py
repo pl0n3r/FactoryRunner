@@ -11,6 +11,7 @@ def observe() -> dict[str, object]:
     script = r"""
 import { ControlBotHttpSessionClient } from './src/controlbot/http-session-client.ts';
 import { bindFencedExecution } from './src/controlbot/fenced-execution-binding.ts';
+import { assessControlBotHealth, createControlBotHealthSimulator } from './src/controlbot-health-contract.ts';
 
 const runnerId = '11111111-1111-7111-8111-111111111111';
 const orderId = '22222222-2222-4222-8222-222222222222';
@@ -243,6 +244,29 @@ const arrayBodyClient = new ControlBotHttpSessionClient({
   }),
 });
 
+
+// Synthetic signed HEALTH is never an authorization for an actual network channel.
+const healthSimulator = createControlBotHealthSimulator({
+  instance_id: runnerId,
+  release_version: '0.1.0',
+  release_sha: 'a'.repeat(40),
+});
+const challenge = '66666666-6666-7666-8666-666666666666';
+const signedHealth = healthSimulator.issue({
+  observed_at: 1000,
+  nonce: challenge,
+  status: 'healthy',
+});
+const healthVerdict = assessControlBotHealth(signedHealth, {
+  publicKey: healthSimulator.publicKey,
+  expectedInstanceId: runnerId,
+  expectedVersion: '0.1.0',
+  expectedSha: 'a'.repeat(40),
+  expectedNonce: challenge,
+  now: 1001,
+  maxAgeSeconds: 60,
+});
+
 console.log(JSON.stringify({
   status: client.status(),
   disabled_status: disabled.status(),
@@ -250,6 +274,7 @@ console.log(JSON.stringify({
   ack_result: ackResult,
   event_result: eventResult,
   calls,
+  synthetic_health_verdict: healthVerdict,
   calls_before_invalid_binding: callsBeforeInvalidBinding,
   calls_after_invalid_binding: callsAfterInvalidBinding,
   invalid_binding_rejected: invalidBindingRejected,
@@ -270,6 +295,18 @@ console.log(JSON.stringify({
     }),
     extra_option: constructorRejected({
       debug: true,
+    }),
+    real_endpoint: constructorRejected({
+      enabled: true, test_mode: true, test_transport: transport,
+      endpoint: 'https://example.invalid/controlbot',
+    }),
+    real_bearer: constructorRejected({
+      enabled: true, test_mode: true, test_transport: transport,
+      authorization: 'Bearer offline-placeholder',
+    }),
+    real_network_flag: constructorRejected({
+      enabled: true, test_mode: true, test_transport: transport,
+      network_access: true,
     }),
   },
   timeout_code: timeoutCode,
@@ -376,6 +413,49 @@ class FactoryRunnerControlBotHttpSessionClientTests(unittest.TestCase):
             "process.env",
         ):
             self.assertNotIn(forbidden, self.source)
+
+
+    # AC-01..04 are offline *negative* regressions only. They never assert
+    # that an owner approved a real endpoint or production was validated.
+    def test_autorizacion_real(self):
+        self.assertEqual(self.observed["disabled_code"], "client_disabled")
+        self.assertFalse(self.observed["disabled_status"]["enabled"])
+        self.assertFalse(self.observed["disabled_status"]["network_access"])
+        self.assertEqual(self.observed["disabled_status"]["transport_mode"], "disabled")
+        self.assertTrue(self.observed["constructor_rejected"]["real_endpoint"])
+        self.assertTrue(self.observed["constructor_rejected"]["real_bearer"])
+
+    def test_verificacion_real(self):
+        # A cryptographically valid *simulator* signature is intentionally
+        # insufficient to prove a genuine ControlBot endpoint or real HEALTH.
+        self.assertEqual(self.observed["synthetic_health_verdict"], {
+            "status": "OK",
+            "authenticated": True,
+            "reason": "signed_fresh_health",
+        })
+        for key in ("poll_result", "ack_result", "event_result"):
+            value = self.observed[key]
+            self.assertEqual(value["transport_mode"], "injected_test_only")
+            self.assertFalse(value["network_access"])
+            self.assertFalse(value["external_mutation"])
+        self.assertNotIn("real_authenticated_health", self.source)
+
+    def test_fail_closed_sin_permisos(self):
+        self.assertTrue(self.observed["constructor_rejected"]["real_network_flag"])
+        for value in self.observed["constructor_rejected"].values():
+            self.assertTrue(value)
+        self.assertEqual(self.observed["calls_before_invalid_binding"],
+                         self.observed["calls_after_invalid_binding"])
+        self.assertTrue(self.observed["invalid_binding_rejected"])
+        self.assertTrue(self.observed["invalid_event_rejected"])
+
+    def test_evidencia_terminal(self):
+        # Simulated network-free evidence must not be reported as
+        # VALIDATED_IN_PRODUCTION or satisfy AC-04 by inference.
+        self.assertFalse(self.observed["status"]["network_access"])
+        self.assertFalse(self.observed["status"]["external_mutation"])
+        self.assertEqual(self.observed["status"]["authority"], "unchanged")
+        self.assertNotIn("VALIDATED_IN_PRODUCTION", json.dumps(self.observed))
 
 
 if __name__ == "__main__":
