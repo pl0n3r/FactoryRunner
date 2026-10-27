@@ -56,7 +56,7 @@ def verify(audit, matrix):
             if not test[1:-1].startswith("tests/") or not (ROOT / test[1:-1]).is_file():
                 raise ValueError("prueba inexistente: " + key)
         if state == "NO_VERIFICABLE" and not any(
-            token in gap.lower() for token in ("falta", "sin ", "sólo", "solo")
+            token in gap.lower() for token in ("falta", "sin ", "sólo", "solo", "no hay")
         ):
             raise ValueError("NO_VERIFICABLE exige brecha")
         if state == "CUBIERTO" and (test == "SIN PRUEBA" or not MERGED_PR.search(gap)):
