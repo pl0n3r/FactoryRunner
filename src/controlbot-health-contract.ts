@@ -14,7 +14,7 @@ export type ControlBotHealthPayload = Readonly<{
   release_sha: string;
   observed_at: number; // Unix seconds
   nonce: string; // Challenge supplied by the verifier; never a credential
-  health: 'healthy' | 'degraded';
+  status: 'healthy' | 'degraded';
 }>;
 
 export type SignedControlBotHealth = Readonly<{
@@ -40,7 +40,7 @@ export type ControlBotHealthVerdict = Readonly<{
 
 const PAYLOAD_KEYS = [
   'version', 'service', 'instance_id', 'release_version',
-  'release_sha', 'observed_at', 'nonce', 'health',
+  'release_sha', 'observed_at', 'nonce', 'status',
 ] as const;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const SIGNATURE_RE = /^[A-Za-z0-9_-]{86}$/;
@@ -58,7 +58,7 @@ function payloadFrom(input: unknown): ControlBotHealthPayload {
   if (record.version !== 1 || record.service !== 'controlbot') {
     throw new TypeError('Identidad de HEALTH inválida.');
   }
-  if (record.health !== 'healthy' && record.health !== 'degraded') {
+  if (record.status !== 'healthy' && record.status !== 'degraded') {
     throw new TypeError('Estado HEALTH inválido.');
   }
   return {
@@ -69,7 +69,7 @@ function payloadFrom(input: unknown): ControlBotHealthPayload {
     release_sha: sha(record.release_sha),
     observed_at: integer(record.observed_at, 'health.observed_at'),
     nonce: uuid(record.nonce, 'health.nonce'),
-    health: record.health,
+    status: record.status,
   };
 }
 
@@ -123,7 +123,7 @@ export function assessControlBotHealth(
     if (now - payload.observed_at > maxAge) {
       return decision('STALE', true, 'observation_expired');
     }
-    if (payload.health !== 'healthy') {
+    if (payload.status !== 'healthy') {
       return decision('UNKNOWN', true, 'health_not_healthy');
     }
     return decision('OK', true, 'signed_fresh_health');
@@ -151,7 +151,7 @@ export function createControlBotHealthSimulator(identityInput: unknown): Readonl
     publicKey,
     issue(input: unknown): SignedControlBotHealth {
       const request = asRecord(input, 'SimulatorRequest');
-      exactKeys(request, ['observed_at', 'nonce', 'health'], 'SimulatorRequest');
+      exactKeys(request, ['observed_at', 'nonce', 'status'], 'SimulatorRequest');
       const payload = payloadFrom({
         version: 1,
         service: 'controlbot',
@@ -160,7 +160,7 @@ export function createControlBotHealthSimulator(identityInput: unknown): Readonl
         release_sha: releaseSha,
         observed_at: request.observed_at,
         nonce: request.nonce,
-        health: request.health,
+        status: request.status,
       });
       return Object.freeze({
         payload: Object.freeze(payload),
