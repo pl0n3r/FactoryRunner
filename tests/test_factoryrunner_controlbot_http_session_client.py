@@ -257,7 +257,7 @@ const signedHealth = healthSimulator.issue({
   nonce: challenge,
   status: 'healthy',
 });
-const healthVerdict = assessControlBotHealth(signedHealth, {
+const healthTrust = {
   publicKey: healthSimulator.publicKey,
   expectedInstanceId: runnerId,
   expectedVersion: '0.1.0',
@@ -265,7 +265,33 @@ const healthVerdict = assessControlBotHealth(signedHealth, {
   expectedNonce: challenge,
   now: 1001,
   maxAgeSeconds: 60,
-});
+};
+const healthVerdict = assessControlBotHealth(signedHealth, healthTrust);
+// Independently pin identity, one-time challenge and evidence integrity.
+// A locally signed synthetic OK is not a real endpoint attestation.
+const syntheticHealthDenied = {
+  tampered_signature: assessControlBotHealth({
+    ...signedHealth,
+    payload: { ...signedHealth.payload, release_sha: 'b'.repeat(40) },
+  }, healthTrust),
+  wrong_pinned_sha: assessControlBotHealth(signedHealth, {
+    ...healthTrust,
+    expectedSha: 'b'.repeat(40),
+  }),
+  wrong_challenge: assessControlBotHealth(signedHealth, {
+    ...healthTrust,
+    expectedNonce: '77777777-7777-7777-8777-777777777777',
+  }),
+  expired: assessControlBotHealth(signedHealth, {
+    ...healthTrust,
+    now: 1061,
+  }),
+  degraded: assessControlBotHealth(healthSimulator.issue({
+    observed_at: 1000,
+    nonce: challenge,
+    status: 'degraded',
+  }), healthTrust),
+};
 
 console.log(JSON.stringify({
   status: client.status(),
@@ -275,6 +301,7 @@ console.log(JSON.stringify({
   event_result: eventResult,
   calls,
   synthetic_health_verdict: healthVerdict,
+  synthetic_health_denied: syntheticHealthDenied,
   calls_before_invalid_binding: callsBeforeInvalidBinding,
   calls_after_invalid_binding: callsAfterInvalidBinding,
   invalid_binding_rejected: invalidBindingRejected,
@@ -438,6 +465,31 @@ class FactoryRunnerControlBotHttpSessionClientTests(unittest.TestCase):
             self.assertEqual(value["transport_mode"], "injected_test_only")
             self.assertFalse(value["network_access"])
             self.assertFalse(value["external_mutation"])
+        denied = self.observed["synthetic_health_denied"]
+        self.assertEqual(denied["tampered_signature"], {
+            "status": "UNKNOWN",
+            "authenticated": False,
+            "reason": "signature_invalid",
+        })
+        for key in ("wrong_pinned_sha", "wrong_challenge"):
+            with self.subTest(case=key):
+                self.assertEqual(denied[key], {
+                    "status": "UNKNOWN",
+                    "authenticated": False,
+                    "reason": "identity_or_challenge_mismatch",
+                })
+        self.assertEqual(denied["expired"], {
+            "status": "STALE",
+            "authenticated": True,
+            "reason": "observation_expired",
+        })
+        self.assertEqual(denied["degraded"], {
+            "status": "UNKNOWN",
+            "authenticated": True,
+            "reason": "health_not_healthy",
+        })
+        # None of these simulated verdicts is authority to send a request.
+        self.assertEqual(len(self.observed["calls"]), 3)
         self.assertNotIn("real_authenticated_health", self.source)
 
     def test_fail_closed_sin_permisos(self):
