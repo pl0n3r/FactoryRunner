@@ -168,7 +168,7 @@ test('origin allowlist remains fixed despite a challenge or proposed alternate o
   );
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.command.kind, 'navigate');
-  assert.equal(policy.includes('https://other.test'), false);
+  assert.deepEqual(policy, [ORIGIN], 'Origin policy stays exactly allowlisted.');
 });
 
 test('remote transport failures are generic and never cause hidden retry or identity rotation', async () => {
