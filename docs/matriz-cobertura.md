@@ -16,10 +16,10 @@
 | RM-06 / `README.md` | Contrato de cliente ControlBot poll/ACK/event/heartbeat | CUBIERTO | `tests/controlbot-client-contracts.test.ts` y [PR #19](https://github.com/pl0n3r/FactoryRunner/pull/19) | — | OFFLINE |
 | RM-07 / `README.md` | Conexión a ControlBot real con transporte/identidad autorizados | EN_CURSO | Falta endpoint vivo autenticado, consentimiento y decisión owner; contratos solo fake | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | REAL |
 | RM-08 / `README.md` | Runner desplegado en Hostinger con /health y SHA exactos | NO_VERIFICABLE | Falta deploy autorizado, HEALTH productivo y recibo exact-SHA | — | OPERACIÓN |
-| RM-09 / `README.md` | Node 24, typecheck y contratos en CI | CUBIERTO | `tests/test_factoryrunner_typecheck_contract.py` y [PR #593](https://github.com/pl0n3r/FactoryRunner/pull/593) | — | OFFLINE |
+| RM-09 / `README.md` | Node 24, typecheck y contratos en CI | CUBIERTO | `tests/test_factoryrunner_typecheck_contract.py` y [PR #15](https://github.com/pl0n3r/FactoryRunner/pull/15) | — | OFFLINE |
 | RM-10 / `README.md` | No absorber AutoFactory, herramienta manual independiente | DESCARTADO | Fuera del execution plane por AGENTES.md y D-063; integración prohibida | — | N/A |
 | RM-11 / `README.md` | Estado durable debe pertenecer al ControlBot | CUBIERTO | `tests/controlbot-client-contracts.test.ts` y [PR #19](https://github.com/pl0n3r/FactoryRunner/pull/19) | — | OFFLINE |
-| RM-12 / `README.md` | Sin HTTPS o credenciales reales desde README/cockpit | NO_VERIFICABLE | La portada enlaza panel restringido pero no acredita conectividad real | — | REAL |
+| RM-12 / `README.md` | Sin HTTPS o credenciales reales desde README/cockpit | NO_VERIFICABLE | La portada enlaza panel restringido; falta evidencia de conectividad real | — | REAL |
 | GL-01 / `docs/go-live-preflight.md` | Preflight offline recibe SHA y seis pruebas explícitas | CUBIERTO | `tests/go-live-preflight.test.ts` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
 | GL-02 / `docs/go-live-preflight.md` | Rechazar campos extra, gates duplicados y SHA discordante | CUBIERTO | `tests/test_go_live_preflight_contract.py` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
 | GL-03 / `docs/go-live-preflight.md` | Estado del preflight preparado no autoriza live ni READY | CUBIERTO | `src/go-live-preflight.ts` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
