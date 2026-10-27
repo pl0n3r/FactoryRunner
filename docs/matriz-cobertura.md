@@ -1,10 +1,10 @@
 # Matriz de cobertura normativa — FactoryRunner
 
-**Corte:** 27-oct-2026 · `main@33277d549a82e9cba5371982d1d80e43e06bd0d5` · **alcance:** [#602](https://github.com/pl0n3r/FactoryRunner/issues/602). Fuentes: los nueve documentos de `docs/` (excluidas las carpetas auxiliares de privacidad), `README.md` e [issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465). `docs/privacidad/` y `revision-juridica/` requieren auditoría legal independiente: aquí no se presume aprobación.
+**Corte:** 27-oct-2026 · `main@33277d549a82e9cba5371982d1d80e43e06bd0d5` · **alcance:** [#602](https://github.com/pl0n3r/FactoryRunner/issues/602). Fuentes: los quince documentos Markdown de `docs/`, incluidas seis plantillas de privacidad, `README.md` e [issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465). Las seis fuentes de `docs/privacidad/` son borradores técnicos y permanecen en `NO_VERIFICABLE` hasta la revisión jurídica y la configuración real del responsable. `revision-juridica/` es evidencia auxiliar fuera de las fuentes de esta matriz; aquí no se presume aprobación.
 
-**Método:** descomposición en obligaciones verificables por apartado y decisión; un `CUBIERTO` sólo acredita el **contrato offline** señalado por una ruta y un PR efectivamente fusionado, no una instalación. `EN_CURSO` enlaza un Issue abierto; `NO_VERIFICABLE` especifica evidencia faltante; `SIN_COBERTURA` requiere issue nuevo antes del merge (en este corte no se afirmó ningún gap sin antes contrastar el issue existente #465). Ausencia de dato, service health y SHA productivos nunca es GREEN. No hay autorización para operar ControlBot/FactoryRunner ni activar host, browser o servicios reales.
+**Método:** descomposición en obligaciones verificables por apartado y decisión; un `CUBIERTO` sólo acredita el **contrato offline** señalado por una ruta y un PR efectivamente fusionado, no una instalación. `EN_CURSO` exige una hoja ejecutable vigente con `factory-plan-task` y paths propios, o un PR abierto; `#465` planificado y el roadmap `#1` no cuentan. `NO_VERIFICABLE` especifica evidencia faltante; `SIN_COBERTURA` identifica falta de implementación con hoja canónica de remediación creada y enlazada. La hoja bloqueada no autoriza ejecutar operaciones reales. Ausencia de dato, service health y SHA productivos nunca es GREEN. No hay autorización para operar ControlBot/FactoryRunner ni activar host, browser o servicios reales.
 
-**Semántica de fase:** `OFFLINE` = código/fixture/pruebas, `REAL` = integración con sistema verdadero, `OPERACIÓN` = ejecución continua y evidencia productiva, `N/A` = excluido por decisión. Las tres fases son independientes: cumplir OFFLINE no acredita REAL ni OPERACIÓN. Evidencias de fuente código/prueba se vinculan a PRs cerrados por merge, verificados contra GitHub; el test de esta hoja valida además su formato.
+**Semántica de fase:** `OFFLINE` = código/fixture/pruebas, `REAL` = integración con sistema verdadero, `OPERACIÓN` = ejecución continua y evidencia productiva, `N/A` = excluido por decisión. Las tres fases son independientes: cumplir OFFLINE no acredita REAL ni OPERACIÓN. Evidencias de fuente código/prueba se vinculan a PRs cerrados por merge, verificados contra GitHub; el test de esta hoja valida formato, URLs Markdown y que los issues nuevos de remediación sean explícitos.
 
 | ID / fuente | Requisito resumido | Estado | Evidencia | Issue | Fase |
 | --- | --- | --- | --- | --- | --- |
@@ -14,16 +14,18 @@
 | RM-04 / `README.md` | GitReadAdapter sin escritura ni credenciales | CUBIERTO | `src/adapters/git-read.ts` y [PR #14](https://github.com/pl0n3r/FactoryRunner/pull/14) | — | OFFLINE |
 | RM-05 / `README.md` | BrowserExecutionAdapter desacoplado del proveedor | CUBIERTO | `src/adapters/browser.ts` y [PR #17](https://github.com/pl0n3r/FactoryRunner/pull/17) | — | OFFLINE |
 | RM-06 / `README.md` | Contrato de cliente ControlBot poll/ACK/event/heartbeat | CUBIERTO | `tests/controlbot-client-contracts.test.ts` y [PR #19](https://github.com/pl0n3r/FactoryRunner/pull/19) | — | OFFLINE |
-| RM-07 / `README.md` | Conexión a ControlBot real con transporte/identidad autorizados | EN_CURSO | Falta endpoint vivo autenticado, consentimiento y decisión owner; contratos solo fake | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | REAL |
+| RM-07 / `README.md` | Conexión a ControlBot real con transporte/identidad autorizados | SIN_COBERTURA | Falta endpoint vivo autenticado, consentimiento y decisión owner; contratos solo fake; remediación #605 bloqueada hasta autorización OWNER | [FR #605](https://github.com/pl0n3r/FactoryRunner/issues/605) | REAL |
 | RM-08 / `README.md` | Runner desplegado en Hostinger con /health y SHA exactos | NO_VERIFICABLE | Falta deploy autorizado, HEALTH productivo y recibo exact-SHA | — | OPERACIÓN |
 | RM-09 / `README.md` | Node 24, typecheck y contratos en CI | CUBIERTO | `tests/test_factoryrunner_typecheck_contract.py` y [PR #15](https://github.com/pl0n3r/FactoryRunner/pull/15) | — | OFFLINE |
 | RM-10 / `README.md` | No absorber AutoFactory, herramienta manual independiente | DESCARTADO | Fuera del execution plane por AGENTES.md y D-063; integración prohibida | — | N/A |
 | RM-11 / `README.md` | Estado durable debe pertenecer al ControlBot | CUBIERTO | `tests/controlbot-client-contracts.test.ts` y [PR #19](https://github.com/pl0n3r/FactoryRunner/pull/19) | — | OFFLINE |
 | RM-12 / `README.md` | Sin HTTPS o credenciales reales desde README/cockpit | NO_VERIFICABLE | La portada enlaza panel restringido; falta evidencia de conectividad real | — | REAL |
+| RM-13 / `README.md` | No evadir CAPTCHA, MFA ni rate limits del proveedor | NO_VERIFICABLE | Falta prueba contractual específica e inspección de adaptadores remotos que demuestre que no se eluden controles externos | — | REAL |
+| RM-14 / `README.md` | Runner no amplía por sí mismo capacidades ni autoridad | NO_VERIFICABLE | Falta demostrar alcance completo en la conexión y ejecución reales; los tests offline no acreditan autorización operacional | — | REAL |
 | GL-01 / `docs/go-live-preflight.md` | Preflight offline recibe SHA y seis pruebas explícitas | CUBIERTO | `tests/go-live-preflight.test.ts` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
 | GL-02 / `docs/go-live-preflight.md` | Rechazar campos extra, gates duplicados y SHA discordante | CUBIERTO | `tests/test_go_live_preflight_contract.py` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
 | GL-03 / `docs/go-live-preflight.md` | Estado del preflight preparado no autoriza live ni READY | CUBIERTO | `src/go-live-preflight.ts` y [PR #586](https://github.com/pl0n3r/FactoryRunner/pull/586) | — | OFFLINE |
-| GL-04 / `docs/go-live-preflight.md` | HEALTH y protocolo de ControlBot real autenticados | EN_CURSO | ControlBot real aún sin HEALTH acreditado; #465 exige fuente/autoridad | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | REAL |
+| GL-04 / `docs/go-live-preflight.md` | HEALTH y protocolo de ControlBot real autenticados | SIN_COBERTURA | ControlBot real aún sin HEALTH acreditado; #465 exige fuente/autoridad; remediación #605 bloqueada hasta autorización OWNER | [FR #605](https://github.com/pl0n3r/FactoryRunner/issues/605) | REAL |
 | GL-05 / `docs/go-live-preflight.md` | Aprobación legal/privacidad antes de PII y sesiones reales | NO_VERIFICABLE | Falta aprobación legal y base legítima autenticada; datos.yml indica review_required | — | OPERACIÓN |
 | GL-06 / `docs/go-live-preflight.md` | Hostinger permisos, endpoints HTTPS y credenciales por operación | NO_VERIFICABLE | Falta evidencia de hosting, límites y autorización independiente | — | OPERACIÓN |
 | GL-07 / `docs/go-live-preflight.md` | Backup con restauración y rollback reales verificados | NO_VERIFICABLE | Sólo fakes/preflight; faltan recibos de restore y rollback reales | — | OPERACIÓN |
@@ -38,13 +40,13 @@
 | LOC-08 / `docs/local-observer.md` | FRESH en fixture no habilita READY ni capacidad real | CUBIERTO | `tests/test_local_observer_runtime_projection_contract.py` y [PR #489](https://github.com/pl0n3r/FactoryRunner/pull/489) | — | OFFLINE |
 | LOC-09 / `docs/local-observer.md` | GET /health sólo sintético y UNKNOWN | CUBIERTO | `tests/test_local_observer_server_contract.py` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
 | LOC-10 / `docs/local-observer.md` | Prohibido leer procesos, chats, sesiones o perfiles del Mac | CUBIERTO | `tests/local-observer-server.test.ts` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
-| LOC-11 / `docs/local-observer.md` | Fuente de observación real autenticada y autorizada | EN_CURSO | Observador current=synthetic_only; fuente real y consentimiento no acreditados | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | REAL |
-| LOC-12 / `docs/local-observer.md` | Capacidad READY y heartbeat genuinos desde runners desplegados | EN_CURSO | No hay roster de procesos reales; falta conexión y fuentes confiables | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | OPERACIÓN |
+| LOC-11 / `docs/local-observer.md` | Fuente de observación real autenticada y autorizada | SIN_COBERTURA | Observador current=synthetic_only; fuente real y consentimiento no acreditados; remediación #606 bloqueada hasta autorización OWNER | [FR #606](https://github.com/pl0n3r/FactoryRunner/issues/606) | REAL |
+| LOC-12 / `docs/local-observer.md` | Capacidad READY y heartbeat genuinos desde runners desplegados | SIN_COBERTURA | No hay roster de procesos reales; falta conexión y fuentes confiables; remediación #606 bloqueada hasta autorización OWNER | [FR #606](https://github.com/pl0n3r/FactoryRunner/issues/606) | OPERACIÓN |
 | LOC-13 / `docs/local-observer.md` | Datos de usuario fuera de UI sin revisión de privacidad | NO_VERIFICABLE | Falta auditoría de tratamiento real y permiso por operación | — | REAL |
 | RC-01 / `docs/reconciliacion-issues-20261024.md` | Issue #465 permanece abierto sin evidencia live | CUBIERTO | `docs/reconciliacion-issues-20261024.md` y [PR #601](https://github.com/pl0n3r/FactoryRunner/pull/601) | — | OFFLINE |
 | RC-02 / `docs/reconciliacion-issues-20261024.md` | Cierre de issues requiere PR fusionado y CI exact-main | CUBIERTO | `tests/test_reconciliacion_issues_20261024.py` y [PR #601](https://github.com/pl0n3r/FactoryRunner/pull/601) | — | OFFLINE |
 | RC-03 / `docs/reconciliacion-issues-20261024.md` | Corte 24-oct histórico no representa backlog de hoy | CUBIERTO | `docs/reconciliacion-issues-20261024.md` y [PR #601](https://github.com/pl0n3r/FactoryRunner/pull/601) | — | OFFLINE |
-| RC-04 / `docs/reconciliacion-issues-20261024.md` | Readiness real de #465 aún pendiente | EN_CURSO | #465 sigue OPEN/planificado; nuevo trabajo operativo prohibido sin voto | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | OPERACIÓN |
+| RC-04 / `docs/reconciliacion-issues-20261024.md` | Readiness real de #465 aún pendiente | SIN_COBERTURA | #465 sigue OPEN/planificado; nuevo trabajo operativo prohibido sin voto; remediación #606 bloqueada hasta autorización OWNER | [FR #606](https://github.com/pl0n3r/FactoryRunner/issues/606) | OPERACIÓN |
 | DB-01 / `docs/recovery-database.md` | Snapshot lógico con descriptor/connection_ref opaca | CUBIERTO | `tests/recovery-database-adapter.test.ts` y [PR #34](https://github.com/pl0n3r/FactoryRunner/pull/34) | — | OFFLINE |
 | DB-02 / `docs/recovery-database.md` | Restore sólo a target disposable | CUBIERTO | `tests/test_recovery_database_adapter.py` y [PR #34](https://github.com/pl0n3r/FactoryRunner/pull/34) | — | OFFLINE |
 | DB-03 / `docs/recovery-database.md` | Sin DSN ni secretos/SQL en orden y evidencia | CUBIERTO | `src/adapters/recovery-database.ts` y [PR #34](https://github.com/pl0n3r/FactoryRunner/pull/34) | — | OFFLINE |
@@ -57,7 +59,7 @@
 | OS-02 / `docs/recovery-object-storage.md` | Error/mismatch fail-closed sin eco de driver | CUBIERTO | `tests/recovery-object-storage-adapter.test.ts` y [PR #30](https://github.com/pl0n3r/FactoryRunner/pull/30) | — | OFFLINE |
 | OS-03 / `docs/recovery-object-storage.md` | Sin scheduler ni retention deletion desde el descriptor | CUBIERTO | `src/adapters/recovery-object-storage.ts` y [PR #30](https://github.com/pl0n3r/FactoryRunner/pull/30) | — | OFFLINE |
 | LO-01 / `docs/recovery-live-object-storage.md` | Endpoint S3-compatible HTTPS/443 sin credenciales en orden | CUBIERTO | `tests/recovery-live-object-storage.test.ts` y [PR #42](https://github.com/pl0n3r/FactoryRunner/pull/42) | — | OFFLINE |
-| LO-02 / `docs/recovery-live-object-storage.md` | Resolución runtime desde connection_ref opaca | CUBIERTO | `src/adapters/recovery-object-storage.ts` y [PR #44](https://github.com/pl0n3r/FactoryRunner/pull/44) | — | OFFLINE |
+| LO-02 / `docs/recovery-live-object-storage.md` | Resolución runtime desde connection_ref opaca | CUBIERTO | `src/recovery/connection-resolver.ts` y [PR #42](https://github.com/pl0n3r/FactoryRunner/pull/42) | — | OFFLINE |
 | LO-03 / `docs/recovery-live-object-storage.md` | Preflight GET de Versioning Enabled | CUBIERTO | `tests/test_recovery_bucket_preflight.py` y [PR #48](https://github.com/pl0n3r/FactoryRunner/pull/48) | — | OFFLINE |
 | LO-04 / `docs/recovery-live-object-storage.md` | Preflight GET Object Lock Enabled con XML estricto | CUBIERTO | `tests/test_recovery_object_lock.py` y [PR #46](https://github.com/pl0n3r/FactoryRunner/pull/46) | — | OFFLINE |
 | LO-05 / `docs/recovery-live-object-storage.md` | Rechazar nodos XML anidados fraudulentos | CUBIERTO | `tests/recovery-live-object-storage.test.ts` y [PR #464](https://github.com/pl0n3r/FactoryRunner/pull/464) | — | OFFLINE |
@@ -72,28 +74,37 @@
 | KS-02 / `docs/runner-kill-switch-rehearsal.md` | Ensayo fake pausa Runner y rechaza dispatch | CUBIERTO | `tests/kill-switch-rollback-rehearsal.test.ts` y [PR #581](https://github.com/pl0n3r/FactoryRunner/pull/581) | — | OFFLINE |
 | KS-03 / `docs/runner-kill-switch-rehearsal.md` | Rollback in-memory determinista con digest | CUBIERTO | `docs/runner-kill-switch-rehearsal.md` y [PR #581](https://github.com/pl0n3r/FactoryRunner/pull/581) | — | OFFLINE |
 | KS-04 / `docs/runner-kill-switch-rehearsal.md` | Kill switch + rollback reales end-to-end | NO_VERIFICABLE | Recibo offline no es HEALTH y no hay deploy/rollback real autorizado | — | OPERACIÓN |
-| I465-01 / [Issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | No comenzar observación real hasta nueva dirección owner | EN_CURSO | Issue #465 OPEN y decisión explícita de no-go/live; [#465](https://github.com/pl0n3r/FactoryRunner/issues/465) | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | REAL |
+| I465-01 / [Issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | No comenzar observación real hasta nueva dirección owner | SIN_COBERTURA | Issue #465 OPEN y decisión explícita de no-go/live; [#465](https://github.com/pl0n3r/FactoryRunner/issues/465); remediación #606 bloqueada hasta autorización OWNER | [FR #606](https://github.com/pl0n3r/FactoryRunner/issues/606) | REAL |
 | I465-02 / [Issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | Mantener fuente synthetic_only, sin registrar señales reales | CUBIERTO | `tests/test_local_observer_demo_wiring_contract.py` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
-| I465-03 / [Issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | Contrastar protocolo y HEALTH real del ControlBot antes de operar | EN_CURSO | Faltan fuentes y operación real; #465 sigue abierto | [FR #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | OPERACIÓN |
+| I465-03 / [Issue #465](https://github.com/pl0n3r/FactoryRunner/issues/465) | Contrastar protocolo y HEALTH real del ControlBot antes de operar | SIN_COBERTURA | Faltan fuentes y operación real; #465 sigue abierto; remediación #605 bloqueada hasta autorización OWNER | [FR #605](https://github.com/pl0n3r/FactoryRunner/issues/605) | OPERACIÓN |
+
+| PA-01 / `docs/privacidad/aviso-privacidad.md` | Aviso identifica responsable y canal de derechos reales | NO_VERIFICABLE | Faltan identificación, dirección y canal del responsable: plantilla [COMPLETAR POR EL DUEÑO] sin aprobación jurídica | — | OPERACIÓN |
+| PA-02 / `docs/privacidad/aviso-privacidad.md` | Capturar consentimiento específico con casilla desmarcada y evidencia | NO_VERIFICABLE | Falta integración autorizada y evidencia de consentimiento real; plantilla técnica no prueba captura válida | — | REAL |
+| PC-01 / `docs/privacidad/canal-derechos.md` | Procedimiento de ejercicio de derechos y legitimación verificable | NO_VERIFICABLE | Faltan responsable, flujo, plazos legales y revisión jurídica, sin canal operativo demostrado | — | OPERACIÓN |
+| PP-01 / `docs/privacidad/politica-tratamiento.md` | Política aprobada define finalidad, base y derechos aplicables | NO_VERIFICABLE | Faltan revisión jurídica y bases/consentimientos aprobados; política actual sigue siendo borrador | — | OPERACIÓN |
+| PRG-01 / `docs/privacidad/registro-tratamientos.md` | Registro de runner_location_metadata con base y proveedores verificados | NO_VERIFICABLE | Falta comprobación legal y funcional del tratamiento; base, consentimiento y retención son review_required | — | REAL |
+| PRT-01 / `docs/privacidad/retencion.md` | Retención y plazo máximo definidos y aprobados | NO_VERIFICABLE | Faltan plazos autorizados y revisión jurídica; ambos campos son review_required | — | OPERACIÓN |
+| PTC-01 / `docs/privacidad/terminos-condiciones.md` | Términos comerciales, garantías, SLA y jurisdicción aprobados | NO_VERIFICABLE | Faltan condiciones del propietario y revisión jurídica previa a publicación | — | OPERACIÓN |
+| PTC-02 / `docs/privacidad/terminos-condiciones.md` | Canal de contacto/identificación para controversias y soporte | NO_VERIFICABLE | Faltan datos identificativos y mecanismo de controversias aprobados, sin evidencia de soporte real | — | OPERACIÓN |
 
 ## Resumen auditable
 
 | Estado | Filas |
 | --- | ---: |
 | CUBIERTO | 47 |
-| EN_CURSO | 7 |
-| SIN_COBERTURA | 0 |
+| EN_CURSO | 0 |
+| SIN_COBERTURA | 7 |
 | DESCARTADO | 1 |
-| NO_VERIFICABLE | 12 |
-| TOTAL | 67 |
+| NO_VERIFICABLE | 22 |
+| TOTAL | 77 |
 
-**Cobertura comprobada:** **70.1% CUBIERTO** (47/67). Es cobertura de **requisitos documentales y contratos offline**, no porcentaje de preparación productiva.
+**Cobertura comprobada:** **61.0% CUBIERTO** (47/77). Es cobertura de **requisitos documentales y contratos offline**, no porcentaje de preparación productiva.
 
 ### Dependencias y criterios de reentrada
 
 - **OFFLINE:** los contratos de identidad, ejecución, cliente, observers y recovery tienen implementaciones y pruebas acotadas; los PRs indicados están fusionados. Esto acredita código, no disponibilidad.
 - **REAL:** [#465](https://github.com/pl0n3r/FactoryRunner/issues/465) sigue `OPEN/estado: planificado` para fuente auténtica; el propietario ordenó no comenzar trabajo nuevo de observación operativa hasta decisión de go-live. La instrucción dirigida para #602 autoriza esta documentación, no revoca ese veto.
 - **OPERACIÓN:** no existen evidencias de `VALIDATED_IN_PRODUCTION`, backups/restores reales, identidad de servicio/ControlBot, HTTPS/credenciales autorizadas ni HEALTH genuino. `docs/go-live-preflight.md` mantiene `live_authorized=false` y `readiness=UNKNOWN`; `docs/local-observer.md` conserva `synthetic_only`.
-- **Brechas sin issue:** no se registran `SIN_COBERTURA` nuevas en este corte: las brechas operativas están en el issue existente #465 o clasificadas `NO_VERIFICABLE` por falta de pruebas/autoridad. No convertir incertidumbre en defecto confirmado ni abrir nuevo backlog sin motivo permitido por Factory#1289. Si un test/procedencia posterior demuestra una capacidad normativa **ausente**, abrir hoja específica con `factory-plan-task`, `factory-acceptance` y paths propios; mantener fuera de la operación real hasta autoridad.
+- **Hojas nuevas de remediación:** **2** ([#605](https://github.com/pl0n3r/FactoryRunner/issues/605) integración ControlBot, [#606](https://github.com/pl0n3r/FactoryRunner/issues/606) observación auténtica), ambas bloqueadas, cubriendo **7 filas `SIN_COBERTURA`** que antes apuntaban indebidamente al plan #465. La documentación separada de salida a producción [#604](https://github.com/pl0n3r/FactoryRunner/issues/604) no sustituye ninguna prueba productiva. No ejecutar nuevas líneas reales antes de la aprobación específica del OWNER. Fila `NO_VERIFICABLE` = prueba no acreditada, no éxito ni permiso de ejecución.
 
 **Reproducir:** `python3 -m unittest tests.test_matriz_cobertura`; el CI completo ejecuta `python3 -m unittest discover -s tests -p 'test_*.py'`. Revertir el squash de #602 retira únicamente esta matriz y su prueba, sin afectar runtime, configuración, secrets ni hosting.
