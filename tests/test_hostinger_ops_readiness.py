@@ -32,6 +32,24 @@ _TERMINAL = {
 }
 
 
+class HostileMapping(Mapping):
+    """Simulate untrusted mapping accessors with side effects."""
+
+    def __getitem__(self, key):
+        raise RuntimeError("untrusted getter invoked")
+
+    def __iter__(self):
+        raise RuntimeError("untrusted iterator invoked")
+
+    def __len__(self):
+        return 1
+
+
+class HostileComparison:
+    def __eq__(self, other):
+        raise RuntimeError("untrusted equality invoked")
+
+
 def _safe(value: object) -> bool:
     return type(value) is str and bool(value.strip()) and not _SENSITIVE.search(value)
 
@@ -48,9 +66,11 @@ def _utc(value: object) -> bool:
 
 def preflight_status(proof: object, expected_sha: str) -> str:
     """Strict structure only; caller assertions never authorize remote actions."""
-    if not isinstance(proof, Mapping) or not _SHA.fullmatch(expected_sha):
+    if type(proof) is not dict or type(expected_sha) is not str or not _SHA.fullmatch(expected_sha):
         return "BLOCKED"
-    if set(proof) != _PREFLIGHT or proof.get("sha") != expected_sha:
+    if any(type(key) is not str for key in proof) or set(proof) != _PREFLIGHT:
+        return "BLOCKED"
+    if any(type(value) is not str for value in proof.values()) or proof.get("sha") != expected_sha:
         return "BLOCKED"
     if proof.get("mode") != "real_authorized" or proof.get("owner_gate") != "SPECIFIC_OPERATIONS_APPROVAL":
         return "BLOCKED"
@@ -72,9 +92,11 @@ def preflight_status(proof: object, expected_sha: str) -> str:
 
 def provenance_status(receipt: object, expected_sha: str) -> str:
     """Validate receipt shape without trusting caller-supplied provenance."""
-    if not isinstance(receipt, Mapping) or not _SHA.fullmatch(expected_sha):
+    if type(receipt) is not dict or type(expected_sha) is not str or not _SHA.fullmatch(expected_sha):
         return "UNKNOWN"
-    if set(receipt) != _RECEIPT or receipt.get("sha") != expected_sha:
+    if any(type(key) is not str for key in receipt) or set(receipt) != _RECEIPT:
+        return "UNKNOWN"
+    if any(type(value) is not str for value in receipt.values()) or receipt.get("sha") != expected_sha:
         return "UNKNOWN"
     if receipt.get("project") != "pl0n3r/FactoryRunner":
         return "UNKNOWN"
@@ -88,11 +110,15 @@ def provenance_status(receipt: object, expected_sha: str) -> str:
 
 def terminal_status(receipt: object, expected_sha: str) -> str:
     """External authoritative exact-SHA proof is never inferred offline."""
-    if not isinstance(receipt, Mapping) or not _SHA.fullmatch(expected_sha):
+    if type(receipt) is not dict or type(expected_sha) is not str or not _SHA.fullmatch(expected_sha):
         return "UNKNOWN"
-    if set(receipt) != _TERMINAL or receipt.get("sha") != expected_sha:
+    if any(type(key) is not str for key in receipt) or set(receipt) != _TERMINAL:
         return "UNKNOWN"
-    if receipt.get("status") != "VALIDATED_IN_PRODUCTION" or receipt.get("pending") != []:
+    if any(type(receipt[key]) is not str for key in _TERMINAL - {"pending"}):
+        return "UNKNOWN"
+    if type(receipt["pending"]) is not list or receipt["pending"] or receipt.get("sha") != expected_sha:
+        return "UNKNOWN"
+    if receipt.get("status") != "VALIDATED_IN_PRODUCTION":
         return "UNKNOWN"
     if receipt.get("mode") != "real" or not _utc(receipt.get("observed_at")):
         return "UNKNOWN"
@@ -116,6 +142,9 @@ class HostingerOpsReadinessTests(unittest.TestCase):
         sha = "a" * 40
         fixture = self.fixture(sha)
         self.assertEqual(preflight_status(None, sha), "BLOCKED")
+        self.assertEqual(preflight_status(HostileMapping(), sha), "BLOCKED")
+        self.assertEqual(preflight_status(fixture, None), "BLOCKED")
+        self.assertEqual(preflight_status({**fixture, "owner_gate": HostileComparison()}, sha), "BLOCKED")
         self.assertEqual(preflight_status({"owner_gate": "A"}, sha), "BLOCKED")
         self.assertEqual(preflight_status({**fixture, "owner_gate": "A"}, sha), "BLOCKED")
         self.assertEqual(preflight_status({**fixture, "operator_scope": "write"}, sha), "BLOCKED")
@@ -131,6 +160,9 @@ class HostingerOpsReadinessTests(unittest.TestCase):
                  observed_at="2026-10-27T00:00:00Z", source_ref="fixture:offline",
                  window="fixture-window", result="PASS")
         self.assertEqual(provenance_status(r, sha), "UNVERIFIED_SOURCE")
+        self.assertEqual(provenance_status(HostileMapping(), sha), "UNKNOWN")
+        self.assertEqual(provenance_status(r, None), "UNKNOWN")
+        self.assertEqual(provenance_status({**r, "result": HostileComparison()}, sha), "UNKNOWN")
         self.assertEqual(provenance_status({**r, "sha": "c" * 40}, sha), "UNKNOWN")
         self.assertEqual(provenance_status({**r, "observed_at": "not-a-date"}, sha), "UNKNOWN")
         self.assertEqual(provenance_status({**r, "verified": True}, sha), "UNKNOWN")
@@ -162,6 +194,10 @@ class HostingerOpsReadinessTests(unittest.TestCase):
                     observed_at="2026-10-27T00:00:00Z", source_ref="fixture:offline",
                     status="VALIDATED_IN_PRODUCTION", pending=[], mode="real")
         self.assertEqual(terminal_status(None, sha), "UNKNOWN")
+        self.assertEqual(terminal_status(HostileMapping(), sha), "UNKNOWN")
+        self.assertEqual(terminal_status(full, None), "UNKNOWN")
+        self.assertEqual(terminal_status({**full, "status": HostileComparison()}, sha), "UNKNOWN")
+        self.assertEqual(terminal_status({**full, "pending": HostileComparison()}, sha), "UNKNOWN")
         self.assertEqual(terminal_status(full, sha), "REQUIRES_EXTERNAL_VERIFICATION")
         for key in _TERMINAL:
             with self.subTest(missing=key):
