@@ -46,15 +46,13 @@ function fixture(capability: BrowserCapability, respond: ResponseFactory) {
 function response(
   request: BrowserRemoteTransportRequest,
   status: unknown,
-  extra: Record<string, unknown> = {},
-): unknown {
+) {
   return {
     version: 1,
     authority: 'unchanged',
     request_fingerprint: request.request_fingerprint,
     status,
     ref: null,
-    ...extra,
   };
 }
 
@@ -116,10 +114,10 @@ test('unknown, missing and malformed remote challenge responses fail closed with
   }
 
   for (const malformed of [
-    (request: BrowserRemoteTransportRequest) => response(request, 'blocked', { authority: 'elevated' }),
-    (request: BrowserRemoteTransportRequest) => response(request, 'blocked', { request_fingerprint: 'f'.repeat(64) }),
-    (request: BrowserRemoteTransportRequest) => response(request, 'blocked', { challenge_token: 'fixture-only' }),
-    (request: BrowserRemoteTransportRequest) => ({ ...response(request, 'blocked') as object, ref: REF, alternate_origin: 'https://other.test' }),
+    (request: BrowserRemoteTransportRequest) => ({ ...response(request, 'blocked'), authority: 'elevated' }),
+    (request: BrowserRemoteTransportRequest) => ({ ...response(request, 'blocked'), request_fingerprint: 'f'.repeat(64) }),
+    (request: BrowserRemoteTransportRequest) => ({ ...response(request, 'blocked'), challenge_token: 'fixture-only' }),
+    (request: BrowserRemoteTransportRequest) => ({ ...response(request, 'blocked'), ref: REF, alternate_origin: 'https://other.test' }),
     () => null,
     () => ({ status: 'blocked' }),
   ]) {
