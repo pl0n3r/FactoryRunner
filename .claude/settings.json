@@ -1,0 +1,19 @@
+{
+  "extraKnownMarketplaces": {
+    "factory": {
+      "source": {
+        "source": "github",
+        "repo": "pl0n3r/factory"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "factory-claude@factory": true
+  }
+}
