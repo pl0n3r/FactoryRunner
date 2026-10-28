@@ -98,7 +98,7 @@ class BrechasFactoryrunner01Tests(unittest.TestCase):
         """
         suites = sorted({suite for _, suite, _ in GAPS.values()})
         completed = subprocess.run(
-            ["node", "--experimental-strip-types", "--test", *suites],
+            ["node", "--experimental-strip-types", "--test", "--test-reporter=tap", *suites],
             cwd=ROOT,
             capture_output=True,
             text=True,
