@@ -139,9 +139,11 @@ class BrechasFactoryrunner03Tests(unittest.TestCase):
                 ):
                     with self.assertRaises(ValueError):
                         coverage_row(identifier, invalid)
+                source_document = read(path)
                 for marker in PENDING[identifier]:
+                    missing_marker_document = source_document.replace(marker, "")
                     with self.assertRaises(ValueError):
-                        offline_status(identifier, row, read(path).replace(marker, ""))
+                        offline_status(identifier, row, missing_marker_document)
         with self.assertRaises(ValueError):
             coverage_row("FUERA-DEL-ALCANCE")
 
@@ -155,7 +157,7 @@ class BrechasFactoryrunner03Tests(unittest.TestCase):
             for alias in (node.names if isinstance(node, ast.Import) else
                           [ast.alias(name=node.module or "")])
         }
-        self.assertTrue(imported <= {"__future__", "ast", "unittest", "pathlib"})
+        self.assertLessEqual(imported, {"__future__", "ast", "unittest", "pathlib"})
         for identifier in GAPS:
             self.assertEqual(offline_status(identifier), UNKNOWN)
         self.assertIn("review_required", read("docs/privacidad/registro-tratamientos.md"))
