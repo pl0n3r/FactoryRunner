@@ -20,8 +20,8 @@ UNKNOWN = "UNKNOWN"
 GAPS = {
     "RM-13": (
         "README.md", "REAL",
-        "tests/browser-adapter-contracts.test.ts",
-        "browser adapter rejects unknown capabilities and arbitrary selector fields",
+        "tests/remote-adapters-no-evasion.test.ts",
+        "CAPTCHA, MFA and rate limits stop every remote adapter with one request and unchanged identity",
     ),
     "RM-14": (
         "README.md", "REAL",
@@ -117,6 +117,9 @@ class BrechasFactoryrunner04Tests(unittest.TestCase):
         admission = read("tests/test_factoryrunner_admission.py")
         recovery = read("tests/recovery-runtime-e2e.test.ts")
         self.assertIn("browser navigation requires allowlisted HTTPS origin", browser)
+        remote = read("tests/remote-adapters-no-evasion.test.ts")
+        self.assertIn("unknown, missing and malformed remote challenge responses fail closed", remote)
+        self.assertIn("origin allowlist remains fixed despite a challenge", remote)
         self.assertIn("click/type use opaque refs and type rejects sensitive", browser)
         self.assertIn("manifestDrift", admission)
         self.assertIn("resourceDrift", admission)
@@ -129,6 +132,7 @@ class BrechasFactoryrunner04Tests(unittest.TestCase):
             "node", "--experimental-strip-types", "--test",
             "--test-reporter=tap",
             "tests/browser-adapter-contracts.test.ts",
+            "tests/remote-adapters-no-evasion.test.ts",
             "tests/recovery-runtime-e2e.test.ts",
         )
         self.assertIn("# fail 0", node_out)
@@ -181,6 +185,8 @@ class BrechasFactoryrunner04Tests(unittest.TestCase):
         )
         self.assertIn("class FakeDriver", read(
             "tests/browser-adapter-contracts.test.ts"))
+        self.assertIn("const transport: BrowserRemoteTransport", read(
+            "tests/remote-adapters-no-evasion.test.ts"))
         recovery = read("tests/recovery-runtime-e2e.test.ts")
         self.assertIn("objectDriver:RecoveryObjectStorageDriver", recovery)
         self.assertIn("driveDriver:RecoveryGoogleDriveDriver", recovery)
