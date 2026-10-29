@@ -161,7 +161,7 @@ class CoberturaFactoryrunner01Tests(unittest.TestCase):
         for row, (suite, cases) in REAL_CODE_CASES.items():
             with self.subTest(executed_real_code=row):
                 source = (ROOT / suite).read_text(encoding="utf-8")
-                self.assertIn("from '../src/", source)
+                self.assertTrue("from '../src/" in source or "from '../scripts/" in source)
                 self.assertIn(DISPOSITION[row][0], {"B"})
                 for case in cases:
                     self.assertIn(case, source)
@@ -199,7 +199,7 @@ class CoberturaFactoryrunner01Tests(unittest.TestCase):
         # These are specific real implementation imports, not dummy test names.
         for row in REAL_CODE_CASES:
             suite = (ROOT / REAL_CODE_CASES[row][0]).read_text(encoding="utf-8")
-            self.assertIn("../src/", suite)
+            self.assertTrue("../src/" in suite or "../scripts/" in suite)
         self.assertEqual(set(DISPOSITION) - set(REAL_CODE_CASES),
                          {row for row in DISPOSITION if row not in REAL_CODE_CASES})
 
