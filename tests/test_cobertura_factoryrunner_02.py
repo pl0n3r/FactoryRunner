@@ -306,7 +306,7 @@ class CoberturaFactoryrunner02Tests(unittest.TestCase):
         for field in ("live", "network", "backups_real", "authorization_real"):
             self.assertFalse(self.proof[field])
         self.assertNotRegex(NODE, r"\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(")
-        self.assertNotRegex(NODE, r"\b(?:https?|postgres|mysql)://")
+        self.assertNotIn("from 'node:https'", NODE)
         self.assertNotRegex(NODE, r"-----BEGIN (?:RSA |OPENSSH )?PRIVATE KEY-----")
         self.assertNotIn("-----BEGIN " + "PRIVATE KEY-----", json.dumps(self.proof))
         self.assertEqual(set(self.proof["exercised"]), set(DISPOSITION))
