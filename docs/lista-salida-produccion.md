@@ -31,7 +31,7 @@
 | SE-02 | Secretos y accesos | Provisionamiento externo, rotación y revocación de secretos | SIN_COBERTURA | Falta vault/gestión de credenciales real con prueba de revocación | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | SE-03 | Secretos y accesos | Identidades y permisos mínimos por entorno | DEL_DUEÑO | Falta aprobación del titular de las cuentas de servicio | — | OPERACIÓN |
 | CO-01 | Costos y límites | Arquitectura compartida sin requerir Docker ni root | LISTO | `src/controlbot/client.ts` y [PR #19](https://github.com/pl0n3r/FactoryRunner/pull/19) | — | OFFLINE |
-| CO-02 | Costos y límites | Aprobar presupuesto, plan y facturación | DEL_DUEÑO | Falta decisión de gastos/cuotas de Hostinger y servicios externos | — | OPERACIÓN |
+| CO-02 | Costos y límites | Aprobar presupuesto, plan y facturación | NO_APLICA | Excluido: FactoryRunner corre hoy sin generar gastos (decisión del dueño 30-oct-2026); se reabre si se contrata un servicio de pago | — | N/A |
 | CO-03 | Costos y límites | Medir cuotas, cron, conexiones y límites de carga reales | SIN_COBERTURA | Falta atestación de capacidad frente al workload objetivo | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | PV-01 | Privacidad y aspectos legales | Inventario técnico de privacidad deja explícita revisión jurídica | LISTO | `docs/matriz-cobertura.md` y [PR #603](https://github.com/pl0n3r/FactoryRunner/pull/603) | — | OFFLINE |
 | PV-02 | Privacidad y aspectos legales | Aprobar aviso, derechos, retención y responsable | NO_APLICA | Excluido: FactoryRunner es de uso interno del dueño y no trata datos de terceros (decisión 30-oct-2026); se reabre si maneja datos de clientes | — | N/A |
@@ -91,8 +91,8 @@
 | LISTO | 22 |
 | EN_CURSO | 0 |
 | SIN_COBERTURA | 27 |
-| DEL_DUEÑO | 10 |
-| NO_APLICA | 8 |
+| DEL_DUEÑO | 9 |
+| NO_APLICA | 9 |
 | TOTAL | 67 |
 
 **Hojas nuevas creadas en este despacho: 3**, [#607](https://github.com/pl0n3r/FactoryRunner/issues/607), [#608](https://github.com/pl0n3r/FactoryRunner/issues/608) y [#609](https://github.com/pl0n3r/FactoryRunner/issues/609). **Hojas existentes reutilizadas: 2**, [#605](https://github.com/pl0n3r/FactoryRunner/issues/605) y [#606](https://github.com/pl0n3r/FactoryRunner/issues/606). **Sin cobertura todavía: 27 filas**; las 5 hojas canónicas enlazadas están bloqueadas, sin ejecución real. `LISTO` corresponde solo a 22 contratos OFFLINE, no a readiness productiva.
