@@ -52,7 +52,7 @@
 | SG-02 | Seguridad y pruebas | Contratos rechazan secretos y restore cruzado | LISTO | `tests/recovery-runtime-e2e.test.ts` y [PR #38](https://github.com/pl0n3r/FactoryRunner/pull/38) | — | OFFLINE |
 | SG-03 | Seguridad y pruebas | ACL y autenticación ControlBot real | SIN_COBERTURA | Falta ACL y autenticación ControlBot reales. [PR #633](https://github.com/pl0n3r/FactoryRunner/pull/633) MERGED aporta `tests/test_factoryrunner_controlbot_http_session_client.py` con HEALTH simulado y transporte falso, sin red. | [FR #605](https://github.com/pl0n3r/FactoryRunner/issues/605) | OPERACIÓN |
 | SG-04 | Seguridad y pruebas | Seguridad de rate limits, MFA y ejecución sin escalada | SIN_COBERTURA | Falta validar rate limits, MFA y permisos en entorno autorizado. [PR #630](https://github.com/pl0n3r/FactoryRunner/pull/630) MERGED añade `tests/test_launch_qa_smoke.py` de negativos offline, no ensayo real. | [FR #609](https://github.com/pl0n3r/FactoryRunner/issues/609) | OPERACIÓN |
-| SG-05 | Seguridad y pruebas | Autorizar pruebas externas de seguridad si aplican | DEL_DUEÑO | Falta alcance y proveedor de pentest autorizado | — | OPERACIÓN |
+| SG-05 | Seguridad y pruebas | Autorizar pruebas externas de seguridad si aplican | NO_APLICA | Excluido: FactoryRunner es de uso interno y no se contratan pruebas de seguridad externas por ahora (decisión del dueño 30-oct-2026); se reabre si se abre al público | — | N/A |
 | AX-01 | Accesibilidad y rendimiento | Demo del observador limitada a loopback | LISTO | `scripts/local-observer-server.ts` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
 | AX-02 | Accesibilidad y rendimiento | Verificar accesibilidad aplicable a interfaz operativa | SIN_COBERTURA | Falta auditoría de accesibilidad de interfaz real con resultado verificable. [PR #630](https://github.com/pl0n3r/FactoryRunner/pull/630) MERGED documenta criterios en `docs/launch-qa-smoke.md`, no ensayo auténtico. | [FR #609](https://github.com/pl0n3r/FactoryRunner/issues/609) | OPERACIÓN |
 | AX-03 | Accesibilidad y rendimiento | Rendimiento p95 y pruebas de estrés con umbrales | SIN_COBERTURA | Falta benchmark p95/estrés real y presupuesto contractual aprobado. [PR #630](https://github.com/pl0n3r/FactoryRunner/pull/630) MERGED define exigencias en `docs/launch-qa-smoke.md`, no mediciones. | [FR #609](https://github.com/pl0n3r/FactoryRunner/issues/609) | OPERACIÓN |
@@ -63,7 +63,7 @@
 | SM-04 | Smoke de producción | Permiso específico de activación live adicional a #431/A | DEL_DUEÑO | Falta decisión nueva y explícita de despliegue/cutover | — | OPERACIÓN |
 | CR-01 | Credenciales del ejecutor | Driver Recovery recibe sólo alias de conexión opaca | LISTO | `src/adapters/recovery-database.ts` y [PR #34](https://github.com/pl0n3r/FactoryRunner/pull/34) | — | OFFLINE |
 | CR-02 | Credenciales del ejecutor | Rotación, expiración, aislamiento y revocación de tokens reales | SIN_COBERTURA | Falta gestor de secretos real y prueba de revocación | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
-| CR-03 | Credenciales del ejecutor | Acceso a cuentas externas y consentimiento | DEL_DUEÑO | Falta aprobación de identidades y titularidad del ejecutor | — | OPERACIÓN |
+| CR-03 | Credenciales del ejecutor | Acceso a cuentas externas y consentimiento | NO_APLICA | Excluido: las cuentas externas son del dueño y FactoryRunner es de uso interno (decisión del dueño 30-oct-2026); se reabre si usa cuentas de terceros | — | N/A |
 | AI-01 | Aislamiento de ejecuciones | Capabilities/órdenes con límites y negativos offline | LISTO | `tests/runner-contracts.test.ts` y [PR #10](https://github.com/pl0n3r/FactoryRunner/pull/10) | — | OFFLINE |
 | AI-02 | Aislamiento de ejecuciones | Probar separación tenant/perfil/browser real | SIN_COBERTURA | Falta ensayo de aislamiento efectivo y protección de sesiones | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | AI-03 | Aislamiento de ejecuciones | Observador demo no lee procesos ni sesiones del Mac | LISTO | `tests/local-observer-server.test.ts` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
@@ -91,8 +91,8 @@
 | LISTO | 22 |
 | EN_CURSO | 0 |
 | SIN_COBERTURA | 27 |
-| DEL_DUEÑO | 9 |
-| NO_APLICA | 9 |
+| DEL_DUEÑO | 7 |
+| NO_APLICA | 11 |
 | TOTAL | 67 |
 
 **Hojas nuevas creadas en este despacho: 3**, [#607](https://github.com/pl0n3r/FactoryRunner/issues/607), [#608](https://github.com/pl0n3r/FactoryRunner/issues/608) y [#609](https://github.com/pl0n3r/FactoryRunner/issues/609). **Hojas existentes reutilizadas: 2**, [#605](https://github.com/pl0n3r/FactoryRunner/issues/605) y [#606](https://github.com/pl0n3r/FactoryRunner/issues/606). **Sin cobertura todavía: 27 filas**; las 5 hojas canónicas enlazadas están bloqueadas, sin ejecución real. `LISTO` corresponde solo a 22 contratos OFFLINE, no a readiness productiva.
