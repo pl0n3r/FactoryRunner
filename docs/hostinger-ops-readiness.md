@@ -8,21 +8,42 @@ se activan cron/servicios ni se inspeccionan credenciales.
 ## Autoridad y separación de decisiones (AC-01)
 
 La [puerta #612](https://github.com/pl0n3r/FactoryRunner/issues/612)
-terminó con voto OWNER **A** y journal oficial v2. Esa A habilita **únicamente**
-preparación documental y tests negativos offline del Issue #608, sin superar la
-suspensión para operaciones reales de #465. No concede permiso de consulta
-Hostinger: antes de cualquier lectura autenticada deberán existir una decisión
-independiente que identifique titular, cuenta/alias, dominio, operador, permisos,
-propósito, privacidad/consentimiento, límites de costo y entorno verificable.
-No se registrarán valores de contraseña, token, DSN, cookies ni datos personales.
-Los permisos D-059 de lectura/diagnóstico **no sustituyen** esta decisión humana
-específica del Issue ni autorizan operaciones de producción.
+terminó con voto OWNER **A** y [journal v2/A](https://github.com/pl0n3r/FactoryRunner/issues/612#issuecomment-6443273780).
+Esa decisión habilitó **únicamente preparación documental y tests offline**, sin
+revocar la suspensión de operaciones reales de #465.
 
-Requiere además prueba auténtica de un backup **con restore** a entorno aislado,
-rollback verificado, kill switch efectivo y ventanas/umbrales definidos. Cualquier
-permiso ambiguo, caducado, incompatible o evidencia faltante: "BLOCKED", nunca
-"GO". Ni un permiso declarado por un caller ni la aprobación de preparación
-constituyen autorización independiente para usar un servicio real.
+La decisión específica [#634/A](https://github.com/pl0n3r/FactoryRunner/issues/634#issuecomment-6455862736)
+también tiene journal oficial v2/A, pero **solo permite considerar** una
+inspección *read-only* después de acreditar, por una fuente independiente, titular
+y operador autorizados, cuenta/alias, dominio, permisos concretos, propósito,
+privacidad/legal, límites de uso, custodia y entorno. El voto NO acredita esos
+datos, NO entrega secretos y NO autoriza por sí solo conexiones Hostinger.
+Los permisos generales D-059 tampoco sustituyen esos recibos.
+
+[#635/A](https://github.com/pl0n3r/FactoryRunner/issues/635#issuecomment-6455850511)
+permite considerar un ensayo de restore **solo en destino aislado y descartable**
+después de demostrar operador, permisos, privacidad, ausencia de PII, recursos sin
+gasto, protección de claves y reversión. **El ensayo no consta ejecutado.**
+Sigue faltando prueba independiente de backup realmente **restaurado**, rollback
+verificado, kill switch efectivo y ventanas/umbrales definidos. Cualquier permiso
+ambiguo, caducado, incompatible o evidencia faltante: "BLOCKED", nunca "GO".
+Ni un manifest sintético ni estas tres decisiones equivalen a una autorización
+operativa incondicional, una medición real o un go-live.
+No se registrarán contraseñas, tokens, DSN, cookies ni datos personales.
+
+## Registro de recibos pendientes (no es evidencia operativa)
+
+| AC | Evidencia primaria exigida, verificada fuera del repositorio | Estado |
+| --- | --- | --- |
+| AC-01 | Identidad del titular y operador, cuenta/dominio y permiso read-only delimitado; privacidad/legal, límites/custodia y vigencia comprobados por canal autorizado | NO_ACREDITADO |
+| AC-02 | Comprobación auténtica de DNS/TLS y límites del servicio, release + SHA + ventana + fuente autenticada, sin valores sensibles | NO_ACREDITADO |
+| AC-03 | Ejecución de negativos en CI del HEAD exacto y controles de seguridad; prueba de restore y rollback auténticos **separada** de fixtures | NO_ACREDITADO en operación |
+| AC-04 | Observación independiente y auditada del entorno autorizado, timestamp UTC, identidad de release/SHA y ausencia de pendientes | NO_ACREDITADO |
+
+Las referencias a journals v2/A son **decisiones de alcance condicionado**, no
+recibos de estos AC. No llenar estados `PASS` desde comentarios, mocks, CI ni
+autodeclaraciones. Hasta obtener fuentes auténticas, mantener PR DRAFT,
+`live_authorized=false` y `readiness=UNKNOWN`.
 
 ## Inventario operativo exigido, no verificado
 

@@ -151,7 +151,12 @@ class HostingerOpsReadinessTests(unittest.TestCase):
         self.assertEqual(preflight_status({**fixture, "account_alias": "user@example.invalid"}, sha), "BLOCKED")
         self.assertEqual(preflight_status({**fixture, "hostname": "bad host"}, sha), "BLOCKED")
         self.assertEqual(preflight_status(fixture, sha), "REQUIRES_EXTERNAL_VERIFICATION")
-        self.assertIn("#612", DOC.read_text(encoding="utf-8"))
+        # Conditional decisions must be recorded without implying live authority.
+        doc = DOC.read_text(encoding="utf-8")
+        for marker in ("#612", "#634/A", "#635/A", "NO_ACREDITADO",
+                       "live_authorized=false", "readiness=UNKNOWN"):
+            with self.subTest(decision_or_gate=marker):
+                self.assertIn(marker, doc)
 
     def test_evidencia(self):
         sha = "b" * 40
