@@ -19,11 +19,11 @@
 | BK-01 | Respaldos y restauración | Contrato DB snapshot y restore descartable sin secretos | LISTO | `tests/recovery-database-adapter.test.ts` y [PR #34](https://github.com/pl0n3r/FactoryRunner/pull/34) | — | OFFLINE |
 | BK-02 | Respaldos y restauración | Backup real, checksum, restore y RPO/RTO verificados | SIN_COBERTURA | Falta recibo genuino de backup/restore, no mock | [FR #607](https://github.com/pl0n3r/FactoryRunner/issues/607) | OPERACIÓN |
 | BK-03 | Respaldos y restauración | Restore a destino temporal sin tocar producción | SIN_COBERTURA | Falta prueba real en un target disposable | [FR #607](https://github.com/pl0n3r/FactoryRunner/issues/607) | OPERACIÓN |
-| BK-04 | Respaldos y restauración | Política de conservación y custodio de backups | DEL_DUEÑO | Falta plazos legales y presupuesto de almacenamiento aprobados | — | OPERACIÓN |
+| BK-04 | Respaldos y restauración | Política de conservación y custodio de backups | NO_APLICA | Excluido: uso interno, sin tratamiento de datos de terceros (decisión del dueño 30-oct-2026; #658 no planeado) | — | N/A |
 | MO-01 | Monitoreo y alertas | Servidor demo no anuncia readiness real | LISTO | `tests/local-observer-server.test.ts` y [PR #484](https://github.com/pl0n3r/FactoryRunner/pull/484) | — | OFFLINE |
 | MO-02 | Monitoreo y alertas | Fuente autenticada, roster y heartbeat genuinos | SIN_COBERTURA | Falta colección real autorizada, no synthetic_only | [FR #606](https://github.com/pl0n3r/FactoryRunner/issues/606) | OPERACIÓN |
 | MO-03 | Monitoreo y alertas | Alertas de caída, saturación y canal de escalado | SIN_COBERTURA | Falta evidencia real de alerta y destinatario | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
-| MO-04 | Monitoreo y alertas | Política de logs y protección de PII | DEL_DUEÑO | Falta revisión legal y plazo de retención de registros | — | OPERACIÓN |
+| MO-04 | Monitoreo y alertas | Política de logs y protección de PII | NO_APLICA | Excluido: uso interno, sin tratamiento de datos de terceros (decisión del dueño 30-oct-2026; #659 no planeado) | — | N/A |
 | DNS-01 | Dominios, DNS y TLS | Identificar dominio y propiedad de registros DNS | DEL_DUEÑO | Falta decisión de dominio y autoridad sobre zona DNS | — | OPERACIÓN |
 | DNS-02 | Dominios, DNS y TLS | TLS válido, expiración, HTTPS y control de hostname | SIN_COBERTURA | Falta certificado y prueba autenticada de endpoint real | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | DNS-03 | Dominios, DNS y TLS | Verificar hostname contra redirección y exposición no autorizada | SIN_COBERTURA | Falta prueba de red y aislamiento en Hostinger | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
@@ -34,9 +34,9 @@
 | CO-02 | Costos y límites | Aprobar presupuesto, plan y facturación | DEL_DUEÑO | Falta decisión de gastos/cuotas de Hostinger y servicios externos | — | OPERACIÓN |
 | CO-03 | Costos y límites | Medir cuotas, cron, conexiones y límites de carga reales | SIN_COBERTURA | Falta atestación de capacidad frente al workload objetivo | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | PV-01 | Privacidad y aspectos legales | Inventario técnico de privacidad deja explícita revisión jurídica | LISTO | `docs/matriz-cobertura.md` y [PR #603](https://github.com/pl0n3r/FactoryRunner/pull/603) | — | OFFLINE |
-| PV-02 | Privacidad y aspectos legales | Aprobar aviso, derechos, retención y responsable | DEL_DUEÑO | Falta revisión jurídica, identificación y canal legítimo | — | OPERACIÓN |
-| PV-03 | Privacidad y aspectos legales | Consentimiento para cuentas, ubicación y sesiones reales | DEL_DUEÑO | Falta base jurídica/consentimiento y aprobación de tratamiento | — | OPERACIÓN |
-| PV-04 | Privacidad y aspectos legales | Términos, terceros, transferencia y SLA | DEL_DUEÑO | Falta condiciones legales, proveedores y jurisdicción aprobados | — | OPERACIÓN |
+| PV-02 | Privacidad y aspectos legales | Aprobar aviso, derechos, retención y responsable | NO_APLICA | Excluido: uso interno, sin tratamiento de datos de terceros (decisión del dueño 30-oct-2026; #663 no planeado) | — | N/A |
+| PV-03 | Privacidad y aspectos legales | Consentimiento para cuentas, ubicación y sesiones reales | NO_APLICA | Excluido: uso interno, sin tratamiento de datos de terceros (decisión del dueño 30-oct-2026; #664 no planeado) | — | N/A |
+| PV-04 | Privacidad y aspectos legales | Términos, terceros, transferencia y SLA | NO_APLICA | Excluido: uso interno, sin tratamiento de datos de terceros (decisión del dueño 30-oct-2026; #665 no planeado) | — | N/A |
 | SU-01 | Soporte y operación diaria | Runbook soporte diario, escalación e incidentes | SIN_COBERTURA | Falta ensayo operativo de soporte, escalación y acuse. [PR #630](https://github.com/pl0n3r/FactoryRunner/pull/630) MERGED entrega `docs/launch-qa-smoke.md` y `tests/test_launch_qa_smoke.py`, solo preparación y negativos OFFLINE. | [FR #609](https://github.com/pl0n3r/FactoryRunner/issues/609) | OPERACIÓN |
 | SU-02 | Soporte y operación diaria | Operación del scheduler/alertas y bitácora | SIN_COBERTURA | Falta runbook y evidencia de continuidad operativa | [FR #608](https://github.com/pl0n3r/FactoryRunner/issues/608) | OPERACIÓN |
 | SU-03 | Soporte y operación diaria | Responsable de soporte y horario/SLA | DEL_DUEÑO | Falta definición de autoridad y niveles de servicio | — | OPERACIÓN |
@@ -91,8 +91,8 @@
 | LISTO | 22 |
 | EN_CURSO | 0 |
 | SIN_COBERTURA | 27 |
-| DEL_DUEÑO | 15 |
-| NO_APLICA | 3 |
+| DEL_DUEÑO | 10 |
+| NO_APLICA | 8 |
 | TOTAL | 67 |
 
 **Hojas nuevas creadas en este despacho: 3**, [#607](https://github.com/pl0n3r/FactoryRunner/issues/607), [#608](https://github.com/pl0n3r/FactoryRunner/issues/608) y [#609](https://github.com/pl0n3r/FactoryRunner/issues/609). **Hojas existentes reutilizadas: 2**, [#605](https://github.com/pl0n3r/FactoryRunner/issues/605) y [#606](https://github.com/pl0n3r/FactoryRunner/issues/606). **Sin cobertura todavía: 27 filas**; las 5 hojas canónicas enlazadas están bloqueadas, sin ejecución real. `LISTO` corresponde solo a 22 contratos OFFLINE, no a readiness productiva.
