@@ -58,7 +58,7 @@ def report_rows(text: str) -> dict[str, tuple[str, str, str, str, str, str, str]
     found = {}
     for line in text.splitlines():
         parts = [part.strip() for part in line.split("|")]
-        if len(parts) != 9 or not re.fullmatch(r"\x60([A-Z]+-\d+)\x60", parts[1]):
+        if len(parts) != 10 or not re.fullmatch(r"\x60([A-Z]+-\d+)\x60", parts[1]):
             continue
         identifier = parts[1].strip("\x60")
         if identifier in found:
