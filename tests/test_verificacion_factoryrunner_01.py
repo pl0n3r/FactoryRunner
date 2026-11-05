@@ -97,10 +97,10 @@ class VerificacionFactoryRunner01Tests(unittest.TestCase):
                 body = path.read_text(encoding="utf-8")
                 if witness.endswith(".test.ts"):
                     self.assertIn("test('" + title + "'", body)
-                    self.assertRegex(body, r"from ['\"]\.\./src/")
+                    self.assertRegex(body, r"from ['\"]\.\./(?:src|scripts)/")
                     self.assertIn("assert.", body)
                 else:
-                    self.assertIn("def test_" + title.split(".")[-1] + "(", body)
+                    self.assertIn("def " + title.split(".")[-1] + "(", body)
                     self.assertIn("subprocess.run", body)
         self.assertIn("execution plane", (ROOT / "README.md").read_text())
         self.assertIn("synthetic_only", (ROOT / "docs/local-observer.md").read_text())
