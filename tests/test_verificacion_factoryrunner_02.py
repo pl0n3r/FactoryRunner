@@ -91,8 +91,8 @@ class VerificacionFactoryrunner02Tests(unittest.TestCase):
             with self.subTest(row=row_id):
                 self.assertRegex(
                     runner.stdout,
-                    r"(?m)^(?:ok\\s+\\d+\\s+-\\s+|✔\\s+)"
-                    + re.escape(title) + r"(?:\\s+\\(|\\s*$)",
+                    r"(?m)^(?:ok\s+\d+\s+-\s+|✔\s+)"
+                    + re.escape(title) + r"(?:\s+\(|\s*$)",
                 )
 
     def test_preflight_y_observador_jamas_acreditan_live(self):
