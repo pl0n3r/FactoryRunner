@@ -101,7 +101,7 @@ class VerificacionFactoryRunner01Tests(unittest.TestCase):
                     self.assertIn("assert.", body)
                 else:
                     self.assertIn("def " + title.split(".")[-1] + "(", body)
-                    self.assertIn("subprocess.run", body)
+                    self.assertTrue("subprocess.run" in body or "subprocess.check_output" in body)
         self.assertIn("execution plane", (ROOT / "README.md").read_text())
         self.assertIn("synthetic_only", (ROOT / "docs/local-observer.md").read_text())
 
