@@ -89,7 +89,11 @@ class VerificacionFactoryrunner02Tests(unittest.TestCase):
             if file not in TS_SUITES:
                 continue
             with self.subTest(row=row_id):
-                self.assertIn(" - " + title, runner.stdout)
+                self.assertRegex(
+                    runner.stdout,
+                    r"(?m)^(?:ok\\s+\\d+\\s+-\\s+|✔\\s+)"
+                    + re.escape(title) + r"(?:\\s+\\(|\\s*$)",
+                )
 
     def test_preflight_y_observador_jamas_acreditan_live(self):
         code = (ROOT / "src/go-live-preflight.ts").read_text(encoding="utf-8")
