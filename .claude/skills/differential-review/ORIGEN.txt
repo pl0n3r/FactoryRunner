@@ -1,0 +1,1 @@
+Origen: https://github.com/trailofbits/skills (plugins/differential-review), Trail of Bits. Licencia CC BY-SA 4.0 (ver LICENSE-CC-BY-SA-4.0.txt). Copiado el 2026-11-05 sin cambios en el contenido.
