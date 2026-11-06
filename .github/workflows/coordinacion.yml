@@ -33,6 +33,7 @@ jobs:
         startsWith(github.event.comment.body, '/transferir ') ||
         startsWith(github.event.comment.body, '/migrar-contrato ') ||
         startsWith(github.event.comment.body, '/renovar-contrato ') ||
+        startsWith(github.event.comment.body, '/recuperar-lock-v3-activa ') ||
         contains(github.event.comment.body, '/tomar') ||
         contains(github.event.comment.body, '/liberar-forzado') ||
         contains(github.event.comment.body, '/adoptar-contrato-huerfana') ||
