@@ -26,7 +26,7 @@ def _safe_get_only_contract(source: str) -> bool:
     )
     privileged = (
         r"(?m)^  (?:push|pull_request|pull_request_target|issues|"
-        r"issue_comment|workflow_run|repository_dispatch|workflow_call|merge_group):"
+        r"issue_comment|workflow_run|repository_dispatch|workflow_call|merge_group):[ \t]*$"
     )
     return (
         source.count("\non:\n") == 1
