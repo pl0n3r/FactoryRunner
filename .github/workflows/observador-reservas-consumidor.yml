@@ -1,0 +1,30 @@
+name: Observación local de reservas V3 (Fase A, solo lectura)
+
+# Fase A distribuida de Factory #1382: cada consumidor usa su
+# GITHUB_TOKEN local. No habilita Fase B ni certifica 100 ciclos válidos.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: lease-consumer-caller-${{ github.repository_id }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: Observar reservas locales, sin liberar
+    uses: pl0n3r/factory/.github/workflows/observador-reservas-consumidor.yml@v1
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      checks: read
+      actions: read
