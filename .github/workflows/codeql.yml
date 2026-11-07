@@ -29,6 +29,6 @@ jobs:
           build-mode: none
 
       - name: Analizar y publicar evidencia Code Scanning
-        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
+        uses: github/codeql-action/analyze@1fc58d04a4d4374f921bdac573c3811c240f9c26
         with:
           category: /language:javascript-typescript-python
