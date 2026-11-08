@@ -24,6 +24,18 @@ class CodeQLWorkflowTests(unittest.TestCase):
             refs[action] = matches[0]
         self.assertEqual(refs["init"], refs["analyze"])
 
+
+    def test_dependabot_groups_codeql_action(self):
+        """The two CodeQL entry points must be updated together."""
+        config = (Path(__file__).resolve().parents[1] / ".github/dependabot.yml").read_text(
+            encoding="utf-8"
+        )
+        actions_section = config.partition("  - package-ecosystem: github-actions\n")[2]
+        self.assertTrue(actions_section, "missing github-actions ecosystem")
+        self.assertIn("    groups:\n", actions_section)
+        self.assertIn("      codeql-action:\n", actions_section)
+        self.assertIn('          - "github/codeql-action/*"\n', actions_section)
+
     def test_codeql_workflow_is_bounded_and_minimal(self):
         content = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("name: CodeQL", content)
@@ -44,8 +56,8 @@ class CodeQLWorkflowTests(unittest.TestCase):
         ]
         self.assertEqual(actions, [
             "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-            "github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
-            "github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee",
+            "github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066",
+            "github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066",
         ])
         for forbidden in (
             "pull_request_target:", "workflow_dispatch:", "workflow_run:",
