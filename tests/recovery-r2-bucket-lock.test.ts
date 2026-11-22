@@ -46,13 +46,13 @@ function mock(options:{
     const isProbe=path.includes('__r2_lock_probe_');
     const current=stored.get(path);
     if(method==='PUT'){
-      if(isProbe&&current&&!options.overwriteAllowed) return new Response(null,{status:403});
+      if(isProbe&&current&&!options.overwriteAllowed) return new Response('<Error><Code>ObjectLockedByBucketPolicy</Code></Error>',{status:409});
       const body=new Uint8Array(init.body as Uint8Array);
       stored.set(path,{body,meta:new Headers(init.headers).get('x-amz-meta-sha256')??''});
       return new Response(null,{status:200});
     }
     if(method==='DELETE'){
-      if(isProbe&&current&&!options.deleteAllowed) return new Response(null,{status:403});
+      if(isProbe&&current&&!options.deleteAllowed) return new Response('<Error><Code>ObjectLockedByBucketPolicy</Code></Error>',{status:409});
       stored.delete(path);
       return new Response(null,{status:204});
     }
@@ -138,4 +138,19 @@ test('S3 default profile continues requiring COMPLIANCE per object',async()=>{
     return new Response(null,{status:200,headers:{'x-amz-version-id':'version-1','x-amz-meta-sha256':digest}});
   };
   await assert.rejects(()=>live(transport,legacy).execute(input('verify')),RecoveryLiveObjectStorageError);
+});
+
+test('an unrelated conflict or AccessDenied is not evidence of bucket retention',async()=>{
+  for(const fakeStatus of [403,409]){
+    const original=mock();
+    let probePuts=0;
+    const transport:RecoveryS3Transport=async(url,init)=>{
+      if(url.includes('__r2_lock_probe_')&&init.method==='PUT'){
+        probePuts+=1;
+        if(probePuts===2) return new Response('<Error><Code>AccessDenied</Code></Error>',{status:fakeStatus});
+      }
+      return original.transport(url,init);
+    };
+    await assert.rejects(()=>live(transport).execute(input()),RecoveryLiveObjectStorageError);
+  }
 });

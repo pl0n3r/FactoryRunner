@@ -142,11 +142,19 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
     // A successful overwrite or delete signals that the alleged retention is ineffective.
     const changed=new TextEncoder().encode('tamper:'+randomUUID());
     const overwritten=await this.#request('PUT',pathname,changed,{'x-amz-meta-sha256':recoverySha256(changed)});
-    if(![403,409].includes(overwritten.status)) invalid();
+    await this.#assertObjectLocked(overwritten);
     const deleted=await this.#request('DELETE',pathname);
-    if(![403,409].includes(deleted.status)) invalid();
+    await this.#assertObjectLocked(deleted);
     const read=await this.#request('GET',pathname);
     if(!read.ok||recoverySha256(new Uint8Array(await read.arrayBuffer()))!==digest) invalid();
+  }
+
+  async #assertObjectLocked(response:Response):Promise<void>{
+    // R2 reports lock enforcement as 409 ObjectLockedByBucketPolicy, not
+    // a generic AccessDenied, precondition failure, or unrelated conflict.
+    if(response.status!==409) invalid();
+    const errorBody=await response.text();
+    if(errorBody.length>4096||!/<Code>ObjectLockedByBucketPolicy<\\/Code>/.test(errorBody)) invalid();
   }
 
   async #readProtected(command:RecoveryObjectStorageCommand,pathname:string):
