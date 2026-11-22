@@ -36,7 +36,7 @@ export function resolveR2BucketLockProfile(
   const apiToken=env[stem+'R2_API_TOKEN'];
   const jurisdiction=env[stem+'R2_JURISDICTION'];
   if(!accountId||!/^([a-f0-9]{32})$/.test(accountId)
-     ||!apiToken||apiToken.length<16||apiToken.length>512||/[\\s\\u0000-\\u001f]/.test(apiToken)) invalid();
+     ||!apiToken||apiToken.length<16||apiToken.length>512||/[\s\u0000-\u001f]/.test(apiToken)) invalid();
   if(jurisdiction&&!/^[a-z][a-z0-9-]{1,24}$/.test(jurisdiction)) invalid();
   const expectedHost=accountId+(jurisdiction?'.'+jurisdiction:'')+'.r2.cloudflarestorage.com';
   if(new URL(config.endpoint).hostname.toLowerCase()!==expectedHost) invalid();
