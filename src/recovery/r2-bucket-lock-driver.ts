@@ -13,7 +13,12 @@ import type {
 const DAY_SECONDS=86400;
 type Clock=()=>Date;
 type R2Profile=Readonly<{accountId:string;apiToken:string;jurisdiction?:string}>;
-type Rule=Readonly<{id:string;prefix:string;condition:string}>;
+type Retention=Readonly<
+  {type:'Indefinite'}|{type:'Age';maxAgeSeconds:number}|{type:'Date';until:number}
+>;
+type Rule=Readonly<{
+  id:string;prefix:string;condition:string;retentions:ReadonlyArray<Retention>;
+}>;
 
 function record(value:unknown):value is Record<string,unknown>{
   return value!==null&&typeof value==='object'&&!Array.isArray(value);
@@ -81,7 +86,7 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
       await this.#proveLock(command);
       const pathname=recoveryS3Path(this.#config,command);
       if(command.operation==='upload') return await this.#upload(command,pathname,rule);
-      const verified=await this.#readProtected(command,pathname);
+      const verified=await this.#readProtected(command,pathname,rule);
       if(command.operation==='materialize'){
         await this.#sink.write(command.object_ref,verified.bytes);
       }
@@ -104,25 +109,39 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
     const payload:unknown=JSON.parse(raw);
     if(!record(payload)||payload.success!==true||!record(payload.result)
        ||!Array.isArray(payload.result.rules)||payload.result.rules.length>1000) invalid();
-    const minimum=this.#clock().getTime()+this.#config.objectLockDays*DAY_SECONDS*1000;
-    const sufficient=payload.result.rules.filter((item:unknown)=>{
+
+    const now=this.#clock().getTime();
+    if(!Number.isFinite(now)) invalid();
+    const requiredSeconds=this.#config.objectLockDays*DAY_SECONDS;
+    const matching:Array<{id:string;prefix:string;condition:string;retention:Retention}>=[];
+    for(const item of payload.result.rules){
       if(!record(item)||item.enabled!==true||typeof item.id!=='string'
          ||item.id.length<1||item.id.length>128||typeof (item.prefix??'')!=='string'
-         ||!record(item.condition)||!key.startsWith((item.prefix as string|undefined)??'')) return false;
+         ||!record(item.condition)||!key.startsWith((item.prefix as string|undefined)??'')) continue;
       const condition=item.condition;
-      if(condition.type==='Indefinite') return true;
-      if(condition.type==='Age') return typeof condition.maxAgeSeconds==='number'
-        &&Number.isFinite(condition.maxAgeSeconds)
-        &&condition.maxAgeSeconds>=this.#config.objectLockDays*DAY_SECONDS;
-      if(condition.type==='Date') return typeof condition.date==='string'
-        &&Number.isFinite(Date.parse(condition.date))&&Date.parse(condition.date)>=minimum;
-      return false;
-    });
-    if(sufficient.length===0) invalid();
-    const selected=sufficient[0] as Record<string,unknown>;
-    const condition=selected.condition as Record<string,unknown>;
-    return {id:selected.id as string,prefix:(selected.prefix as string|undefined)??'',
-      condition:JSON.stringify(condition)};
+      let retention:Retention;
+      if(condition.type==='Indefinite'){
+        retention={type:'Indefinite'};
+      }else if(condition.type==='Age'&&typeof condition.maxAgeSeconds==='number'
+        &&Number.isSafeInteger(condition.maxAgeSeconds)&&condition.maxAgeSeconds>0){
+        retention={type:'Age',maxAgeSeconds:condition.maxAgeSeconds};
+      }else if(condition.type==='Date'&&typeof condition.date==='string'
+        &&Number.isFinite(Date.parse(condition.date))){
+        retention={type:'Date',until:Date.parse(condition.date)};
+      }else continue;
+      matching.push({id:item.id,prefix:(item.prefix as string|undefined)??'',
+        condition:JSON.stringify(condition),retention});
+    }
+    // Require a full configured retention for new writes, but evaluate ALL
+    // matching rules when checking the remaining lifetime of existing objects.
+    const eligible=matching.filter(({retention})=>
+      retention.type==='Indefinite'||
+      (retention.type==='Age'&&retention.maxAgeSeconds>=requiredSeconds)||
+      (retention.type==='Date'&&retention.until>=now+requiredSeconds*1000));
+    if(eligible.length===0) invalid();
+    const selected=eligible[0];
+    return {id:selected.id,prefix:selected.prefix,condition:selected.condition,
+      retentions:matching.map(x=>x.retention)};
   }
 
   async #request(method:string,pathname:string,body?:Uint8Array,headers:Record<string,string>={}):Promise<Response>{
@@ -157,10 +176,21 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
     if(errorBody.length>4096||!errorBody.includes('<Code>ObjectLockedByBucketPolicy</Code>')) invalid();
   }
 
-  async #readProtected(command:RecoveryObjectStorageCommand,pathname:string):
+  async #readProtected(command:RecoveryObjectStorageCommand,pathname:string,rule:Rule):
     Promise<{bytes:Uint8Array;etag:string}>{
     const head=await this.#request('HEAD',pathname);
     if(!head.ok||head.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) invalid();
+    const lastModified=head.headers.get('last-modified');
+    if(!lastModified) invalid();
+    const modified=Date.parse(lastModified);
+    const now=this.#clock().getTime();
+    if(!Number.isFinite(modified)||!Number.isFinite(now)||modified>now) invalid();
+    const maximumExpiry=Math.max(...rule.retentions.map(retention=>
+      retention.type==='Indefinite'?Infinity:
+      retention.type==='Age'?modified+retention.maxAgeSeconds*1000:retention.until));
+    // A rule valid for newly uploaded probes does not prove an old backup
+    // remains immutable after its own Age retention has already expired.
+    if(maximumExpiry<=now) invalid();
     const version=etag(head);
     const get=await this.#request('GET',pathname);
     if(!get.ok||etag(get)!==version) invalid();
@@ -172,7 +202,7 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
   async #upload(command:RecoveryObjectStorageCommand,pathname:string,rule:Rule):Promise<unknown>{
     const existing=await this.#request('HEAD',pathname);
     if(existing.ok){
-      const read=await this.#readProtected(command,pathname);
+      const read=await this.#readProtected(command,pathname,rule);
       return this.#ok(command,read.etag,rule);
     }
     if(existing.status!==404) invalid();
@@ -181,7 +211,7 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
     const response=await this.#request('PUT',pathname,bytes,
       {'x-amz-meta-sha256':command.checksum_sha256,'if-none-match':'*'});
     if(!response.ok) invalid();
-    const read=await this.#readProtected(command,pathname);
+    const read=await this.#readProtected(command,pathname,rule);
     return this.#ok(command,read.etag,rule);
   }
 

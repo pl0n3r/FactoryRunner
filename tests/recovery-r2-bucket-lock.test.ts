@@ -30,7 +30,7 @@ function rule(condition:Record<string,unknown>={type:'Age',maxAgeSeconds:31*8640
   return {id:'r2-recovery',enabled:true,prefix:'recovery/condor/',condition};
 }
 function mock(options:{
-  rules?:unknown[];overwriteAllowed?:boolean;deleteAllowed?:boolean;
+  rules?:unknown[];overwriteAllowed?:boolean;deleteAllowed?:boolean;lastModified?:string;
 }={}):{transport:RecoveryS3Transport;calls:string[]}{
   const calls:string[]=[];
   const stored=new Map<string,{body:Uint8Array;meta:string}>();
@@ -57,7 +57,9 @@ function mock(options:{
       return new Response(null,{status:204});
     }
     if(!current) return new Response(null,{status:404});
-    const headers={etag:'"0123456789abcdef0123456789abcdef"','x-amz-meta-sha256':current.meta};
+    const headers={etag:'"0123456789abcdef0123456789abcdef"',
+      'x-amz-meta-sha256':current.meta,
+      'last-modified':options.lastModified??'Sun, 22 Nov 2026 06:00:00 GMT'};
     return new Response(method==='GET'?Buffer.from(current.body):null,{status:200,headers});
   };
   return {transport,calls};
@@ -151,6 +153,40 @@ test('an unrelated conflict or AccessDenied is not evidence of bucket retention'
       }
       return original.transport(url,init);
     };
+    await assert.rejects(()=>live(transport).execute(input()),RecoveryLiveObjectStorageError);
+  }
+});
+
+test('expired Age object blocks upload reuse, verify and materialize even when fresh probe is locked',async()=>{
+  const options={lastModified:'Sun, 22 Nov 2026 06:00:00 GMT'};
+  const {transport}=mock(options);
+  const adapter=live(transport);
+  assert.match((await adapter.execute(input())).immutable_version_ref,/^r2_bucket_lock:/);
+  options.lastModified='Tue, 01 Sep 2026 00:00:00 GMT';
+  for(const operation of ['upload','verify','materialize'] as const){
+    await assert.rejects(()=>adapter.execute(input(operation)),RecoveryLiveObjectStorageError);
+  }
+});
+
+test('longest matching Age/Date or Indefinite rule protects still-locked older backups',async()=>{
+  const old='Tue, 01 Sep 2026 00:00:00 GMT';
+  const sets=[
+    [rule(),{...rule({type:'Age',maxAgeSeconds:120*86400}),id:'longer-age'}],
+    [rule(),{...rule({type:'Date',date:'2027-12-31T00:00:00Z'}),id:'future-date'}],
+    [{...rule({type:'Indefinite'}),id:'forever'}],
+  ];
+  for(const rules of sets){
+    const {transport}=mock({rules,lastModified:old});
+    const adapter=live(transport);
+    assert.match((await adapter.execute(input())).immutable_version_ref,/^r2_bucket_lock:/);
+    assert.match((await adapter.execute(input('verify'))).immutable_version_ref,/^r2_bucket_lock:/);
+    assert.match((await adapter.execute(input('materialize'))).immutable_version_ref,/^r2_bucket_lock:/);
+  }
+});
+
+test('unparseable or missing Last-Modified cannot authenticate old R2 backups',async()=>{
+  for(const lastModified of ['', 'invalid-time']){
+    const {transport}=mock({lastModified});
     await assert.rejects(()=>live(transport).execute(input()),RecoveryLiveObjectStorageError);
   }
 });
