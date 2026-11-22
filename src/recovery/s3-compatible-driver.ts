@@ -11,10 +11,10 @@ export type RecoveryS3Transport=(url:string,init:RequestInit)=>Promise<Response>
 type Clock=()=>Date;
 const DAY_MS=24*60*60*1000;
 
-function sha256(value:Uint8Array|string):string{return createHash('sha256').update(value).digest('hex');}
+export function recoverySha256(value:Uint8Array|string):string{return createHash('sha256').update(value).digest('hex');}
 function hmac(key:Uint8Array|string,value:string):Buffer{return createHmac('sha256',key).update(value).digest();}
 function awsEncode(value:string):string{return encodeURIComponent(value).replace(/[!'()*]/g,c=>'%'+c.codePointAt(0)!.toString(16).toUpperCase());}
-function path(config:RecoveryS3Connection,command:RecoveryObjectStorageCommand):string{
+export function recoveryS3Path(config:RecoveryS3Connection,command:RecoveryObjectStorageCommand):string{
   return '/'+[config.bucket,config.prefix,command.namespace,command.object_ref].flatMap(x=>x.split('/')).filter(Boolean).map(awsEncode).join('/');
 }
 function bucketPath(config:RecoveryS3Connection):string{return '/'+awsEncode(config.bucket);}
@@ -33,7 +33,7 @@ function canonicalQuery(query:Record<string,string>):string{
     .map(([key,value])=>awsEncode(key)+'='+awsEncode(value))
     .join('&');
 }
-function signedRequest(
+export function signedRecoveryS3Request(
   config:RecoveryS3Connection,method:string,pathname:string,payloadHash:string,now:Date,
   extra:Record<string,string>={},query:Record<string,string>={},
 ):{url:string;init:RequestInit}{
@@ -53,7 +53,7 @@ function signedRequest(
   const queryString=canonicalQuery(query);
   const canonicalRequest=[method,pathname,queryString,canonicalHeaders,signedHeaders,payloadHash].join('\n');
   const scope=`${date}/${config.region}/s3/aws4_request`;
-  const toSign=['AWS4-HMAC-SHA256',amzDate,scope,sha256(canonicalRequest)].join('\n');
+  const toSign=['AWS4-HMAC-SHA256',amzDate,scope,recoverySha256(canonicalRequest)].join('\n');
   const kDate=hmac('AWS4'+config.secretAccessKey,date);
   const kRegion=hmac(kDate,config.region);
   const kService=hmac(kRegion,'s3');
@@ -195,7 +195,7 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
   async execute(command:RecoveryObjectStorageCommand):Promise<unknown>{
     try{
       await this.#ensureBucketReady();
-      const pathname=path(this.#config,command);
+      const pathname=recoveryS3Path(this.#config,command);
       if(command.operation==='upload') return await this.#upload(command,pathname);
       if(command.operation==='verify') return await this.#verify(command,pathname);
       return await this.#materialize(command,pathname);
@@ -214,7 +214,7 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
       ['object-lock','ObjectLockConfiguration','ObjectLockEnabled'],
     ];
     for(const [query,root,tag] of checks){
-      const req=signedRequest(this.#config,'GET',pathname,sha256(''),this.#clock(),{}, {[query]:''});
+      const req=signedRecoveryS3Request(this.#config,'GET',pathname,recoverySha256(''),this.#clock(),{}, {[query]:''});
       const response=await this.#transport(req.url,req.init);
       if(!response.ok) throw new Error('bucket_preflight_failed');
       const value=exactXmlValue(await response.text(),root,tag);
@@ -232,7 +232,7 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
 
   async #headImmutable(command:RecoveryObjectStorageCommand,pathname:string):Promise<string>{
     const now=this.#clock();
-    const req=signedRequest(this.#config,'HEAD',pathname,sha256(''),now);
+    const req=signedRecoveryS3Request(this.#config,'HEAD',pathname,recoverySha256(''),now);
     const response=await this.#transport(req.url,req.init);
     if(!response.ok) throw new Error('object_unavailable');
     return this.#immutableVersion(response,command,now);
@@ -240,18 +240,18 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
 
   async #upload(command:RecoveryObjectStorageCommand,pathname:string):Promise<unknown>{
     const probeNow=this.#clock();
-    const probe=signedRequest(this.#config,'HEAD',pathname,sha256(''),probeNow);
+    const probe=signedRecoveryS3Request(this.#config,'HEAD',pathname,recoverySha256(''),probeNow);
     const existing=await this.#transport(probe.url,probe.init);
     if(existing.ok) return this.#ok(command,this.#immutableVersion(existing,command,probeNow));
     if(existing.status!==404) return this.#blocked(command);
 
     const body=await this.#source.read(command.object_ref);
-    const digest=sha256(body);
+    const digest=recoverySha256(body);
     if(digest!==command.checksum_sha256) return this.#blocked(command);
 
     const now=this.#clock();
     const retainUntil=new Date(now.getTime()+this.#config.objectLockDays*DAY_MS).toISOString();
-    const req=signedRequest(this.#config,'PUT',pathname,digest,now,{
+    const req=signedRecoveryS3Request(this.#config,'PUT',pathname,digest,now,{
       'x-amz-meta-sha256':digest,
       'x-amz-object-lock-mode':'COMPLIANCE',
       'x-amz-object-lock-retain-until-date':retainUntil,
@@ -271,13 +271,13 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
 
   async #materialize(command:RecoveryObjectStorageCommand,pathname:string):Promise<unknown>{
     const verifiedVersion=await this.#headImmutable(command,pathname);
-    const req=signedRequest(this.#config,'GET',pathname,sha256(''),this.#clock());
+    const req=signedRecoveryS3Request(this.#config,'GET',pathname,recoverySha256(''),this.#clock());
     const response=await this.#transport(req.url,req.init);
     if(!response.ok) return this.#blocked(command);
     const getVersion=safeVersion(response.headers.get('x-amz-version-id'));
     if(getVersion!==verifiedVersion||response.headers.get('x-amz-meta-sha256')!==command.checksum_sha256) return this.#blocked(command);
     const body=new Uint8Array(await response.arrayBuffer());
-    if(sha256(body)!==command.checksum_sha256) return this.#blocked(command);
+    if(recoverySha256(body)!==command.checksum_sha256) return this.#blocked(command);
     await this.#sink.write(command.object_ref,body);
     return this.#ok(command,verifiedVersion);
   }
@@ -287,8 +287,8 @@ export class S3CompatibleRecoveryDriver implements RecoveryObjectStorageDriver {
       status:'ok',
       object_ref:command.object_ref,
       checksum_sha256:command.checksum_sha256,
-      immutable_version_ref:'version:'+sha256(this.#config.alias+':'+version).slice(0,32),
-      evidence_ref:'evidence:'+sha256(command.descriptor_id+':'+version).slice(0,32),
+      immutable_version_ref:'version:'+recoverySha256(this.#config.alias+':'+version).slice(0,32),
+      evidence_ref:'evidence:'+recoverySha256(command.descriptor_id+':'+version).slice(0,32),
     };
   }
   #blocked(command:RecoveryObjectStorageCommand){

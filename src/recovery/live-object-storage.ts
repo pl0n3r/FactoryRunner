@@ -1,6 +1,7 @@
 import { RecoveryObjectStorageAdapter } from '../adapters/recovery-object-storage.ts';
 import type { RecoveryObjectStorageResult } from '../adapters/recovery-object-storage.ts';
 import { resolveRecoveryS3Connection } from './connection-resolver.ts';
+import { R2BucketLockRecoveryDriver, resolveR2BucketLockProfile } from './r2-bucket-lock-driver.ts';
 import {
   S3CompatibleRecoveryDriver,
 } from './s3-compatible-driver.ts';
@@ -52,11 +53,15 @@ export class RecoveryLiveObjectStorage {
     try{
       const parsed=input(value);
       const config=resolveRecoveryS3Connection(parsed.connection_ref,this.#env);
-      const driver=new S3CompatibleRecoveryDriver({
+      const r2=resolveR2BucketLockProfile(config,this.#env);
+      const common={
         config,source:this.#source,sink:this.#sink,
         ...(this.#transport?{transport:this.#transport}:{}),
         ...(this.#clock?{clock:this.#clock}:{}),
-      });
+      };
+      const driver=r2
+        ?new R2BucketLockRecoveryDriver({...common,profile:r2})
+        :new S3CompatibleRecoveryDriver(common);
       return await new RecoveryObjectStorageAdapter(driver,parsed.connection_ref).execute(parsed.capability,parsed.descriptor);
     }catch{throw new RecoveryLiveObjectStorageError();}
   }
