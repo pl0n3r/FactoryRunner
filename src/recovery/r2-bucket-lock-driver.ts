@@ -154,7 +154,7 @@ export class R2BucketLockRecoveryDriver implements RecoveryObjectStorageDriver {
     // a generic AccessDenied, precondition failure, or unrelated conflict.
     if(response.status!==409) invalid();
     const errorBody=await response.text();
-    if(errorBody.length>4096||!/<Code>ObjectLockedByBucketPolicy<\\/Code>/.test(errorBody)) invalid();
+    if(errorBody.length>4096||!errorBody.includes('<Code>ObjectLockedByBucketPolicy</Code>')) invalid();
   }
 
   async #readProtected(command:RecoveryObjectStorageCommand,pathname:string):
