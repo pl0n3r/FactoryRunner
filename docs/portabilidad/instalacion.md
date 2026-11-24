@@ -10,7 +10,7 @@ ControlBot, Hostinger o cuentas. El estado durable permanece en ControlBot.
 - Node.js **24**, Git y un checkout local existente. Docker/WSL2 no son requisitos
   para **el ensayo**; cualquier adapter real faltante queda `UNAVAILABLE/UNKNOWN`.
 - Crear fuera del repo, solo en el directorio temporal del sistema, un sandbox
-  **privado** por `mktemp -d /tmp/factoryrunner-offline-XXXXXX` (Linux/macOS),
+  **privado (0700 y del usuario actual)** por `mktemp -d /tmp/factoryrunner-offline-XXXXXX` (Linux/macOS),
   o el equivalente temporal en WSL2. No reutilizar directorios con datos reales.
 - El workspace permitido es **exactamente** `<sandbox>/runner`; dentro de
   `<sandbox>/releases` se escribe antes un fixture local JSON de tres campos:
