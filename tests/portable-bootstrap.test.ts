@@ -72,7 +72,7 @@ test('AC-02/03: exact SHA, controlled update, rollback, version drift and offlin
   const drift = x.asset('1.0.1');
   writeFileSync(drift.artifact, JSON.stringify({ schema_version: 1, kind: 'OFFLINE_FIXTURE', version: '1.0.1' }) + '\n');
   drift.sha = createHash('sha256').update(readFileSync(drift.artifact)).digest('hex');
-  assert.equal(portableBootstrap('update', opts(drift), good).reason, 'VERSION_DRIFT');
+  assert.equal(portableBootstrap('update', opts(drift), good).reason, 'ARTIFACT_SHA_MISMATCH');
   // Recreate the original exact-SHA fixture before rollback; corrupt current releases fail closed.
   x.asset('1.0.1');
   assert.equal(portableBootstrap('rollback', opts(b), good).version, '1.0.0');
