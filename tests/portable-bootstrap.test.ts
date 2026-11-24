@@ -73,6 +73,8 @@ test('AC-02/03: exact SHA, controlled update, rollback, version drift and offlin
   writeFileSync(drift.artifact, JSON.stringify({ schema_version: 1, kind: 'OFFLINE_FIXTURE', version: '1.0.1' }) + '\n');
   drift.sha = createHash('sha256').update(readFileSync(drift.artifact)).digest('hex');
   assert.equal(portableBootstrap('update', opts(drift), good).reason, 'VERSION_DRIFT');
+  // Recreate the original exact-SHA fixture before rollback; corrupt current releases fail closed.
+  x.asset('1.0.1');
   assert.equal(portableBootstrap('rollback', opts(b), good).version, '1.0.0');
   assert.equal(portableBootstrap('rollback', opts(b), good).reason, 'NO_ROLLBACK');
   const incompatible = x.asset('2.0.0');
@@ -118,6 +120,11 @@ test('AC-03: a missing/corrupt artifact cannot be used for status, start or roll
   rmSync(a.artifact);
   assert.equal(portableBootstrap('rollback', { workspace: x.workspace }, good).reason, 'INVALID_ARTIFACT');
   assert.equal(portableBootstrap('status', { workspace: x.workspace }, good).version, '1.0.1');
+  rmSync(b.artifact);
+  assert.equal(portableBootstrap('rollback', { workspace: x.workspace }, good).reason, 'INVALID_ARTIFACT');
+  const c = x.asset('1.0.2');
+  assert.equal(portableBootstrap('update', { workspace: x.workspace, ...c }, good).reason, 'INVALID_ARTIFACT');
+  assert.equal(portableBootstrap('status', { workspace: x.workspace }, good).reason, 'INVALID_ARTIFACT');
 });
 
 test('AC-03: negative Node, architecture and unverified WSL2/Docker are fail-closed', (t) => {
