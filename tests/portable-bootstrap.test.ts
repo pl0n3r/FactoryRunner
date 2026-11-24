@@ -84,6 +84,13 @@ test('AC-03: missing/corrupt assets, invalid identity and symlinked manifests re
   const x = sandbox(t), a = x.asset('1.0.0');
   assert.equal(portableBootstrap('install', { workspace: x.workspace, artifact: a.artifact, sha: 'a'.repeat(64) }, good).reason, 'ARTIFACT_SHA_MISMATCH');
   assert.equal(portableBootstrap('install', { workspace: x.workspace, artifact: join(x.releases, 'release-missing.json'), sha: a.sha }, good).reason, 'INVALID_ARTIFACT');
+  const oversized = join(x.releases, 'release-oversized.json');
+  const huge = 'X'.repeat(2048);
+  writeFileSync(oversized, huge);
+  assert.equal(portableBootstrap('install', { workspace: x.workspace, artifact: oversized,
+    sha: createHash('sha256').update(huge).digest('hex') }, good).reason, 'INVALID_ARTIFACT');
+  const extremeVersion = x.asset('9999999999.0.0');
+  assert.equal(portableBootstrap('install', { workspace: x.workspace, ...extremeVersion }, good).reason, 'INVALID_ARTIFACT');
   assert.equal(existsSync(x.workspace), false);
   const linked = join(x.releases, 'release-link.json');
   symlinkSync(a.artifact, linked);
