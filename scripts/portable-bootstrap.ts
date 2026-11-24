@@ -54,7 +54,7 @@ function loadState(workspace: string): State | null {
       Object.keys(d).sort().join(',') !== 'phase,previous,release,schema_version') reject('INVALID_STATE');
   return d as State;
 }
-function localRelease(root: string, opts: Options): Release {
+function localRelease(root: string, opts: Pick<Options, 'artifact' | 'sha'>): Release {
   const source = opts.artifact, sha = opts.sha;
   if (typeof source !== 'string' || typeof sha !== 'string') throw new OfflineError('INVALID_ARTIFACT');
   if (!isAbsolute(source) || resolve(source) !== source ||
