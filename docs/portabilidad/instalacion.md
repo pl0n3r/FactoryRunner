@@ -34,7 +34,7 @@ node --experimental-strip-types scripts/portable-bootstrap.ts rollback --workspa
 `install`/`start`/`stop` y actualización del mismo SHA son idempotentes.
 La actualización exige versión semver superior compatible y `STOPPED`;
 `rollback` restaura solo la revisión anterior y exige `STOPPED`. Cualquier
-SHA incorrecto, manifiesto alterado, path fuera de sandbox, symlink, lock ocupado,
+SHA incorrecto, manifiesto alterado o borrado (también en `status`/`start`/`rollback`), path fuera de sandbox, symlink, lock ocupado,
 Node no compatible, host no reconocido o estado corrupto falla cerrado con un
 código estable, **sin imprimir entradas crudas**, sin borrar datos ajenos.
 Solo el fixture temporal se destruye manualmente tras la prueba.
