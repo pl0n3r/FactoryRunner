@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,6 +33,11 @@ test('AC-01: reject home/git/non-temporary/traversal and symlinked workspaces be
     assert.equal(portableBootstrap('install', { workspace, ...a }, good).reason, 'UNSAFE_WORKSPACE');
   }
   assert.equal(existsSync(x.workspace), false);
+  if (process.platform !== 'win32') {
+    chmodSync(x.root, 0o755);
+    assert.equal(portableBootstrap('install', { workspace: x.workspace, ...a }, good).reason, 'UNSAFE_WORKSPACE');
+    chmodSync(x.root, 0o700);
+  }
   symlinkSync(x.releases, x.workspace);
   assert.equal(portableBootstrap('install', { workspace: x.workspace, ...a }, good).reason, 'UNSAFE_WORKSPACE');
   assert.equal(existsSync(join(x.releases, 'state.json')), false);
