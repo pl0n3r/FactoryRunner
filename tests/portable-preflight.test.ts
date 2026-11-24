@@ -72,3 +72,26 @@ test('AC03: stdout contains only projected public enums, never raw inputs or sec
   assert.equal(result.arch, 'unknown');
   assert.deepEqual(result.capabilities.map((c) => c.id), [...new Set(result.capabilities.map((c) => c.id))]);
 });
+
+test('AC02/03: executable CLI smoke emits one sanitized JSON envelope, never child stderr', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const sentinel = 'DO_NOT_PRINT_PRIVATE_TOKEN_ABC';
+  const cli = spawnSync(process.execPath, [
+    '--experimental-strip-types',
+    fileURLToPath(new URL('../scripts/portable-preflight.ts', import.meta.url)),
+  ], {
+    encoding: 'utf8', timeout: 10_000,
+    env: { ...process.env, PORTABILITY_TEST_PRIVATE: sentinel },
+  });
+  assert.equal(cli.error, undefined);
+  const rows = cli.stdout.trim().split('\n');
+  assert.equal(rows.length, 1);
+  const payload: unknown = JSON.parse(rows[0]!);
+  assert.equal(typeof payload, 'object');
+  assert.equal((payload as { scope: string }).scope, 'OFFLINE_ONLY');
+  assert.equal((payload as { authority: string }).authority, 'unchanged');
+  assert.doesNotMatch(cli.stdout + cli.stderr, /DO_NOT_PRINT_PRIVATE_TOKEN_ABC|\/Users\/|\/home\/runner\/|host\.internal/);
+  if (process.versions.node.startsWith('24.')) assert.equal(cli.status, 0);
+  else assert.equal(cli.status, 1);
+});
