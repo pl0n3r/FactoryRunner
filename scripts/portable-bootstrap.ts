@@ -141,7 +141,6 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
           if (target === null) throw new OfflineError('INVALID_ARTIFACT');
           if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
           checkMaterialized(root, state.release);
-          if (state.release.version === target.version && state.release.sha !== target.sha) reject('VERSION_DRIFT');
           if (state.release.version !== target.version) {
             if (!newer(target.version, state.release.version)) reject('VERSION_INCOMPATIBLE');
             state = { ...state, previous: state.release, release: target };
