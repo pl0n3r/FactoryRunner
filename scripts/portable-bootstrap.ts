@@ -70,7 +70,12 @@ function localRelease(root: string, opts: Options): Release {
   const version = v?.version;
   if (!v || v.schema_version !== 1 || v.kind !== 'OFFLINE_FIXTURE' || typeof version !== 'string' ||
       !VERSION.test(version) || Object.keys(v).sort().join(',') !== 'kind,schema_version,version') reject('INVALID_ARTIFACT');
+  if (basename(source) !== `release-${version}.json`) reject('ARTIFACT_VERSION_DRIFT');
   return { version: version as string, sha };
+}
+function checkMaterialized(root: string, release: Release): void {
+  const actual = localRelease(root, { artifact: join(root, 'releases', `release-${release.version}.json`), sha: release.sha });
+  if (actual.version !== release.version) reject('ARTIFACT_VERSION_DRIFT');
 }
 function versionParts(v: string): number[] { return v.split('.').map(Number); }
 function newer(next: string, current: string): boolean {
@@ -114,6 +119,7 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
     if (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== workspace) reject('UNSAFE_WORKSPACE');
     if (action === 'status') {
       const state = loadState(workspace);
+      if (state) checkMaterialized(root, state.release);
       return envelope(action, state, state ? 'SUPPORTED_OFFLINE' : 'UNAVAILABLE', state ? undefined : 'NOT_INSTALLED');
     }
     return exclusive(workspace, () => {
@@ -126,7 +132,10 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
       } else {
         if (current === null) throw new OfflineError('NOT_INSTALLED');
         state = current;
-        if (action === 'start') state = { ...state, phase: 'SIMULATED_ACTIVE' };
+        if (action === 'start') {
+          checkMaterialized(root, state.release);
+          state = { ...state, phase: 'SIMULATED_ACTIVE' };
+        }
         if (action === 'stop') state = { ...state, phase: 'STOPPED' };
         if (action === 'update') {
           if (target === null) throw new OfflineError('INVALID_ARTIFACT');
@@ -140,6 +149,7 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
         if (action === 'rollback') {
           if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
           if (state.previous === null) throw new OfflineError('NO_ROLLBACK');
+          checkMaterialized(root, state.previous);
           state = { ...state, release: state.previous, previous: null };
         }
       }
