@@ -106,6 +106,20 @@ test('AC-03: missing/corrupt assets, invalid identity and symlinked manifests re
   assert.doesNotMatch(JSON.stringify(result), /DO_NOT_LOG|\/home\/|\/Users\//);
 });
 
+test('AC-03: a missing/corrupt artifact cannot be used for status, start or rollback', (t) => {
+  const x = sandbox(t), a = x.asset('1.0.0'), b = x.asset('1.0.1');
+  const opts = { workspace: x.workspace, ...a };
+  assert.equal(portableBootstrap('install', opts, good).status, 'SUPPORTED_OFFLINE');
+  rmSync(a.artifact);
+  assert.equal(portableBootstrap('status', opts, good).reason, 'INVALID_ARTIFACT');
+  assert.equal(portableBootstrap('start', opts, good).reason, 'INVALID_ARTIFACT');
+  x.asset('1.0.0');
+  assert.equal(portableBootstrap('update', { workspace: x.workspace, ...b }, good).version, '1.0.1');
+  rmSync(a.artifact);
+  assert.equal(portableBootstrap('rollback', { workspace: x.workspace }, good).reason, 'INVALID_ARTIFACT');
+  assert.equal(portableBootstrap('status', { workspace: x.workspace }, good).version, '1.0.1');
+});
+
 test('AC-03: negative Node, architecture and unverified WSL2/Docker are fail-closed', (t) => {
   const x = sandbox(t), a = x.asset('1.0.0');
   const opts = { workspace: x.workspace, ...a };
