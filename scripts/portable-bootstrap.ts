@@ -1,7 +1,7 @@
 /** Reversible, synthetic OFFLINE_ONLY bootstrap. Never runs the actual runner. */
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { observeLocal, portablePreflight, type PortableReport } from './portable-preflight.ts';
@@ -53,20 +53,22 @@ function loadState(workspace: string): State | null {
   return d as State;
 }
 function localRelease(root: string, opts: Options): Release {
-  const source = opts.artifact;
-  if (!source || !isAbsolute(source) || resolve(source) !== source ||
+  const source = opts.artifact, sha = opts.sha;
+  if (typeof source !== 'string' || typeof sha !== 'string') throw new OfflineError('INVALID_ARTIFACT');
+  if (!isAbsolute(source) || resolve(source) !== source ||
       dirname(dirname(source)) !== root || basename(dirname(source)) !== 'releases' ||
-      !/^release-[A-Za-z0-9_.-]+\.json$/.test(basename(source)) || !opts.sha || !SHA.test(opts.sha)) reject('INVALID_ARTIFACT');
+      !/^release-[A-Za-z0-9_.-]+\.json$/.test(basename(source)) || !SHA.test(sha)) reject('INVALID_ARTIFACT');
   const releases = dirname(source);
   if (!lstatSync(releases).isDirectory() || realpathSync(releases) !== releases || !safeFile(source) || !existsSync(source)) reject('INVALID_ARTIFACT');
   const bytes = readFileSync(source);
-  if (bytes.length > 1024 || createHash('sha256').update(bytes).digest('hex') !== opts.sha) reject('ARTIFACT_SHA_MISMATCH');
+  if (bytes.length > 1024 || createHash('sha256').update(bytes).digest('hex') !== sha) reject('ARTIFACT_SHA_MISMATCH');
   let parsed: unknown;
   try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return reject('INVALID_ARTIFACT'); }
-  const v = parsed as Record<string, unknown>;
-  if (!v || v.schema_version !== 1 || v.kind !== 'OFFLINE_FIXTURE' || typeof v.version !== 'string' ||
-      !VERSION.test(v.version) || Object.keys(v).sort().join(',') !== 'kind,schema_version,version') reject('INVALID_ARTIFACT');
-  return { version: v.version, sha: opts.sha };
+  const v = parsed as Record<string, unknown> | null;
+  const version = v?.version;
+  if (!v || v.schema_version !== 1 || v.kind !== 'OFFLINE_FIXTURE' || typeof version !== 'string' ||
+      !VERSION.test(version) || Object.keys(v).sort().join(',') !== 'kind,schema_version,version') reject('INVALID_ARTIFACT');
+  return { version: version as string, sha };
 }
 function versionParts(v: string): number[] { return v.split('.').map(Number); }
 function newer(next: string, current: string): boolean {
@@ -113,17 +115,19 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
       return envelope(action, state, state ? 'SUPPORTED_OFFLINE' : 'UNAVAILABLE', state ? undefined : 'NOT_INSTALLED');
     }
     return exclusive(workspace, () => {
-      let state = loadState(workspace);
+      const current = loadState(workspace);
+      let state: State;
       if (action === 'install') {
-        if (!target) reject('INVALID_ARTIFACT');
-        if (state && (state.release.version !== target.version || state.release.sha !== target.sha)) reject('ALREADY_INSTALLED');
-        state ??= { schema_version: 1, release: target, previous: null, phase: 'STOPPED' };
+        if (target === null) throw new OfflineError('INVALID_ARTIFACT');
+        if (current && (current.release.version !== target.version || current.release.sha !== target.sha)) reject('ALREADY_INSTALLED');
+        state = current ?? { schema_version: 1, release: target, previous: null, phase: 'STOPPED' };
       } else {
-        if (!state) reject('NOT_INSTALLED');
+        if (current === null) throw new OfflineError('NOT_INSTALLED');
+        state = current;
         if (action === 'start') state = { ...state, phase: 'SIMULATED_ACTIVE' };
         if (action === 'stop') state = { ...state, phase: 'STOPPED' };
         if (action === 'update') {
-          if (!target) reject('INVALID_ARTIFACT');
+          if (target === null) throw new OfflineError('INVALID_ARTIFACT');
           if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
           if (state.release.version === target.version && state.release.sha !== target.sha) reject('VERSION_DRIFT');
           if (state.release.version !== target.version) {
@@ -133,7 +137,7 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
         }
         if (action === 'rollback') {
           if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
-          if (!state.previous) reject('NO_ROLLBACK');
+          if (state.previous === null) throw new OfflineError('NO_ROLLBACK');
           state = { ...state, release: state.previous, previous: null };
         }
       }
