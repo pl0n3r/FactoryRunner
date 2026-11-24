@@ -25,7 +25,10 @@ function sandbox(workspace: string): { root: string; workspace: string } {
   if (!isAbsolute(workspace) || resolve(workspace) !== workspace || basename(workspace) !== 'runner') reject('UNSAFE_WORKSPACE');
   const root = dirname(workspace);
   if (dirname(root) !== realpathSync(tmpdir()) || !/^factoryrunner-offline-[A-Za-z0-9_-]{6,}$/.test(basename(root))) reject('UNSAFE_WORKSPACE');
-  if (!lstatSync(root).isDirectory() || realpathSync(root) !== root) reject('UNSAFE_WORKSPACE');
+  const rootStat = lstatSync(root);
+  if (!rootStat.isDirectory() || realpathSync(root) !== root ||
+      (process.platform !== 'win32' && (rootStat.mode & 0o077) !== 0) ||
+      (typeof process.getuid === 'function' && rootStat.uid !== process.getuid())) reject('UNSAFE_WORKSPACE');
   if (existsSync(workspace) && (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== workspace)) reject('UNSAFE_WORKSPACE');
   return { root, workspace };
 }
