@@ -15,7 +15,7 @@ export type Result = { schema_version: 1; scope: 'OFFLINE_ONLY'; status: 'SUPPOR
   action: Action; phase: Phase; version: string | null; artifact_sha256: string | null;
   authority: 'unchanged'; network_access: false; production_execution: false; reason?: string };
 const SHA = /^[0-9a-f]{64}$/;
-const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const VERSION = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
 const ACTIONS: readonly Action[] = ['doctor', 'install', 'start', 'stop', 'status', 'update', 'rollback'];
 class OfflineError extends Error { readonly code: string; constructor(code: string) { super(code); this.code = code; } }
 const reject = (code: string): never => { throw new OfflineError(code); };
@@ -30,8 +30,10 @@ function sandbox(workspace: string): { root: string; workspace: string } {
   return { root, workspace };
 }
 function safeFile(path: string): boolean {
-  try { return lstatSync(path).isFile() && realpathSync(path) === path; }
-  catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
+  try {
+    const stat = lstatSync(path);
+    return stat.isFile() && stat.size <= 1024 && realpathSync(path) === path;
+  } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
 }
 function loadState(workspace: string): State | null {
   const file = join(workspace, 'state.json');
