@@ -43,6 +43,17 @@ test('AC-01: reject home/git/non-temporary/traversal and symlinked workspaces be
   assert.equal(existsSync(join(x.releases, 'state.json')), false);
 });
 
+test('AC-01: an existing workspace with unrelated files cannot be overwritten', (t) => {
+  const x = sandbox(t), a = x.asset('1.0.0');
+  mkdirSync(x.workspace);
+  const foreign = join(x.workspace, 'unrelated.txt');
+  writeFileSync(foreign, 'preserve this file');
+  const result = portableBootstrap('install', { workspace: x.workspace, ...a }, good);
+  assert.equal(result.reason, 'UNSAFE_WORKSPACE');
+  assert.equal(readFileSync(foreign, 'utf8'), 'preserve this file');
+  assert.equal(existsSync(join(x.workspace, 'state.json')), false);
+});
+
 test('AC-02: install/start/stop/status are idempotent, synthetic, and leave no daemon or transport', (t) => {
   const x = sandbox(t), a = x.asset('1.0.0'), opts = { workspace: x.workspace, ...a };
   assert.equal(portableBootstrap('status', opts, good).reason, 'NOT_INSTALLED');
@@ -122,6 +133,7 @@ test('AC-03: a missing/corrupt artifact cannot be used for status, start or roll
   rmSync(a.artifact);
   assert.equal(portableBootstrap('status', opts, good).reason, 'INVALID_ARTIFACT');
   assert.equal(portableBootstrap('start', opts, good).reason, 'INVALID_ARTIFACT');
+  assert.equal(portableBootstrap('stop', opts, good).reason, 'INVALID_ARTIFACT');
   x.asset('1.0.0');
   assert.equal(portableBootstrap('update', { workspace: x.workspace, ...b }, good).version, '1.0.1');
   rmSync(a.artifact);

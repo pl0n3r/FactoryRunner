@@ -1,6 +1,6 @@
 /** Reversible, synthetic OFFLINE_ONLY bootstrap. Never runs the actual runner. */
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -129,6 +129,9 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
       const current = loadState(workspace);
       let state: State;
       if (action === 'install') {
+        const entries = readdirSync(workspace);
+        if (entries.some(name => name !== 'operation.lock' && name !== 'state.json')) reject('UNSAFE_WORKSPACE');
+        if (current === null && entries.includes('state.json')) reject('INVALID_STATE');
         if (target === null) throw new OfflineError('INVALID_ARTIFACT');
         if (current && (current.release.version !== target.version || current.release.sha !== target.sha)) reject('ALREADY_INSTALLED');
         state = current ?? { schema_version: 1, release: target, previous: null, phase: 'STOPPED' };
@@ -139,7 +142,10 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
           checkMaterialized(root, state.release);
           state = { ...state, phase: 'SIMULATED_ACTIVE' };
         }
-        if (action === 'stop') state = { ...state, phase: 'STOPPED' };
+        if (action === 'stop') {
+          checkMaterialized(root, state.release);
+          state = { ...state, phase: 'STOPPED' };
+        }
         if (action === 'update') {
           if (target === null) throw new OfflineError('INVALID_ARTIFACT');
           if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
