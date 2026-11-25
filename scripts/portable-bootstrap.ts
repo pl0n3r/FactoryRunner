@@ -64,7 +64,7 @@ function localRelease(root: string, opts: Pick<Options, 'artifact' | 'sha'>): Re
       dirname(dirname(source)) !== root || basename(dirname(source)) !== 'releases' ||
       !/^release-[A-Za-z0-9_.-]+\.json$/.test(basename(source)) || !SHA.test(sha)) reject('INVALID_ARTIFACT');
   const releases = dirname(source);
-  if (!lstatSync(releases).isDirectory() || realpathSync(releases) !== releases || !safeFile(source) || !existsSync(source)) reject('INVALID_ARTIFACT');
+  if (!existsSync(releases) || !lstatSync(releases).isDirectory() || realpathSync(releases) !== releases || !safeFile(source) || !existsSync(source)) reject('INVALID_ARTIFACT');
   const bytes = readFileSync(source);
   if (bytes.length > 1024 || createHash('sha256').update(bytes).digest('hex') !== sha) reject('ARTIFACT_SHA_MISMATCH');
   let parsed: unknown;

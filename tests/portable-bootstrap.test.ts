@@ -111,6 +111,8 @@ test('AC-03: missing/corrupt assets, invalid identity and symlinked manifests re
   const result = portableBootstrap('status', { workspace: x.workspace }, good);
   assert.equal(result.reason, 'INVALID_STATE');
   assert.doesNotMatch(JSON.stringify(result), /DO_NOT_LOG|\/home\/|\/Users\//);
+  rmSync(x.releases, { recursive: true });
+  assert.equal(portableBootstrap('install', { workspace: x.workspace, ...a }, good).reason, 'INVALID_ARTIFACT');
 });
 
 test('AC-03: a missing/corrupt artifact cannot be used for status, start or rollback', (t) => {
