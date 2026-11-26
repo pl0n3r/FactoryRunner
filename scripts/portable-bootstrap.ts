@@ -16,7 +16,8 @@ export type Result = { schema_version: 1; scope: 'OFFLINE_ONLY'; status: 'SUPPOR
   authority: 'unchanged'; network_access: false; production_execution: false; reason?: string };
 const SHA = /^[0-9a-f]{64}$/;
 const VERSION = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/;
-const ACTIONS: readonly Action[] = ['doctor', 'install', 'start', 'stop', 'status', 'update', 'rollback'];
+const ACTIONS: ReadonlySet<Action> = new Set(['doctor', 'install', 'start', 'stop', 'status', 'update', 'rollback']);
+const sortedKeys = (value: object): string => Object.keys(value).sort((a, b) => a.localeCompare(b, 'en')).join(',');
 class OfflineError extends Error { readonly code: string; constructor(code: string) { super(code); this.code = code; } }
 const reject = (code: string): never => { throw new OfflineError(code); };
 
@@ -53,10 +54,10 @@ function loadState(workspace: string): State | null {
   const release = (value: unknown): value is Release => !!value && typeof value === 'object' &&
     typeof (value as Release).version === 'string' && VERSION.test((value as Release).version) &&
     typeof (value as Release).sha === 'string' && SHA.test((value as Release).sha) &&
-    Object.keys(value).sort().join(',') === 'sha,version';
+    sortedKeys(value) === 'sha,version';
   if (d.schema_version !== 1 || !release(d.release) || (d.previous !== null && !release(d.previous)) ||
       (d.phase !== 'STOPPED' && d.phase !== 'SIMULATED_ACTIVE') ||
-      Object.keys(d).sort().join(',') !== 'phase,previous,release,schema_version') reject('INVALID_STATE');
+      sortedKeys(d) !== 'phase,previous,release,schema_version') reject('INVALID_STATE');
   return d as State;
 }
 function localRelease(root: string, opts: Pick<Options, 'artifact' | 'sha'>): Release {
@@ -73,8 +74,8 @@ function localRelease(root: string, opts: Pick<Options, 'artifact' | 'sha'>): Re
   try { parsed = JSON.parse(bytes.toString('utf8')); } catch { return reject('INVALID_ARTIFACT'); }
   const v = parsed as Record<string, unknown> | null;
   const version = v?.version;
-  if (!v || v.schema_version !== 1 || v.kind !== 'OFFLINE_FIXTURE' || typeof version !== 'string' ||
-      !VERSION.test(version) || Object.keys(v).sort().join(',') !== 'kind,schema_version,version') reject('INVALID_ARTIFACT');
+  if (v?.schema_version !== 1 || v.kind !== 'OFFLINE_FIXTURE' || typeof version !== 'string' ||
+      !VERSION.test(version) || sortedKeys(v) !== 'kind,schema_version,version') reject('INVALID_ARTIFACT');
   if (basename(source) !== `release-${version}.json`) reject('ARTIFACT_VERSION_DRIFT');
   return { version: version as string, sha };
 }
@@ -112,59 +113,66 @@ function envelope(action: Action, state: State | null, status: Result['status'],
     ...(reason ? { reason } : {}) };
 }
 
+function installState(workspace: string, current: State | null, target: Release | null): State {
+  const entries = readdirSync(workspace);
+  if (entries.some(name => name !== 'operation.lock' && name !== 'state.json')) reject('UNSAFE_WORKSPACE');
+  if (current === null && entries.includes('state.json')) reject('INVALID_STATE');
+  if (target === null) throw new OfflineError('INVALID_ARTIFACT');
+  if (current && (current.release.version !== target.version || current.release.sha !== target.sha)) reject('ALREADY_INSTALLED');
+  return current ?? { schema_version: 1, release: target, previous: null, phase: 'STOPPED' };
+}
+function updateState(root: string, state: State, target: Release | null): State {
+  if (target === null) throw new OfflineError('INVALID_ARTIFACT');
+  if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
+  checkMaterialized(root, state.release);
+  if (state.release.version === target.version) return state;
+  if (!newer(target.version, state.release.version)) reject('VERSION_INCOMPATIBLE');
+  return { ...state, previous: state.release, release: target };
+}
+function rollbackState(root: string, state: State): State {
+  if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
+  if (state.previous === null) throw new OfflineError('NO_ROLLBACK');
+  checkMaterialized(root, state.release);
+  checkMaterialized(root, state.previous);
+  return { ...state, release: state.previous, previous: null };
+}
+function nextState(action: Action, root: string, workspace: string, target: Release | null): State {
+  const current = loadState(workspace);
+  if (action === 'install') return installState(workspace, current, target);
+  if (current === null) throw new OfflineError('NOT_INSTALLED');
+  switch (action) {
+    case 'start':
+    case 'stop':
+      checkMaterialized(root, current.release);
+      return { ...current, phase: action === 'start' ? 'SIMULATED_ACTIVE' : 'STOPPED' };
+    case 'update': return updateState(root, current, target);
+    case 'rollback': return rollbackState(root, current);
+    default: return reject('UNKNOWN_ACTION');
+  }
+}
+function prepareWorkspace(root: string, workspace: string, action: Action): boolean {
+  if (action === 'install' && !existsSync(workspace)) mkdirSync(workspace, { mode: 0o700 });
+  if (!existsSync(workspace)) return false;
+  if (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== join(realpathSync(root), 'runner')) reject('UNSAFE_WORKSPACE');
+  return true;
+}
+function statusResult(root: string, workspace: string): Result {
+  const state = loadState(workspace);
+  if (!state) return envelope('status', null, 'UNAVAILABLE', 'NOT_INSTALLED');
+  checkMaterialized(root, state.release);
+  return envelope('status', state, 'SUPPORTED_OFFLINE');
+}
 export function portableBootstrap(action: Action, opts: Options, observed: PortableReport = portablePreflight(observeLocal())): Result {
   try {
-    if (!ACTIONS.includes(action)) reject('UNKNOWN_ACTION');
+    if (!ACTIONS.has(action)) reject('UNKNOWN_ACTION');
     const { root, workspace } = sandbox(opts.workspace);
     if (observed.status !== 'SUPPORTED_OFFLINE') return envelope(action, null, observed.status, 'CAPABILITY_UNAVAILABLE');
     if (action === 'doctor') return envelope(action, null, observed.status);
     const target = action === 'install' || action === 'update' ? localRelease(root, opts) : null;
-    if (action === 'install' && !existsSync(workspace)) mkdirSync(workspace, { mode: 0o700 });
-    if (!existsSync(workspace)) return envelope(action, null, 'UNAVAILABLE', 'NOT_INSTALLED');
-    if (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== join(realpathSync(root), 'runner')) reject('UNSAFE_WORKSPACE');
-    if (action === 'status') {
-      const state = loadState(workspace);
-      if (state) checkMaterialized(root, state.release);
-      return envelope(action, state, state ? 'SUPPORTED_OFFLINE' : 'UNAVAILABLE', state ? undefined : 'NOT_INSTALLED');
-    }
+    if (!prepareWorkspace(root, workspace, action)) return envelope(action, null, 'UNAVAILABLE', 'NOT_INSTALLED');
+    if (action === 'status') return statusResult(root, workspace);
     return exclusive(workspace, () => {
-      const current = loadState(workspace);
-      let state: State;
-      if (action === 'install') {
-        const entries = readdirSync(workspace);
-        if (entries.some(name => name !== 'operation.lock' && name !== 'state.json')) reject('UNSAFE_WORKSPACE');
-        if (current === null && entries.includes('state.json')) reject('INVALID_STATE');
-        if (target === null) throw new OfflineError('INVALID_ARTIFACT');
-        if (current && (current.release.version !== target.version || current.release.sha !== target.sha)) reject('ALREADY_INSTALLED');
-        state = current ?? { schema_version: 1, release: target, previous: null, phase: 'STOPPED' };
-      } else {
-        if (current === null) throw new OfflineError('NOT_INSTALLED');
-        state = current;
-        if (action === 'start') {
-          checkMaterialized(root, state.release);
-          state = { ...state, phase: 'SIMULATED_ACTIVE' };
-        }
-        if (action === 'stop') {
-          checkMaterialized(root, state.release);
-          state = { ...state, phase: 'STOPPED' };
-        }
-        if (action === 'update') {
-          if (target === null) throw new OfflineError('INVALID_ARTIFACT');
-          if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
-          checkMaterialized(root, state.release);
-          if (state.release.version !== target.version) {
-            if (!newer(target.version, state.release.version)) reject('VERSION_INCOMPATIBLE');
-            state = { ...state, previous: state.release, release: target };
-          }
-        }
-        if (action === 'rollback') {
-          if (state.phase !== 'STOPPED') reject('STOP_REQUIRED');
-          if (state.previous === null) throw new OfflineError('NO_ROLLBACK');
-          checkMaterialized(root, state.release);
-          checkMaterialized(root, state.previous);
-          state = { ...state, release: state.previous, previous: null };
-        }
-      }
+      const state = nextState(action, root, workspace, target);
       persist(workspace, state);
       return envelope(action, state, 'SUPPORTED_OFFLINE');
     });
@@ -178,15 +186,16 @@ function main(): void {
   const action = args.shift() as Action;
   const allowed = new Set(['--workspace', '--artifact', '--sha']);
   const opts: Record<string, string> = {};
-  let valid = ACTIONS.includes(action) && args.length % 2 === 0;
+  let valid = ACTIONS.has(action) && args.length % 2 === 0;
   for (let i = 0; i < args.length; i += 2) {
     const key = args[i]!, value = args[i + 1];
     if (!allowed.has(key) || !value || key in opts) { valid = false; break; }
     opts[key] = value;
   }
+  const fallbackAction = ACTIONS.has(action) ? action : 'doctor';
   const result = valid && opts['--workspace'] ? portableBootstrap(action, {
     workspace: opts['--workspace'], artifact: opts['--artifact'], sha: opts['--sha'],
-  }) : envelope(ACTIONS.includes(action) ? action : 'doctor', null, 'UNAVAILABLE', 'INVALID_ARGUMENTS');
+  }) : envelope(fallbackAction, null, 'UNAVAILABLE', 'INVALID_ARGUMENTS');
   process.stdout.write(JSON.stringify(result) + '\n');
   if (result.status !== 'SUPPORTED_OFFLINE') process.exitCode = 1;
 }
