@@ -156,6 +156,21 @@ test('AC-03: missing/corrupt assets, invalid identity and symlinked manifests re
   assert.equal(portableBootstrap('install', { workspace: x.workspace, ...a }, good).reason, 'INVALID_ARTIFACT');
 });
 
+test('AC-03: exact schema keys are independent of JSON insertion order and reject extras', (t) => {
+  const x = sandbox(t), a = x.asset('1.0.0');
+  const opts = { workspace: x.workspace, ...a };
+  assert.equal(portableBootstrap('install', opts, good).status, 'SUPPORTED_OFFLINE');
+  const file = join(x.workspace, 'state.json');
+  const release = { sha: a.sha, version: '1.0.0' };
+  const state = { release, previous: null, schema_version: 1, phase: 'STOPPED' };
+  writeFileSync(file, JSON.stringify(state));
+  assert.equal(portableBootstrap('status', opts, good).status, 'SUPPORTED_OFFLINE');
+  writeFileSync(file, JSON.stringify({ ...state, unexpected: true }));
+  assert.equal(portableBootstrap('status', opts, good).reason, 'INVALID_STATE');
+  writeFileSync(file, JSON.stringify({ ...state, release: { ...release, unexpected: true } }));
+  assert.equal(portableBootstrap('status', opts, good).reason, 'INVALID_STATE');
+});
+
 test('AC-03: a missing/corrupt artifact cannot be used for status, start or rollback', (t) => {
   const x = sandbox(t), a = x.asset('1.0.0'), b = x.asset('1.0.1');
   const opts = { workspace: x.workspace, ...a };
