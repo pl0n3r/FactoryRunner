@@ -43,6 +43,36 @@ test('AC-01: reject home/git/non-temporary/traversal and symlinked workspaces be
   assert.equal(existsSync(join(x.releases, 'state.json')), false);
 });
 
+test('AC-01: a symlinked OS temporary parent is safe, but a symlinked sandbox root is not', (t) => {
+  if (process.platform === 'win32') { t.skip('Windows uses a different temporary path contract'); return; }
+  const previousTmp = process.env.TMPDIR;
+  const base = mkdtempSync(join(tmpdir(), 'fr717-temp-alias-'));
+  t.after(() => {
+    if (previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmp;
+    rmSync(base, { recursive: true, force: true });
+  });
+  const physical = join(base, 'physical');
+  mkdirSync(physical, { mode: 0o700 });
+  const alias = join(base, 'alias');
+  symlinkSync(physical, alias, 'dir');
+  process.env.TMPDIR = alias;
+  const root = mkdtempSync(join(tmpdir(), 'factoryrunner-offline-'));
+  const workspace = join(root, 'runner');
+  const releases = join(root, 'releases');
+  mkdirSync(releases);
+  const raw = JSON.stringify({ schema_version: 1, kind: 'OFFLINE_FIXTURE', version: '1.0.0' });
+  const artifact = join(releases, 'release-1.0.0.json');
+  writeFileSync(artifact, raw);
+  const sha = createHash('sha256').update(raw).digest('hex');
+  assert.equal(portableBootstrap('install', { workspace, artifact, sha }, good).status, 'SUPPORTED_OFFLINE');
+  assert.equal(portableBootstrap('status', { workspace }, good).version, '1.0.0');
+  assert.equal(portableBootstrap('stop', { workspace }, good).status, 'SUPPORTED_OFFLINE');
+  const linkedRoot = join(alias, 'factoryrunner-offline-alias01');
+  symlinkSync(root, linkedRoot, 'dir');
+  assert.equal(portableBootstrap('status', { workspace: join(linkedRoot, 'runner') }, good).reason, 'UNSAFE_WORKSPACE');
+});
+
 test('AC-01: an existing workspace with unrelated files cannot be overwritten', (t) => {
   const x = sandbox(t), a = x.asset('1.0.0');
   mkdirSync(x.workspace);

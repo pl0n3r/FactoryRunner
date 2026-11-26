@@ -24,18 +24,20 @@ const reject = (code: string): never => { throw new OfflineError(code); };
 function sandbox(workspace: string): { root: string; workspace: string } {
   if (!isAbsolute(workspace) || resolve(workspace) !== workspace || basename(workspace) !== 'runner') reject('UNSAFE_WORKSPACE');
   const root = dirname(workspace);
-  if (dirname(root) !== realpathSync(tmpdir()) || !/^factoryrunner-offline-[A-Za-z0-9_-]{6,}$/.test(basename(root))) reject('UNSAFE_WORKSPACE');
+  // Canonicalize OS temp aliases (e.g. macOS /var -> /private/var). Never follow a symlinked sandbox component.
+  const canonicalTemp = realpathSync(tmpdir());
+  if (realpathSync(dirname(root)) !== canonicalTemp || !/^factoryrunner-offline-[A-Za-z0-9_-]{6,}$/.test(basename(root))) reject('UNSAFE_WORKSPACE');
   const rootStat = lstatSync(root);
-  if (!rootStat.isDirectory() || realpathSync(root) !== root ||
+  if (!rootStat.isDirectory() || realpathSync(root) !== join(canonicalTemp, basename(root)) ||
       (process.platform !== 'win32' && (rootStat.mode & 0o077) !== 0) ||
       (typeof process.getuid === 'function' && rootStat.uid !== process.getuid())) reject('UNSAFE_WORKSPACE');
-  if (existsSync(workspace) && (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== workspace)) reject('UNSAFE_WORKSPACE');
+  if (existsSync(workspace) && (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== join(realpathSync(root), 'runner'))) reject('UNSAFE_WORKSPACE');
   return { root, workspace };
 }
 function safeFile(path: string): boolean {
   try {
     const stat = lstatSync(path);
-    return stat.isFile() && stat.size <= 1024 && realpathSync(path) === path;
+    return stat.isFile() && stat.size <= 1024 && realpathSync(path) === join(realpathSync(dirname(path)), basename(path));
   } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
 }
 function loadState(workspace: string): State | null {
@@ -64,7 +66,7 @@ function localRelease(root: string, opts: Pick<Options, 'artifact' | 'sha'>): Re
       dirname(dirname(source)) !== root || basename(dirname(source)) !== 'releases' ||
       !/^release-[A-Za-z0-9_.-]+\.json$/.test(basename(source)) || !SHA.test(sha)) reject('INVALID_ARTIFACT');
   const releases = dirname(source);
-  if (!existsSync(releases) || !lstatSync(releases).isDirectory() || realpathSync(releases) !== releases || !safeFile(source) || !existsSync(source)) reject('INVALID_ARTIFACT');
+  if (!existsSync(releases) || !lstatSync(releases).isDirectory() || realpathSync(releases) !== join(realpathSync(root), 'releases') || !safeFile(source) || !existsSync(source)) reject('INVALID_ARTIFACT');
   const bytes = readFileSync(source);
   if (bytes.length > 1024 || createHash('sha256').update(bytes).digest('hex') !== sha) reject('ARTIFACT_SHA_MISMATCH');
   let parsed: unknown;
