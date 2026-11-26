@@ -63,11 +63,12 @@ function verify(f = fixture(), changes: {
   manifest?: unknown; durable?: unknown; artifact?: Uint8Array; snapshot?: unknown;
   handoff?: unknown; runner?: unknown; proof?: unknown; now?: unknown;
 } = {}) {
-  return portableRecoveryManifest(
-    changes.manifest ?? f.manifest, changes.durable ?? f.durable,
-    changes.artifact ?? f.artifact, changes.snapshot ?? f.snapshot, changes.handoff ?? f.handoff,
-    changes.runner ?? B, changes.proof === undefined ? FENCE : changes.proof, changes.now ?? NOW,
-  );
+  return portableRecoveryManifest({
+    manifest: changes.manifest ?? f.manifest, durable: changes.durable ?? f.durable,
+    artifact: changes.artifact ?? f.artifact, snapshot: changes.snapshot ?? f.snapshot,
+    handoff: changes.handoff ?? f.handoff, targetRunner: changes.runner ?? B,
+    fenceProof: changes.proof === undefined ? FENCE : changes.proof, now: changes.now ?? NOW,
+  });
 }
 test('AC01/02: B restores evidence only; independent durable receipt prevents replay', () => {
   const f = fixture();
@@ -126,4 +127,19 @@ test('AC03: extra fields and synthetic sensitive sentinel never enter result or 
   ]) assert.throws(() => verify(f, changes), (error: unknown) =>
     error instanceof Error && !error.message.includes(sentinel));
   assert.doesNotMatch(JSON.stringify(verify(f)), /password|cookie|secret|PRIVATE_VALUE|VALIDATED_IN_PRODUCTION/);
+});
+
+test('AC01/03: ambiguous evidence and accessor fields cannot be trusted', () => {
+  const f = fixture();
+  let accessed = false;
+  const manifest = { ...f.manifest };
+  Object.defineProperty(manifest, 'origin', {
+    enumerable: true, get() { accessed = true; return 'SYNTHETIC_OFFLINE'; },
+  });
+  assert.throws(() => verify(f, { manifest }));
+  assert.equal(accessed, false);
+  assert.throws(() => verify(f, { durable: Object.assign(Object.create({ hidden: true }), f.durable) }));
+  const stale = { ...f.durable, observed_at: NOW - 301 };
+  assert.throws(() => verify(f, { durable: stale }));
+  assert.throws(() => verify(f, { durable: { ...f.durable, target_expires_at: NOW + 86_401 } }));
 });
