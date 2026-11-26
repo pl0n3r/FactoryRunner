@@ -121,7 +121,7 @@ export function portableBootstrap(action: Action, opts: Options, observed: Porta
     const target = action === 'install' || action === 'update' ? localRelease(root, opts) : null;
     if (action === 'install' && !existsSync(workspace)) mkdirSync(workspace, { mode: 0o700 });
     if (!existsSync(workspace)) return envelope(action, null, 'UNAVAILABLE', 'NOT_INSTALLED');
-    if (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== workspace) reject('UNSAFE_WORKSPACE');
+    if (!lstatSync(workspace).isDirectory() || realpathSync(workspace) !== join(realpathSync(root), 'runner')) reject('UNSAFE_WORKSPACE');
     if (action === 'status') {
       const state = loadState(workspace);
       if (state) checkMaterialized(root, state.release);
